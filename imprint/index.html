@@ -177,7 +177,9 @@
       .sessions { min-height: 0; padding: 30px 18px; border-right: 1px solid var(--line); background: rgba(240,248,255,.55); overflow-y: auto; overscroll-behavior: contain; }
       .session-head { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 22px; }
       .session-head h2 { margin: 0; font: italic 1.7rem Georgia, serif; }
+      .session-head-actions { display: flex; gap: 8px; }
       .new-chat { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.75); cursor: pointer; font-size: 1.25rem; }
+      .session-close, .session-toggle, .session-scrim { display: none; }
       .session-item { width: 100%; margin-bottom: 7px; padding: 14px; border: 0; border-radius: 16px; background: transparent; text-align: left; cursor: pointer; }
       .session-item.active { background: rgba(255,255,255,.82); box-shadow: 0 9px 24px rgba(75,111,151,.1); }
       .session-title { display: block; font-size: .92rem; }
@@ -196,6 +198,8 @@
       .message { max-width: 74%; margin-bottom: 20px; padding: 17px 19px; border-radius: 20px; font-size: 1rem; line-height: 1.75; white-space: pre-wrap; }
       .message.ai { background: rgba(248,253,254,.86); border: 1px solid rgba(255,255,255,.9); border-bottom-left-radius: 7px; box-shadow: 0 10px 28px rgba(80,117,157,.1); }
       .message.user { margin-left: auto; background: linear-gradient(140deg, #b9d7ff, #a7ccff); border-bottom-right-radius: 7px; }
+      .message.act { max-width: 62%; padding: 10px 14px; color: #6985a6; background: rgba(218,238,255,.58); border-radius: 14px; font-size: .82rem; box-shadow: none; }
+      .message.streaming::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 4px; vertical-align: -.14em; background: #6e9ed8; animation: blink .72s infinite alternate; }
       .message-time { display: block; margin-top: 7px; opacity: .55; font-size: .7rem; }
 
       .composer-wrap { padding: 16px 24px calc(18px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(248,253,254,.68); backdrop-filter: blur(16px); }
@@ -205,6 +209,10 @@
       .send { width: 42px; height: 42px; flex: 0 0 auto; border: 0; border-radius: 15px; background: #2c3b56; color: white; cursor: pointer; display: grid; place-items: center; transition: .2s ease; }
       .send:disabled { opacity: .28; cursor: default; }
       .send svg { width: 19px; height: 19px; }
+      .stop-generation { width: 42px; height: 42px; flex: 0 0 auto; border: 0; border-radius: 15px; background: #2c3b56; color: white; cursor: pointer; display: grid; place-items: center; }
+      .stop-generation::before { content: ""; width: 13px; height: 13px; border-radius: 3px; background: currentColor; }
+      .stop-generation:disabled { opacity: .56; cursor: wait; }
+      [hidden] { display: none !important; }
       .demo-note { margin: 8px 0 0; text-align: center; color: #8e9daf; font-size: .7rem; }
       .typing-bubble { display: inline-flex; align-items: center; gap: 5px; min-width: 64px; }
       .typing-bubble i { width: 6px; height: 6px; border-radius: 50%; background: #7d9fc5; animation: blink 1s infinite alternate; }
@@ -295,9 +303,14 @@
         .quick-title { font-size: 1.08rem; }
         .chat-cta { padding: 10px 8px; border-radius: 12px; font-size: .8rem; }
         .chat-layout { display: block; }
-        .sessions { display: none; }
+        .sessions { display: block; position: fixed; z-index: 46; inset: 0 auto 0 0; width: min(84vw, 330px); padding: calc(22px + env(safe-area-inset-top)) 16px 22px; transform: translateX(-105%); transition: transform .24s ease; background: rgba(239,248,255,.97); box-shadow: 18px 0 48px rgba(43,65,95,.18); }
+        .sessions.open { transform: translateX(0); }
+        .session-close { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.72); cursor: pointer; }
+        .session-scrim { position: fixed; z-index: 45; inset: 0; background: rgba(42,60,84,.24); backdrop-filter: blur(3px); }
+        .session-scrim.open { display: block; }
         .conversation { height: 100%; }
         .chat-head { padding: calc(16px + env(safe-area-inset-top)) 18px 14px; }
+        .session-toggle { display: grid; }
         .messages { padding: 28px 17px; }
         .message { max-width: 87%; font-size: .97rem; }
         .composer-wrap { padding: 12px 12px 14px; }
@@ -378,14 +391,15 @@
 
         <section class="view" id="chat" aria-label="聊天">
           <div class="chat-layout">
-            <aside class="sessions">
-              <div class="session-head"><h2>Chats</h2><button class="new-chat" aria-label="新建会话">+</button></div>
+            <div class="session-scrim" id="sessionScrim"></div>
+            <aside class="sessions" id="sessionPanel">
+              <div class="session-head"><h2>Chats</h2><div class="session-head-actions"><button class="new-chat" aria-label="新建会话">+</button><button class="session-close" id="sessionClose" aria-label="关闭会话列表">×</button></div></div>
               <div id="sessionList"><button class="session-item active"><span class="session-title">正在读取会话…</span><span class="session-preview">请稍候</span></button></div>
             </aside>
             <section class="conversation">
               <header class="chat-head">
                 <div><h2 id="chatTitle">新的开始</h2><div class="chat-state" id="chatState">正在连接…</div></div>
-                <div class="head-actions"><button class="icon-button" aria-label="新建会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></button><button class="icon-button" aria-label="更多设置"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button></div>
+                <div class="head-actions"><button class="icon-button session-toggle" id="sessionToggle" aria-label="会话列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button class="icon-button" aria-label="新建会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></button></div>
               </header>
               <div class="messages" id="messages">
                 <div class="empty-chat"><strong>正在读取印记</strong>稍等一下，过去的对话正在回来。</div>
@@ -395,8 +409,9 @@
                   <label class="sr-only" for="messageInput">输入消息</label>
                   <textarea id="messageInput" rows="1" placeholder="留下点什么……"></textarea>
                   <button class="send" id="sendButton" type="submit" disabled aria-label="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg></button>
+                  <button class="stop-generation" id="stopButton" type="button" aria-label="停止生成" hidden></button>
                 </form>
-                <p class="demo-note" id="composerNote">消息将通过你的私人后端发送。</p>
+                <p class="demo-note" id="composerNote">Enter 发送 · Shift + Enter 换行</p>
               </div>
             </section>
           </div>
@@ -483,8 +498,14 @@
       const navButtons = [...document.querySelectorAll('[data-view]')];
       const input = document.querySelector('#messageInput');
       const send = document.querySelector('#sendButton');
+      const stopButton = document.querySelector('#stopButton');
       const messagesEl = document.querySelector('#messages');
       const sessionListEl = document.querySelector('#sessionList');
+      const sessionPanel = document.querySelector('#sessionPanel');
+      const sessionScrim = document.querySelector('#sessionScrim');
+      const sessionToggle = document.querySelector('#sessionToggle');
+      const sessionClose = document.querySelector('#sessionClose');
+      const composerNote = document.querySelector('#composerNote');
       const chatTitleEl = document.querySelector('#chatTitle');
       const chatStateEl = document.querySelector('#chatState');
       const railStatusEl = document.querySelector('#railStatus');
@@ -500,11 +521,14 @@
       let secret = localStorage.getItem(SECRET_KEY) || '';
       let sessions = [];
       let activeSession = localStorage.getItem(SESSION_KEY) || '';
+      let backendActiveSession = '';
       let messageMap = new Map();
       let streamDrafts = new Map();
       let stream = null;
       let typing = false;
       let sending = false;
+      let generationActive = false;
+      let cancelling = false;
       let toastTimer = null;
       let settingsLoaded = false;
       let memoriesLoaded = false;
@@ -516,6 +540,29 @@
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
       }
+
+      function setGeneration(active, label = '') {
+        generationActive = Boolean(active);
+        stopButton.hidden = !generationActive;
+        send.hidden = generationActive;
+        input.disabled = generationActive;
+        composerNote.textContent = generationActive ? (label || '正在生成回复，可以随时停止') : 'Enter 发送 · Shift + Enter 换行';
+        if (!generationActive) cancelling = false;
+      }
+
+      function openSessionPanel() {
+        sessionPanel.classList.add('open');
+        sessionScrim.classList.add('open');
+      }
+
+      function closeSessionPanel() {
+        sessionPanel.classList.remove('open');
+        sessionScrim.classList.remove('open');
+      }
+
+      sessionToggle.addEventListener('click', openSessionPanel);
+      sessionClose.addEventListener('click', closeSessionPanel);
+      sessionScrim.addEventListener('click', closeSessionPanel);
 
       function showView(id) {
         views.forEach(view => view.classList.toggle('active', view.id === id));
@@ -549,10 +596,11 @@
 
       function createMessageNode(message) {
         const bubble = document.createElement('div');
-        bubble.className = `message ${message.from === 'human' ? 'user' : 'ai'}`;
+        const side = message.from === 'human' ? 'user' : 'ai';
+        bubble.className = `message ${side}${message.kind === 'act' ? ' act' : ''}${message.streaming ? ' streaming' : ''}`;
         bubble.dataset.messageId = String(message.id || '');
         const text = document.createElement('span');
-        text.textContent = message.text || '';
+        text.textContent = `${message.kind === 'act' ? '✦ ' : ''}${message.text || ''}`;
         bubble.appendChild(text);
         const time = document.createElement('span');
         time.className = 'message-time';
@@ -579,7 +627,7 @@
         divider.textContent = 'RECENT';
         messagesEl.appendChild(divider);
         rows.slice(-200).forEach(message => messagesEl.appendChild(createMessageNode(message)));
-        drafts.forEach(message => messagesEl.appendChild(createMessageNode(message)));
+        drafts.forEach(message => messagesEl.appendChild(createMessageNode({ ...message, streaming: true })));
         if (typing && !drafts.length) {
           const bubble = document.createElement('div');
           bubble.className = 'message ai typing-bubble';
@@ -914,6 +962,7 @@
       async function loadSessions() {
         const data = await api('/app/sessions');
         sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        backendActiveSession = data.active_session || '';
         const valid = new Set([LEGACY_SESSION, ...sessions.map(item => item.id)]);
         if (!valid.has(activeSession)) activeSession = data.active_session || sessions[0]?.id || LEGACY_SESSION;
         localStorage.setItem(SESSION_KEY, activeSession);
@@ -941,36 +990,61 @@
 
       async function selectSession(id) {
         if (!id || id === activeSession) return;
+        if (generationActive) {
+          showToast('请先停止当前回复，再切换聊天');
+          return;
+        }
         activeSession = id;
         localStorage.setItem(SESSION_KEY, id);
         renderSessions();
         chatStateEl.textContent = '正在读取历史…';
         if (id !== LEGACY_SESSION) {
+          backendActiveSession = id;
           api(`/app/sessions/${encodeURIComponent(id)}`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: true })
           }).catch(() => {});
         }
         await loadHistory();
         chatStateEl.textContent = stream?.readyState === 1 ? '在线 · 已连接私人后端' : '正在重连…';
+        closeSessionPanel();
       }
 
       async function createSession() {
+        if (generationActive) {
+          showToast('请先停止当前回复，再新建聊天');
+          return;
+        }
         try {
           const data = await api('/app/sessions', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新对话', activate: true })
           });
           sessions = Array.isArray(data.sessions) ? data.sessions : sessions;
           activeSession = data.active_session || data.created?.id || sessions.at(-1)?.id || LEGACY_SESSION;
+          backendActiveSession = data.active_session || activeSession;
           localStorage.setItem(SESSION_KEY, activeSession);
           messageMap = new Map();
           renderSessions();
           renderMessages();
           showView('chat');
+          closeSessionPanel();
           input.focus();
           showToast('已开启新对话');
         } catch (error) {
           if (error.message !== 'unauthorized') showToast('新建会话失败');
         }
+      }
+
+      async function titleSessionFromMessage(sessionId, text) {
+        const row = sessions.find(item => item.id === sessionId);
+        if (!row || !/^新对话$|^New chat$/i.test(row.title || '')) return;
+        const title = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 22) || '新对话';
+        row.title = title;
+        renderSessions();
+        try {
+          await api(`/app/sessions/${encodeURIComponent(sessionId)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title })
+          });
+        } catch (_) {}
       }
 
       function closeStream() {
@@ -981,6 +1055,15 @@
       function handleStreamEvent(event) {
         if (event.type === 'typing') {
           typing = Boolean(event.active);
+          setGeneration(typing, typing ? '正在准备回复…' : '');
+          renderMessages();
+          return;
+        }
+        if (event.type === 'thinking_delta') {
+          if (!sessionMatches(event)) return;
+          typing = !event.done;
+          setGeneration(!event.done, event.done ? '' : '正在思考…');
+          chatStateEl.textContent = event.done ? '正在组织回复…' : '正在思考…';
           renderMessages();
           return;
         }
@@ -991,15 +1074,60 @@
           current.text += event.text || '';
           streamDrafts.set(key, current);
           typing = false;
+          setGeneration(true, '正在生成回复…');
+          chatStateEl.textContent = '正在生成回复…';
           renderMessages();
           return;
         }
         if (event.id != null) {
           putMessage(event);
-          typing = false;
+          if (event.kind === 'act') {
+            setGeneration(true, '正在使用工具…');
+            chatStateEl.textContent = '正在使用工具…';
+          } else if (event.kind !== 'thinking') {
+            typing = false;
+            setGeneration(false);
+            chatStateEl.textContent = '在线 · 已连接私人后端';
+          }
           renderMessages();
         }
       }
+
+      async function stopGeneration() {
+        if (!generationActive || cancelling) return;
+        cancelling = true;
+        stopButton.disabled = true;
+        composerNote.textContent = '正在停止生成…';
+        chatStateEl.textContent = '正在停止生成…';
+        const sessionId = activeSession === LEGACY_SESSION ? backendActiveSession : activeSession;
+        try {
+          const result = await loopApi('cancel', 'POST', { session_id: sessionId });
+          if (!result.cancelled) {
+            typing = false;
+            setGeneration(false);
+            chatStateEl.textContent = '在线 · 已连接私人后端';
+            showToast('当前没有正在生成的回复');
+          } else {
+            setTimeout(async () => {
+              if (!cancelling) return;
+              try { await loadHistory(); } catch (_) {}
+              typing = false;
+              streamDrafts = new Map();
+              setGeneration(false);
+              chatStateEl.textContent = stream?.readyState === 1 ? '在线 · 已停止生成' : '已停止生成 · 正在重连';
+              renderMessages();
+            }, 8000);
+          }
+        } catch (error) {
+          cancelling = false;
+          composerNote.textContent = '停止失败，可以稍后再试';
+          showToast(`停止失败：${error.message}`);
+        } finally {
+          stopButton.disabled = false;
+        }
+      }
+
+      stopButton.addEventListener('click', stopGeneration);
 
       function openStream() {
         closeStream();
@@ -1057,9 +1185,13 @@
           messageMap.delete(localId);
           putMessage({ id: data.id, from: 'human', kind: 'user', text, ts: new Date().toISOString(), meta: activeSession === LEGACY_SESSION ? {} : { api_session: activeSession } });
           typing = true;
+          setGeneration(true, '正在准备回复…');
+          chatStateEl.textContent = '正在准备回复…';
+          if (activeSession !== LEGACY_SESSION) titleSessionFromMessage(activeSession, text);
           renderMessages();
         } catch (error) {
           messageMap.delete(localId);
+          setGeneration(false);
           renderMessages();
           if (error.message !== 'unauthorized') {
             input.value = text;

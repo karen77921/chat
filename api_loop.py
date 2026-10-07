@@ -1287,6 +1287,8 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
 # one full turn
 # ---------------------------------------------------------------------------
 
+_active_turns: dict[str, set[asyncio.Task]] = {}
+
 def _step_label(calls: list[dict[str, Any]]) -> str:
     names = [mcp_manager.index.get(c["name"], ("", c["name"]))[1] for c in calls]
     if len(names) == 1:
@@ -1334,6 +1336,7 @@ async def handle_turn(
     model_used = ""
     fallback_from: list[str] = []
     error = ""
+    cancelled = False
     step = 0
     try:
         while True:
@@ -1383,12 +1386,17 @@ async def handle_turn(
             turn.acts.append(act)
             if not dry:
                 await relay_out(act)
+    except asyncio.CancelledError:
+        cancelled = True
+        await close_thinking("")
     except ModelError as exc:
         error = exc.detail
     except Exception as exc:  # never leave the PWA stuck on "typing"
         error = f"{type(exc).__name__}: {exc}"
 
     reply = "\n\n".join(t for t in texts if t).strip()
+    if cancelled:
+        reply = (reply + "\n\n" if reply else "") + "（已停止生成）"
     if error:
         reply = (reply + "\n\n" if reply else "") + f"⚠️ API loop 出错：{error}"
     if not reply:
@@ -1400,6 +1408,7 @@ async def handle_turn(
         "usage": turn.usage,
         "session": session_id,
         "tool_steps": step,
+        "cancelled": cancelled,
     }
     if error:
         meta["error"] = error
@@ -1412,7 +1421,7 @@ async def handle_turn(
         ok, body = await relay_out({"type": "reply_delta", "stream_id": stream_id, "done": True, "final_text": reply, **payload})
     else:
         ok, body = await relay_out({"type": "reply", "text": reply, **payload})
-    return {"ok": ok and not error, "relay": body, "api": meta}
+    return {"ok": ok and not error and not cancelled, "relay": body, "api": meta}
 
 
 # ---------------------------------------------------------------------------
@@ -1754,6 +1763,20 @@ async def loop_sessions_patch(session_id: str, request: Request):
     return patch_session(session_id, await request.json())
 
 
+@app.post("/loop/cancel")
+async def loop_cancel(request: Request):
+    body = await request.json()
+    session_id = str(body.get("session_id") or body.get("api_session") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    current = asyncio.current_task()
+    tasks = [task for task in _active_turns.get(session_id, set()) if task is not current and not task.done()]
+    for task in tasks:
+        task.cancel()
+    await asyncio.sleep(0)
+    return {"ok": True, "session_id": session_id, "cancelled": len(tasks)}
+
+
 def _atts_from(body: dict[str, Any], msg_id: int | None) -> list[dict[str, Any]]:
     atts = body.get("attachments")
     if isinstance(atts, list) and atts:
@@ -1787,7 +1810,18 @@ async def loop_ingest(request: Request):
         raise HTTPException(status_code=400, detail="empty text")
     session_id = str(body.get("session_id") or body.get("api_session") or active_session_id() or "").strip()
     dry = bool(body.get("dry"))
-    return await handle_turn(text, atts, before_id, session_id, dry=dry)
+    task = asyncio.current_task()
+    if task is not None:
+        _active_turns.setdefault(session_id, set()).add(task)
+    try:
+        return await handle_turn(text, atts, before_id, session_id, dry=dry)
+    finally:
+        if task is not None:
+            active = _active_turns.get(session_id)
+            if active is not None:
+                active.discard(task)
+                if not active:
+                    _active_turns.pop(session_id, None)
 
 
 if __name__ == "__main__":

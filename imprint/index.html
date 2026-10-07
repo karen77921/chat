@@ -202,6 +202,24 @@
       .send:disabled { opacity: .28; cursor: default; }
       .send svg { width: 19px; height: 19px; }
       .demo-note { margin: 8px 0 0; text-align: center; color: #8e9daf; font-size: .7rem; }
+      .typing-bubble { display: inline-flex; align-items: center; gap: 5px; min-width: 64px; }
+      .typing-bubble i { width: 6px; height: 6px; border-radius: 50%; background: #7d9fc5; animation: blink 1s infinite alternate; }
+      .typing-bubble i:nth-child(2) { animation-delay: .18s; }
+      .typing-bubble i:nth-child(3) { animation-delay: .36s; }
+      .empty-chat { margin: 80px auto; max-width: 360px; text-align: center; color: var(--muted); line-height: 1.8; }
+      .empty-chat strong { display: block; margin-bottom: 8px; color: var(--ink); font: italic 1.65rem Georgia, serif; }
+      .toast { position: fixed; z-index: 60; left: 50%; bottom: 96px; transform: translate(-50%, 20px); padding: 11px 16px; border-radius: 14px; background: rgba(39,52,77,.92); color: white; font-size: .86rem; opacity: 0; pointer-events: none; transition: .24s ease; }
+      .toast.show { opacity: 1; transform: translate(-50%, 0); }
+      .login-screen { position: fixed; z-index: 80; inset: 0; display: none; place-items: center; padding: 24px; background: rgba(224,240,255,.76); backdrop-filter: blur(22px); }
+      .login-screen.show { display: grid; }
+      .login-card { width: min(420px, 100%); padding: 34px; border: 1px solid rgba(255,255,255,.95); border-radius: 28px; background: rgba(248,253,254,.92); box-shadow: 0 28px 80px rgba(56,95,141,.2); }
+      .login-card h2 { margin: 0 0 8px; font: italic 2.4rem Georgia, serif; }
+      .login-card p { margin: 0 0 24px; color: var(--muted); line-height: 1.7; }
+      .secret-input { width: 100%; padding: 14px 16px; border: 1px solid rgba(79,119,165,.22); border-radius: 15px; outline: 0; background: white; color: var(--ink); font-size: 1rem; }
+      .secret-input:focus { border-color: #84b4eb; box-shadow: 0 0 0 4px rgba(132,180,235,.15); }
+      .login-submit { width: 100%; margin-top: 12px; padding: 14px; border: 0; border-radius: 15px; background: #2d3b55; color: white; cursor: pointer; }
+      .login-error { min-height: 20px; margin: 10px 2px 0; color: #a65f6c; font-size: .82rem; }
+      @keyframes blink { from { opacity: .28; transform: translateY(1px); } to { opacity: 1; transform: translateY(-1px); } }
 
       .mobile-bar { display: none; }
       .placeholder { min-height: calc(100vh - 36px); padding: 60px; display: grid; place-items: center; text-align: center; }
@@ -260,7 +278,7 @@
           <button class="nav-button" data-view="memories"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 21s-7-4.35-9.2-8.35C.78 8.98 3.15 5 7.4 5c2.03 0 3.58 1.1 4.6 2.45C13.02 6.1 14.57 5 16.6 5c4.25 0 6.62 3.98 4.6 7.65C19 16.65 12 21 12 21z"/></svg>印记</button>
           <button class="nav-button" data-view="settings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.36.35.7.6 1 .3.3.7.45 1.1.45H21v4h-.09A1.7 1.7 0 0 0 19.4 15z"/></svg>设置</button>
         </nav>
-        <div class="rail-foot"><span class="status-dot"></span>静态预览模式<br/>下一步接入你的 API</div>
+        <div class="rail-foot"><span class="status-dot"></span><span id="railStatus">正在连接后端…</span></div>
       </aside>
 
       <section class="stage">
@@ -293,19 +311,15 @@
           <div class="chat-layout">
             <aside class="sessions">
               <div class="session-head"><h2>Chats</h2><button class="new-chat" aria-label="新建会话">+</button></div>
-              <button class="session-item active"><span class="session-title">新的开始</span><span class="session-preview">这个家以后会慢慢长大</span></button>
-              <button class="session-item"><span class="session-title">设计 Imprint</span><span class="session-preview">冰蓝、奶白与手账感</span></button>
+              <div id="sessionList"><button class="session-item active"><span class="session-title">正在读取会话…</span><span class="session-preview">请稍候</span></button></div>
             </aside>
             <section class="conversation">
               <header class="chat-head">
-                <div><h2>新的开始</h2><div class="chat-state">演示会话 · API 尚未接入</div></div>
+                <div><h2 id="chatTitle">新的开始</h2><div class="chat-state" id="chatState">正在连接…</div></div>
                 <div class="head-actions"><button class="icon-button" aria-label="新建会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></button><button class="icon-button" aria-label="更多设置"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button></div>
               </header>
               <div class="messages" id="messages">
-                <div class="day-divider">TODAY</div>
-                <div class="message ai">欢迎来到 Imprint。这里会接入你自己的 API、聊天记录和记忆。<span class="message-time">14:38</span></div>
-                <div class="message user">我想让这里真正属于我。<span class="message-time">14:39</span></div>
-                <div class="message ai">那就从这一刻开始。页面、名字和留下来的每一道痕迹，都会按你的方式生长。<span class="message-time">14:40</span></div>
+                <div class="empty-chat"><strong>正在读取印记</strong>稍等一下，过去的对话正在回来。</div>
               </div>
               <div class="composer-wrap">
                 <form class="composer" id="composer">
@@ -313,7 +327,7 @@
                   <textarea id="messageInput" rows="1" placeholder="留下点什么……"></textarea>
                   <button class="send" id="sendButton" type="submit" disabled aria-label="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg></button>
                 </form>
-                <p class="demo-note">当前为界面演示，下一步连接真实 API。</p>
+                <p class="demo-note" id="composerNote">消息将通过你的私人后端发送。</p>
               </div>
             </section>
           </div>
@@ -331,50 +345,378 @@
       <button class="mobile-nav" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.83 2.83A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.4 1.6h-4A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-2.83-2.83A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 13.6v-4A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l2.83-2.83A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10.4 3h4A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l2.83 2.83A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.6 1.4v4a1.7 1.7 0 0 0-1.6.6z"/></svg><span>设置</span></button>
     </nav>
 
+    <div class="login-screen" id="loginScreen" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <form class="login-card" id="loginForm">
+        <h2 id="loginTitle">回到 Imprint</h2>
+        <p>请输入你原来 Tidal Echo 使用的访问密钥。它只会保存在这台设备上。</p>
+        <label class="sr-only" for="secretInput">访问密钥</label>
+        <input class="secret-input" id="secretInput" type="password" autocomplete="current-password" placeholder="访问密钥" />
+        <button class="login-submit" type="submit">进入</button>
+        <div class="login-error" id="loginError"></div>
+      </form>
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+
     <script>
+      const API_BASE = '/relay';
+      const SECRET_KEY = 'companion_secret';
+      const SESSION_KEY = 'companion_api_session_pick';
+      const LEGACY_SESSION = '__legacy__';
       const views = [...document.querySelectorAll('.view')];
       const navButtons = [...document.querySelectorAll('[data-view]')];
+      const input = document.querySelector('#messageInput');
+      const send = document.querySelector('#sendButton');
+      const messagesEl = document.querySelector('#messages');
+      const sessionListEl = document.querySelector('#sessionList');
+      const chatTitleEl = document.querySelector('#chatTitle');
+      const chatStateEl = document.querySelector('#chatState');
+      const railStatusEl = document.querySelector('#railStatus');
+      const loginScreen = document.querySelector('#loginScreen');
+      const loginForm = document.querySelector('#loginForm');
+      const secretInput = document.querySelector('#secretInput');
+      const loginError = document.querySelector('#loginError');
+      const toastEl = document.querySelector('#toast');
+
+      let secret = localStorage.getItem(SECRET_KEY) || '';
+      let sessions = [];
+      let activeSession = localStorage.getItem(SESSION_KEY) || '';
+      let messageMap = new Map();
+      let streamDrafts = new Map();
+      let stream = null;
+      let typing = false;
+      let sending = false;
+      let toastTimer = null;
+
+      function showToast(text) {
+        toastEl.textContent = text;
+        toastEl.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
+      }
+
       function showView(id) {
         views.forEach(view => view.classList.toggle('active', view.id === id));
         navButtons.forEach(button => button.classList.toggle('active', button.dataset.view === id));
         window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (id === 'chat') requestAnimationFrame(scrollToBottom);
       }
       navButtons.forEach(button => button.addEventListener('click', () => showView(button.dataset.view)));
       document.querySelectorAll('[data-go-chat]').forEach(button => button.addEventListener('click', () => showView('chat')));
       document.querySelector('.note-card').addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') showView('chat'); });
 
-      const input = document.querySelector('#messageInput');
-      const send = document.querySelector('#sendButton');
-      const messages = document.querySelector('#messages');
+      function authHeaders(extra = {}) {
+        return { Authorization: `Bearer ${secret}`, ...extra };
+      }
+
+      function sessionMatches(message) {
+        const sid = message?.meta?.api_session || message?.api_session || '';
+        return activeSession === LEGACY_SESSION ? !sid : sid === activeSession;
+      }
+
+      function formatTime(ts) {
+        const date = ts ? new Date(ts) : new Date();
+        if (Number.isNaN(date.getTime())) return '';
+        return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+
+      function scrollToBottom() {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function createMessageNode(message) {
+        const bubble = document.createElement('div');
+        bubble.className = `message ${message.from === 'human' ? 'user' : 'ai'}`;
+        bubble.dataset.messageId = String(message.id || '');
+        const text = document.createElement('span');
+        text.textContent = message.text || '';
+        bubble.appendChild(text);
+        const time = document.createElement('span');
+        time.className = 'message-time';
+        time.textContent = formatTime(message.ts);
+        bubble.appendChild(time);
+        return bubble;
+      }
+
+      function renderMessages() {
+        const rows = [...messageMap.values()]
+          .filter(message => sessionMatches(message) && message.kind !== 'thinking')
+          .sort((a, b) => Number(a.id) - Number(b.id));
+        const drafts = [...streamDrafts.values()].filter(sessionMatches);
+        messagesEl.innerHTML = '';
+        if (!rows.length && !drafts.length && !typing) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-chat';
+          empty.innerHTML = '<strong>一页新的空白</strong>在下面写下第一句话。';
+          messagesEl.appendChild(empty);
+          return;
+        }
+        const divider = document.createElement('div');
+        divider.className = 'day-divider';
+        divider.textContent = 'RECENT';
+        messagesEl.appendChild(divider);
+        rows.slice(-200).forEach(message => messagesEl.appendChild(createMessageNode(message)));
+        drafts.forEach(message => messagesEl.appendChild(createMessageNode(message)));
+        if (typing && !drafts.length) {
+          const bubble = document.createElement('div');
+          bubble.className = 'message ai typing-bubble';
+          bubble.innerHTML = '<i></i><i></i><i></i>';
+          messagesEl.appendChild(bubble);
+        }
+        requestAnimationFrame(scrollToBottom);
+      }
+
+      function putMessage(message) {
+        if (!message || message.id == null) return;
+        messageMap.set(String(message.id), message);
+        const streamId = message?.meta?.stream_id;
+        if (streamId) streamDrafts.delete(String(streamId));
+      }
+
+      function showLogin(error = '') {
+        closeStream();
+        loginError.textContent = error;
+        secretInput.value = '';
+        loginScreen.classList.add('show');
+        setTimeout(() => secretInput.focus(), 50);
+      }
+
+      function hideLogin() {
+        loginScreen.classList.remove('show');
+        loginError.textContent = '';
+      }
+
+      async function api(path, options = {}) {
+        const response = await fetch(`${API_BASE}${path}`, {
+          ...options,
+          headers: authHeaders(options.headers || {})
+        });
+        if (response.status === 401) {
+          showLogin('访问密钥不正确，请重新输入。');
+          throw new Error('unauthorized');
+        }
+        if (!response.ok) throw new Error(`request ${response.status}`);
+        return response.json();
+      }
+
+      function updateSessionHeader() {
+        const current = sessions.find(item => item.id === activeSession);
+        chatTitleEl.textContent = current?.title || (activeSession === LEGACY_SESSION ? '旧主线' : '新的开始');
+      }
+
+      function renderSessions() {
+        sessionListEl.innerHTML = '';
+        const all = [{ id: LEGACY_SESSION, title: '旧主线', since_id: 0 }, ...sessions];
+        all.forEach(item => {
+          const button = document.createElement('button');
+          button.className = `session-item${item.id === activeSession ? ' active' : ''}`;
+          button.type = 'button';
+          const title = document.createElement('span');
+          title.className = 'session-title';
+          title.textContent = item.title || '新对话';
+          const preview = document.createElement('span');
+          preview.className = 'session-preview';
+          preview.textContent = item.id === LEGACY_SESSION ? '较早的聊天记录' : `从消息 #${item.since_id || 0} 开始`;
+          button.append(title, preview);
+          button.addEventListener('click', () => selectSession(item.id));
+          sessionListEl.appendChild(button);
+        });
+        updateSessionHeader();
+      }
+
+      async function loadSessions() {
+        const data = await api('/app/sessions');
+        sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        const valid = new Set([LEGACY_SESSION, ...sessions.map(item => item.id)]);
+        if (!valid.has(activeSession)) activeSession = data.active_session || sessions[0]?.id || LEGACY_SESSION;
+        localStorage.setItem(SESSION_KEY, activeSession);
+        renderSessions();
+      }
+
+      async function loadHistory() {
+        messageMap = new Map();
+        streamDrafts = new Map();
+        typing = false;
+        renderMessages();
+        let since = 0;
+        for (let page = 0; page < 20; page += 1) {
+          const params = new URLSearchParams({ since: String(since), limit: '500', session_id: activeSession || LEGACY_SESSION });
+          const data = await api(`/app/history?${params}`);
+          const rows = Array.isArray(data.messages) ? data.messages : [];
+          rows.forEach(putMessage);
+          if (!rows.length || rows.length < 500) break;
+          const next = Math.max(...rows.map(item => Number(item.id) || 0));
+          if (next <= since) break;
+          since = next;
+        }
+        renderMessages();
+      }
+
+      async function selectSession(id) {
+        if (!id || id === activeSession) return;
+        activeSession = id;
+        localStorage.setItem(SESSION_KEY, id);
+        renderSessions();
+        chatStateEl.textContent = '正在读取历史…';
+        if (id !== LEGACY_SESSION) {
+          api(`/app/sessions/${encodeURIComponent(id)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: true })
+          }).catch(() => {});
+        }
+        await loadHistory();
+        chatStateEl.textContent = stream?.readyState === 1 ? '在线 · 已连接私人后端' : '正在重连…';
+      }
+
+      async function createSession() {
+        try {
+          const data = await api('/app/sessions', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新对话', activate: true })
+          });
+          sessions = Array.isArray(data.sessions) ? data.sessions : sessions;
+          activeSession = data.active_session || data.created?.id || sessions.at(-1)?.id || LEGACY_SESSION;
+          localStorage.setItem(SESSION_KEY, activeSession);
+          messageMap = new Map();
+          renderSessions();
+          renderMessages();
+          showView('chat');
+          input.focus();
+          showToast('已开启新对话');
+        } catch (error) {
+          if (error.message !== 'unauthorized') showToast('新建会话失败');
+        }
+      }
+
+      function closeStream() {
+        if (stream) stream.close();
+        stream = null;
+      }
+
+      function handleStreamEvent(event) {
+        if (event.type === 'typing') {
+          typing = Boolean(event.active);
+          renderMessages();
+          return;
+        }
+        if (event.type === 'reply_delta') {
+          if (!sessionMatches(event)) return;
+          const key = String(event.stream_id || 'reply');
+          const current = streamDrafts.get(key) || { id: Number.MAX_SAFE_INTEGER, from: 'ai', kind: 'reply', text: '', ts: event.ts || new Date().toISOString(), api_session: event.api_session || '' };
+          current.text += event.text || '';
+          streamDrafts.set(key, current);
+          typing = false;
+          renderMessages();
+          return;
+        }
+        if (event.id != null) {
+          putMessage(event);
+          typing = false;
+          renderMessages();
+        }
+      }
+
+      function openStream() {
+        closeStream();
+        stream = new EventSource(`${API_BASE}/app/stream?token=${encodeURIComponent(secret)}`);
+        stream.onopen = () => {
+          chatStateEl.textContent = '在线 · 已连接私人后端';
+          railStatusEl.textContent = '私人后端已连接';
+        };
+        stream.onmessage = event => {
+          try { handleStreamEvent(JSON.parse(event.data)); } catch (_) {}
+        };
+        stream.addEventListener('ping', () => {
+          chatStateEl.textContent = '在线 · 已连接私人后端';
+        });
+        stream.onerror = () => {
+          chatStateEl.textContent = '连接暂时中断，正在重连…';
+          railStatusEl.textContent = '正在重新连接';
+        };
+      }
+
+      async function connect() {
+        if (!secret) {
+          showLogin();
+          return;
+        }
+        chatStateEl.textContent = '正在验证并读取会话…';
+        railStatusEl.textContent = '正在连接私人后端…';
+        try {
+          await loadSessions();
+          await loadHistory();
+          hideLogin();
+          openStream();
+        } catch (error) {
+          if (error.message !== 'unauthorized') {
+            chatStateEl.textContent = '后端暂时不可用';
+            railStatusEl.textContent = '后端暂时不可用';
+            showToast('连接后端失败，请稍后重试');
+          }
+        }
+      }
+
+      async function sendMessage(text) {
+        if (!text || sending) return;
+        sending = true;
+        send.disabled = true;
+        const localId = `local-${Date.now()}`;
+        putMessage({ id: localId, from: 'human', kind: 'user', text, ts: new Date().toISOString(), meta: activeSession === LEGACY_SESSION ? {} : { api_session: activeSession } });
+        renderMessages();
+        try {
+          const payload = { text };
+          if (activeSession !== LEGACY_SESSION) payload.api_session = activeSession;
+          const data = await api('/app/send', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+          });
+          messageMap.delete(localId);
+          putMessage({ id: data.id, from: 'human', kind: 'user', text, ts: new Date().toISOString(), meta: activeSession === LEGACY_SESSION ? {} : { api_session: activeSession } });
+          typing = true;
+          renderMessages();
+        } catch (error) {
+          messageMap.delete(localId);
+          renderMessages();
+          if (error.message !== 'unauthorized') {
+            input.value = text;
+            showToast('发送失败，文字已保留');
+          }
+        } finally {
+          sending = false;
+          send.disabled = !input.value.trim();
+        }
+      }
+
       input.addEventListener('input', () => {
-        send.disabled = !input.value.trim();
+        send.disabled = sending || !input.value.trim();
         input.style.height = 'auto';
         input.style.height = `${Math.min(input.scrollHeight, 124)}px`;
+      });
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+          event.preventDefault();
+          document.querySelector('#composer').requestSubmit();
+        }
       });
       document.querySelector('#composer').addEventListener('submit', event => {
         event.preventDefault();
         const text = input.value.trim();
         if (!text) return;
-        const message = document.createElement('div');
-        message.className = 'message user';
-        message.textContent = text;
-        const time = document.createElement('span');
-        time.className = 'message-time';
-        time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-        message.appendChild(time);
-        messages.appendChild(message);
         input.value = '';
         input.style.height = 'auto';
-        send.disabled = true;
-        messages.scrollTop = messages.scrollHeight;
-        window.setTimeout(() => {
-          const reply = document.createElement('div');
-          reply.className = 'message ai';
-          reply.textContent = '这条消息目前只留在演示页面。接入你的后端之后，我会从真实 API 回到这里。';
-          messages.appendChild(reply);
-          messages.scrollTop = messages.scrollHeight;
-        }, 550);
+        sendMessage(text);
       });
+      document.querySelectorAll('.new-chat, [aria-label="新建会话"]').forEach(button => button.addEventListener('click', createSession));
+      loginForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const value = secretInput.value.trim();
+        if (!value) {
+          loginError.textContent = '请输入访问密钥。';
+          return;
+        }
+        secret = value;
+        localStorage.setItem(SECRET_KEY, secret);
+        loginError.textContent = '正在验证…';
+        await connect();
+      });
+      window.addEventListener('beforeunload', closeStream);
+      connect();
     </script>
   </body>
 </html>

@@ -225,6 +225,32 @@
       .placeholder { min-height: calc(100vh - 36px); padding: 60px; display: grid; place-items: center; text-align: center; }
       .placeholder h2 { margin: 0 0 12px; font: italic 3rem Georgia, serif; }
       .placeholder p { margin: 0; max-width: 410px; color: var(--muted); line-height: 1.8; }
+      .settings-view { min-height: calc(100vh - 36px); padding: clamp(26px, 5vw, 58px); overflow: auto; }
+      .settings-head { margin-bottom: 28px; }
+      .settings-head h2 { margin: 0 0 8px; font: italic 3.2rem Georgia, serif; }
+      .settings-head p { margin: 0; color: var(--muted); line-height: 1.7; }
+      .settings-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 18px; align-items: start; }
+      .settings-card { border: 1px solid rgba(255,255,255,.9); border-radius: 24px; background: rgba(248,253,254,.76); padding: 24px; box-shadow: 0 14px 40px rgba(66,105,151,.09); }
+      .settings-card.wide { grid-row: span 2; }
+      .settings-card h3 { margin: 0; font: italic 1.55rem Georgia, serif; }
+      .settings-card > p { margin: 8px 0 20px; color: var(--muted); font-size: .86rem; line-height: 1.65; }
+      .api-row { position: relative; display: grid; gap: 10px; margin: 14px 0; padding: 15px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.55); }
+      .field { display: grid; gap: 7px; }
+      .field label { color: #6f8097; font-size: .78rem; letter-spacing: .04em; }
+      .field input, .field select, .field textarea { width: 100%; padding: 12px 13px; border: 1px solid rgba(79,119,165,.18); border-radius: 13px; outline: 0; background: rgba(255,255,255,.84); color: var(--ink); font-size: .93rem; }
+      .field textarea { min-height: 150px; resize: vertical; line-height: 1.65; }
+      .field input:focus, .field select:focus, .field textarea:focus { border-color: #84b4eb; box-shadow: 0 0 0 3px rgba(132,180,235,.13); }
+      .api-row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .remove-api { position: absolute; right: 12px; top: 11px; width: 30px; height: 30px; border: 0; border-radius: 10px; background: transparent; color: #9b7080; cursor: pointer; }
+      .settings-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 15px; }
+      .soft-button, .primary-button { padding: 11px 15px; border-radius: 13px; cursor: pointer; }
+      .soft-button { border: 1px solid var(--line); background: rgba(255,255,255,.72); }
+      .primary-button { border: 0; background: #2d3b55; color: white; }
+      .primary-button:disabled, .soft-button:disabled { opacity: .45; cursor: wait; }
+      .settings-hint { min-height: 20px; margin-top: 12px; color: #7589a2; font-size: .8rem; line-height: 1.55; }
+      .number-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+      .check-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 15px; padding: 12px 2px 0; border-top: 1px solid var(--line); color: #5f7189; font-size: .88rem; }
+      .check-row input { width: 20px; height: 20px; accent-color: #6e9ed8; }
 
       @media (max-width: 780px) {
         body { background: #eaf5ff; }
@@ -253,6 +279,11 @@
         .composer-wrap { padding: 12px 12px 14px; }
         .demo-note { display: none; }
         .placeholder { min-height: calc(100dvh - 74px); padding: 40px 24px; }
+        .settings-view { min-height: calc(100dvh - 74px); padding: 28px 16px 100px; }
+        .settings-head h2 { font-size: 2.7rem; }
+        .settings-grid { grid-template-columns: 1fr; }
+        .settings-card.wide { grid-row: auto; }
+        .api-row-grid, .number-grid { grid-template-columns: 1fr; }
         .mobile-bar { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; height: calc(70px + env(safe-area-inset-bottom)); padding: 8px 18px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid rgba(76,111,151,.13); background: rgba(248,253,254,.86); backdrop-filter: blur(20px); }
         .mobile-nav { border: 0; background: transparent; color: #8b9aae; display: grid; place-items: center; gap: 1px; cursor: pointer; font-size: .68rem; }
         .mobile-nav svg { width: 21px; height: 21px; }
@@ -334,7 +365,45 @@
         </section>
 
         <section class="view placeholder" id="memories"><div><h2>印记</h2><p>这里将展示从长期记忆中留下的重要片段。接入后端后，再决定哪些内容值得被看见。</p></div></section>
-        <section class="view placeholder" id="settings"><div><h2>设置</h2><p>这里将放 API 状态、模型和个人偏好。密钥只保留在后端，不会出现在页面里。</p></div></section>
+        <section class="view settings-view" id="settings">
+          <header class="settings-head"><h2>设置</h2><p>模型密钥会通过加密连接保存到你的 VPS，页面只显示掩码。</p></header>
+          <div class="settings-grid">
+            <article class="settings-card wide">
+              <h3>API · 模型</h3>
+              <p>第一行是主模型；不可用时会依次尝试下面的备用模型。</p>
+              <div id="apiRows"></div>
+              <div class="settings-actions">
+                <button class="soft-button" id="addApiRow" type="button">+ 添加一行</button>
+                <button class="soft-button" id="saveApi" type="button">保存</button>
+                <button class="primary-button" id="testApi" type="button">保存并测试</button>
+              </div>
+              <div class="settings-hint" id="apiHint">正在读取服务器配置…</div>
+            </article>
+            <article class="settings-card">
+              <h3>上下文与记忆</h3>
+              <p>控制每次对话携带多少近期内容，以及何时自动压缩。</p>
+              <div class="number-grid">
+                <div class="field"><label for="historyN">上文条数</label><input id="historyN" type="number" min="0" max="200"></div>
+                <div class="field"><label for="historyImages">历史图片</label><input id="historyImages" type="number" min="0" max="20"></div>
+                <div class="field"><label for="compactThreshold">压缩阈值</label><input id="compactThreshold" type="number" min="20" max="2000"></div>
+                <div class="field"><label for="compactKeep">保留近期</label><input id="compactKeep" type="number" min="2" max="1000"></div>
+                <div class="field"><label for="toolSteps">工具步数</label><input id="toolSteps" type="number" min="0" max="50"></div>
+                <div class="field"><label for="visionMode">看图</label><select id="visionMode"><option value="auto">自动</option><option value="on">开启</option><option value="off">关闭</option></select></div>
+              </div>
+              <label class="check-row"><span>自动压缩旧对话</span><input id="contextCompaction" type="checkbox"></label>
+              <label class="check-row"><span>摘要写入 Ombre</span><input id="compactToOmbre" type="checkbox"></label>
+              <div class="settings-actions"><button class="primary-button" id="saveContext" type="button">保存上下文设置</button></div>
+              <div class="settings-hint" id="contextHint"></div>
+            </article>
+            <article class="settings-card">
+              <h3>系统提示词</h3>
+              <p>身份、语气和关系设定会在每次回答前交给模型。</p>
+              <div class="field"><label class="sr-only" for="personaText">系统提示词</label><textarea id="personaText" placeholder="写下你希望模型始终记住的身份和表达方式"></textarea></div>
+              <div class="settings-actions"><button class="primary-button" id="savePersona" type="button">保存提示词</button></div>
+              <div class="settings-hint" id="personaHint"></div>
+            </article>
+          </div>
+        </section>
       </section>
     </main>
 
@@ -386,6 +455,8 @@
       let typing = false;
       let sending = false;
       let toastTimer = null;
+      let settingsLoaded = false;
+      let apiChain = [];
 
       function showToast(text) {
         toastEl.textContent = text;
@@ -399,6 +470,7 @@
         navButtons.forEach(button => button.classList.toggle('active', button.dataset.view === id));
         window.scrollTo({ top: 0, behavior: 'smooth' });
         if (id === 'chat') requestAnimationFrame(scrollToBottom);
+        if (id === 'settings' && secret) loadSettings();
       }
       navButtons.forEach(button => button.addEventListener('click', () => showView(button.dataset.view)));
       document.querySelectorAll('[data-go-chat]').forEach(button => button.addEventListener('click', () => showView('chat')));
@@ -494,9 +566,208 @@
           showLogin('访问密钥不正确，请重新输入。');
           throw new Error('unauthorized');
         }
-        if (!response.ok) throw new Error(`request ${response.status}`);
-        return response.json();
+        let data = null;
+        try { data = await response.json(); } catch (_) {}
+        if (!response.ok) {
+          const detail = data?.detail || data?.error;
+          throw new Error(typeof detail === 'string' ? detail : `request ${response.status}`);
+        }
+        return data || {};
       }
+
+      function renderApiRows() {
+        const host = document.querySelector('#apiRows');
+        host.innerHTML = '';
+        if (!apiChain.length) {
+          const note = document.createElement('div');
+          note.className = 'settings-hint';
+          note.textContent = '还没有模型，请添加一行。';
+          host.appendChild(note);
+          return;
+        }
+        apiChain.forEach((row, index) => {
+          const wrap = document.createElement('div');
+          wrap.className = 'api-row';
+          wrap.dataset.index = String(index);
+          const grid = document.createElement('div');
+          grid.className = 'api-row-grid';
+          const urlField = document.createElement('div');
+          urlField.className = 'field';
+          const urlLabel = document.createElement('label');
+          urlLabel.textContent = 'API 地址';
+          const url = document.createElement('input');
+          url.type = 'url';
+          url.dataset.key = 'url';
+          url.value = row.url || '';
+          url.placeholder = 'https://example.com/v1';
+          url.autocomplete = 'off';
+          urlField.append(urlLabel, url);
+          const modelField = document.createElement('div');
+          modelField.className = 'field';
+          const modelLabel = document.createElement('label');
+          modelLabel.textContent = '模型名称';
+          const model = document.createElement('input');
+          model.dataset.key = 'model';
+          model.value = row.model || '';
+          model.placeholder = 'claude-opus-4-6';
+          model.autocomplete = 'off';
+          modelField.append(modelLabel, model);
+          grid.append(urlField, modelField);
+          const keyField = document.createElement('div');
+          keyField.className = 'field';
+          const keyLabel = document.createElement('label');
+          keyLabel.textContent = 'API Key';
+          const key = document.createElement('input');
+          key.type = 'password';
+          key.dataset.key = 'key';
+          key.value = row.key || '';
+          key.placeholder = row.key_masked ? `已保存 ${row.key_masked}（留空不修改）` : '粘贴新的 Key';
+          key.autocomplete = 'new-password';
+          keyField.append(keyLabel, key);
+          const remove = document.createElement('button');
+          remove.className = 'remove-api';
+          remove.type = 'button';
+          remove.textContent = '×';
+          remove.setAttribute('aria-label', '删除这一行');
+          remove.addEventListener('click', () => {
+            apiChain.splice(index, 1);
+            renderApiRows();
+          });
+          wrap.append(grid, keyField, remove);
+          wrap.addEventListener('input', event => {
+            const field = event.target.closest('[data-key]');
+            if (field) apiChain[index][field.dataset.key] = field.value;
+          });
+          host.appendChild(wrap);
+        });
+      }
+
+      function applySettings(config) {
+        apiChain = Array.isArray(config.main_chain)
+          ? config.main_chain.map((row, index) => ({ ...row, index: row.index ?? index, key: '' }))
+          : [];
+        renderApiRows();
+        document.querySelector('#historyN').value = config.history_n ?? 200;
+        document.querySelector('#historyImages').value = config.history_images ?? 2;
+        document.querySelector('#compactThreshold').value = config.compact_threshold ?? 120;
+        document.querySelector('#compactKeep').value = config.compact_keep_recent ?? 40;
+        document.querySelector('#toolSteps').value = config.max_tool_steps ?? 8;
+        document.querySelector('#visionMode').value = config.vision || 'auto';
+        document.querySelector('#contextCompaction').checked = config.context_compaction !== false;
+        document.querySelector('#compactToOmbre').checked = config.compact_to_ombre !== false;
+        document.querySelector('#apiHint').textContent = apiChain.length
+          ? `当前 ${apiChain.length} 个模型，第一行优先。`
+          : '还没有配置模型。';
+        document.querySelector('#contextHint').textContent = `当前可用工具：${Array.isArray(config.tools) ? config.tools.length : 0} 个`;
+      }
+
+      async function loopApi(path, method = 'GET', body) {
+        return api(`/app/loop/${path}`, {
+          method,
+          headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+          body: body === undefined ? undefined : JSON.stringify(body)
+        });
+      }
+
+      async function loadSettings(force = false) {
+        if (settingsLoaded && !force) return;
+        const apiHint = document.querySelector('#apiHint');
+        apiHint.textContent = '正在读取服务器配置…';
+        try {
+          const [config, persona] = await Promise.all([loopApi('config'), loopApi('persona')]);
+          applySettings(config);
+          document.querySelector('#personaText').value = persona.text || '';
+          document.querySelector('#personaHint').textContent = persona.source === 'file' ? '当前由 VPS 文件提供，保存后立即生效。' : '保存后会写入 VPS。';
+          settingsLoaded = true;
+        } catch (error) {
+          apiHint.textContent = `读取失败：${error.message}`;
+        }
+      }
+
+      async function saveApiChain() {
+        const rows = apiChain.map(row => {
+          const item = { index: row.index, url: String(row.url || '').trim(), model: String(row.model || '').trim() };
+          if (String(row.key || '').trim()) item.key = row.key.trim();
+          return item;
+        });
+        for (const row of rows) {
+          if (!row.url || !row.model || (!row.key && Number(row.index) < 0)) throw new Error('每一行都要填写 API 地址、模型名称和 Key');
+        }
+        const config = await loopApi('config', 'POST', { main_chain: rows });
+        applySettings(config);
+        settingsLoaded = true;
+        return config;
+      }
+
+      document.querySelector('#addApiRow').addEventListener('click', () => {
+        apiChain.push({ index: -1, url: '', model: '', key: '', key_masked: '' });
+        renderApiRows();
+        document.querySelector('.api-row:last-child input')?.focus();
+      });
+      document.querySelector('#saveApi').addEventListener('click', async event => {
+        event.currentTarget.disabled = true;
+        try {
+          await saveApiChain();
+          showToast('API 配置已保存到 VPS');
+        } catch (error) {
+          document.querySelector('#apiHint').textContent = `保存失败：${error.message}`;
+        } finally {
+          event.currentTarget.disabled = false;
+        }
+      });
+      document.querySelector('#testApi').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        const hint = document.querySelector('#apiHint');
+        button.disabled = true;
+        hint.textContent = '正在保存并发送测试请求…';
+        try {
+          await saveApiChain();
+          const result = await loopApi('test', 'POST', { index: 0 });
+          hint.textContent = result.ok
+            ? `✓ ${result.model} 连接成功 · ${result.latency_ms} ms`
+            : `✕ ${result.model || '模型'}：${result.error || '测试失败'}`;
+        } catch (error) {
+          hint.textContent = `✕ ${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      document.querySelector('#saveContext').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        const hint = document.querySelector('#contextHint');
+        try {
+          const config = await loopApi('config', 'POST', {
+            history_n: Number(document.querySelector('#historyN').value),
+            history_images: Number(document.querySelector('#historyImages').value),
+            compact_threshold: Number(document.querySelector('#compactThreshold').value),
+            compact_keep_recent: Number(document.querySelector('#compactKeep').value),
+            max_tool_steps: Number(document.querySelector('#toolSteps').value),
+            vision: document.querySelector('#visionMode').value,
+            context_compaction: document.querySelector('#contextCompaction').checked,
+            compact_to_ombre: document.querySelector('#compactToOmbre').checked
+          });
+          applySettings(config);
+          hint.textContent = '✓ 已保存并立即生效';
+        } catch (error) {
+          hint.textContent = `保存失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      document.querySelector('#savePersona').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        const hint = document.querySelector('#personaHint');
+        button.disabled = true;
+        try {
+          const result = await loopApi('persona', 'POST', { text: document.querySelector('#personaText').value });
+          hint.textContent = `✓ 已生效 · ${result.chars || 0} 字`;
+        } catch (error) {
+          hint.textContent = `保存失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
 
       function updateSessionHeader() {
         const current = sessions.find(item => item.id === activeSession);

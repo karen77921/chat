@@ -42,6 +42,7 @@ import uuid
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 import uvicorn
@@ -110,6 +111,10 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "compact_threshold": 120,   # user + assistant messages (about 60 chat rounds)
     "compact_keep_recent": 40,  # keep about 20 rounds verbatim after each compaction
     "compact_to_ombre": True,   # archive the new durable-memory digest through Ombre grow
+    "context_injection": True,  # inject bounded environment + fixed background every turn
+    "context_time": True,       # include local date, weekday and time-of-day
+    "context_timezone": "Asia/Shanghai",
+    "context_notes": "",       # bounded facts that must survive context compaction
     "max_tool_steps": 8,        # tool_calls rounds per turn before the model must answer
     "vision": "auto",           # auto | on | off — send images as image_url parts
     "persona_file": "",         # path; empty = PERSONA_FILE env, then PERSONA env, then default
@@ -191,6 +196,42 @@ def main_chain() -> list[dict[str, str]]:
 
 def history_n() -> int:
     return cfg_int("history_n", 0, 200)
+
+
+# ---------------------------------------------------------------------------
+# bounded context injection — environment + fixed facts
+# ---------------------------------------------------------------------------
+
+def context_injection_text() -> str:
+    """Small stable context block injected into the system prompt on every turn."""
+    if not cfg_bool("context_injection"):
+        return ""
+    cfg = load_config()
+    blocks: list[str] = []
+    if cfg_bool("context_time"):
+        timezone_name = str(cfg.get("context_timezone") or CONFIG_DEFAULTS["context_timezone"]).strip()
+        try:
+            timezone = ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            timezone_name = str(CONFIG_DEFAULTS["context_timezone"])
+            timezone = ZoneInfo(timezone_name)
+        current = dt.datetime.now(timezone)
+        weekdays = "一二三四五六日"
+        hour = current.hour
+        period = "凌晨" if hour < 6 else "上午" if hour < 12 else "下午" if hour < 18 else "晚上"
+        blocks.append(
+            "【当前环境】\n"
+            f"当前时间：{current:%Y-%m-%d %H:%M}（星期{weekdays[current.weekday()]}，{period}，{timezone_name}）。\n"
+            "这是系统提供的实时环境信息；不要声称看不到时间，也不要无故复述给用户。"
+        )
+    notes = str(cfg.get("context_notes") or "").strip()[:12_000]
+    if notes:
+        blocks.append(
+            "【固定背景资料】\n"
+            + notes
+            + "\n这些是用户明确要求长期保留的背景事实；如与用户最新说法冲突，以最新说法为准。"
+        )
+    return "\n\n".join(blocks)
 
 
 # ---------------------------------------------------------------------------
@@ -676,6 +717,9 @@ async def build_messages(
 ) -> tuple[list[dict[str, Any]], bool]:
     """→ (messages, had_images). History images are only re-sent for the newest history_images human rows."""
     system_text = persona_text()
+    injected = context_injection_text()
+    if injected:
+        system_text += "\n\n" + injected
     compacted = {"summary": "", "last_id": 0, "compacted": False}
     if use_context:
         compacted = await maybe_compact_context(session_id, before_id)
@@ -1345,6 +1389,10 @@ def public_config() -> dict[str, Any]:
         "compact_threshold": cfg_int("compact_threshold", 20, 2000),
         "compact_keep_recent": cfg_int("compact_keep_recent", 2, 1000),
         "compact_to_ombre": cfg_bool("compact_to_ombre"),
+        "context_injection": cfg_bool("context_injection"),
+        "context_time": cfg_bool("context_time"),
+        "context_timezone": str(cfg.get("context_timezone", CONFIG_DEFAULTS["context_timezone"])),
+        "context_notes": str(cfg.get("context_notes", CONFIG_DEFAULTS["context_notes"])),
         "max_tool_steps": cfg_int("max_tool_steps", 0, 50),
         "vision": str(cfg.get("vision", CONFIG_DEFAULTS["vision"])),
         "persona": {k: v for k, v in persona_public().items() if k != "text"},
@@ -1376,7 +1424,7 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
                 cfg[name] = max(lo, min(int(body.get(name) or 0), hi))
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"{name} must be an integer")
-    for name in ("context_compaction", "compact_to_ombre"):
+    for name in ("context_compaction", "compact_to_ombre", "context_injection", "context_time"):
         if name in body:
             value = body.get(name)
             if isinstance(value, bool):
@@ -1387,6 +1435,18 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
                 cfg[name] = False
             else:
                 raise HTTPException(status_code=400, detail=f"{name} must be a boolean")
+    if "context_timezone" in body:
+        timezone_name = str(body.get("context_timezone") or "").strip()
+        try:
+            ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise HTTPException(status_code=400, detail="unknown context_timezone")
+        cfg["context_timezone"] = timezone_name
+    if "context_notes" in body:
+        notes = str(body.get("context_notes") or "").strip()
+        if len(notes) > 12_000:
+            raise HTTPException(status_code=413, detail="context_notes too long")
+        cfg["context_notes"] = notes
     threshold = int(cfg.get("compact_threshold", CONFIG_DEFAULTS["compact_threshold"]))
     keep_recent = int(cfg.get("compact_keep_recent", CONFIG_DEFAULTS["compact_keep_recent"]))
     if keep_recent >= threshold:
@@ -1446,6 +1506,9 @@ async def healthz():
         "models": [r.get("model") for r in main_chain()],
         "history_n": history_n(),
         "context_compaction": cfg_bool("context_compaction"),
+        "context_injection": cfg_bool("context_injection"),
+        "context_time": cfg_bool("context_time"),
+        "context_timezone": str(load_config().get("context_timezone", CONFIG_DEFAULTS["context_timezone"])),
         "compact_threshold": cfg_int("compact_threshold", 20, 2000),
         "compact_keep_recent": cfg_int("compact_keep_recent", 2, 1000),
         "relay_db": RELAY_DB,

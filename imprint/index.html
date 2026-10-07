@@ -410,9 +410,13 @@
                 <div class="field"><label for="compactKeep">保留近期</label><input id="compactKeep" type="number" min="2" max="1000"></div>
                 <div class="field"><label for="toolSteps">工具步数</label><input id="toolSteps" type="number" min="0" max="50"></div>
                 <div class="field"><label for="visionMode">看图</label><select id="visionMode"><option value="auto">自动</option><option value="on">开启</option><option value="off">关闭</option></select></div>
+                <div class="field"><label for="contextTimezone">所在时区</label><input id="contextTimezone" value="Asia/Shanghai" autocomplete="off"></div>
               </div>
               <label class="check-row"><span>自动压缩旧对话</span><input id="contextCompaction" type="checkbox"></label>
               <label class="check-row"><span>摘要写入 Ombre</span><input id="compactToOmbre" type="checkbox"></label>
+              <label class="check-row"><span>启用上下文注入</span><input id="contextInjection" type="checkbox"></label>
+              <label class="check-row"><span>注入当前时间与时段</span><input id="contextTime" type="checkbox"></label>
+              <div class="field"><label for="contextNotes">固定背景资料</label><textarea id="contextNotes" maxlength="12000" placeholder="只写每轮都必须知道、且不应被压缩丢失的事实。普通聊天记忆交给 Ombre。"></textarea></div>
               <div class="settings-actions"><button class="primary-button" id="saveContext" type="button">保存上下文设置</button></div>
               <div class="settings-hint" id="contextHint"></div>
             </article>
@@ -673,8 +677,12 @@
         document.querySelector('#compactKeep').value = config.compact_keep_recent ?? 40;
         document.querySelector('#toolSteps').value = config.max_tool_steps ?? 8;
         document.querySelector('#visionMode').value = config.vision || 'auto';
+        document.querySelector('#contextTimezone').value = config.context_timezone || 'Asia/Shanghai';
         document.querySelector('#contextCompaction').checked = config.context_compaction !== false;
         document.querySelector('#compactToOmbre').checked = config.compact_to_ombre !== false;
+        document.querySelector('#contextInjection').checked = config.context_injection !== false;
+        document.querySelector('#contextTime').checked = config.context_time !== false;
+        document.querySelector('#contextNotes').value = config.context_notes || '';
         document.querySelector('#apiHint').textContent = apiChain.length
           ? `当前 ${apiChain.length} 个模型，第一行优先。`
           : '还没有配置模型。';
@@ -765,7 +773,11 @@
             max_tool_steps: Number(document.querySelector('#toolSteps').value),
             vision: document.querySelector('#visionMode').value,
             context_compaction: document.querySelector('#contextCompaction').checked,
-            compact_to_ombre: document.querySelector('#compactToOmbre').checked
+            compact_to_ombre: document.querySelector('#compactToOmbre').checked,
+            context_injection: document.querySelector('#contextInjection').checked,
+            context_time: document.querySelector('#contextTime').checked,
+            context_timezone: document.querySelector('#contextTimezone').value.trim(),
+            context_notes: document.querySelector('#contextNotes').value.trim()
           });
           applySettings(config);
           hint.textContent = '✓ 已保存并立即生效';

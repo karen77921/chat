@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#DAEEFF" />
+    <meta name="description" content="Imprint — 私人 AI 对话空间" />
+    <title>Imprint</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23daeeff'/%3E%3Cpath d='M20 17h24v5H35v20h9v5H20v-5h9V22h-9z' fill='%232b3955'/%3E%3Ccircle cx='46' cy='18' r='6' fill='%23a7ccff'/%3E%3C/svg%3E" />
+    <style>
+      :root {
+        --ice: #b9d7ff;
+        --mist: #daeeff;
+        --milk: #f8fdfe;
+        --blue: #a7ccff;
+        --ink: #29364f;
+        --muted: #6f7e96;
+        --line: rgba(75, 112, 159, 0.14);
+        --glass: rgba(248, 253, 254, 0.72);
+        --shadow: 0 24px 70px rgba(74, 116, 164, 0.16);
+      }
+
+      * { box-sizing: border-box; }
+      html { background: #eaf5ff; }
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 13% 6%, rgba(255,255,255,.96) 0 9%, transparent 26%),
+          radial-gradient(circle at 90% 22%, rgba(167,204,255,.38), transparent 30%),
+          linear-gradient(155deg, #f7fcff 0%, #deefff 48%, #cce4ff 100%);
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+        overflow-x: hidden;
+      }
+      button, textarea { font: inherit; }
+      button { color: inherit; }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+      .shell {
+        width: min(1180px, calc(100% - 36px));
+        min-height: calc(100vh - 36px);
+        margin: 18px auto;
+        display: grid;
+        grid-template-columns: 252px minmax(0, 1fr);
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,.84);
+        border-radius: 32px;
+        background: rgba(248,253,254,.58);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(22px);
+      }
+
+      .rail {
+        position: relative;
+        padding: 34px 22px 24px;
+        border-right: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(218,238,255,.54));
+      }
+      .rail::after {
+        content: "";
+        position: absolute;
+        width: 118px;
+        height: 118px;
+        left: -44px;
+        bottom: 72px;
+        border-radius: 42% 58% 55% 45%;
+        background: rgba(167,204,255,.35);
+        filter: blur(2px);
+        transform: rotate(18deg);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 2px 8px 42px;
+      }
+      .brand-mark {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border-radius: 15px;
+        background: linear-gradient(145deg, var(--milk), var(--ice));
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.78), 0 10px 24px rgba(70,115,165,.16);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.4rem;
+        font-style: italic;
+      }
+      .brand-name { font: italic 700 1.65rem/1 Georgia, "Times New Roman", serif; letter-spacing: -.02em; }
+      .brand-note { display: block; margin-top: 5px; color: var(--muted); font-size: .72rem; letter-spacing: .16em; text-transform: uppercase; }
+
+      .nav { display: grid; gap: 8px; }
+      .nav-button {
+        width: 100%;
+        border: 0;
+        border-radius: 16px;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        padding: 13px 14px;
+        cursor: pointer;
+        font-size: .95rem;
+        text-align: left;
+        transition: .2s ease;
+      }
+      .nav-button svg { width: 21px; height: 21px; stroke-width: 1.7; }
+      .nav-button:hover { background: rgba(255,255,255,.58); }
+      .nav-button.active { background: rgba(248,253,254,.92); box-shadow: 0 9px 24px rgba(69,110,158,.11); }
+      .nav-button.active svg { stroke: #4d78ad; }
+      .rail-foot { position: absolute; left: 30px; right: 30px; bottom: 28px; z-index: 1; color: var(--muted); font-size: .76rem; line-height: 1.6; }
+      .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #7faee7; margin-right: 7px; box-shadow: 0 0 0 4px rgba(127,174,231,.15); }
+
+      .stage { min-width: 0; min-height: 0; position: relative; }
+      .view { display: none; min-height: calc(100vh - 36px); }
+      .view.active { display: block; }
+
+      .home { padding: clamp(24px, 5vw, 64px); overflow: hidden; }
+      .home-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+      .eyebrow { margin: 0 0 14px; color: #6f90b8; font-size: .76rem; letter-spacing: .26em; text-transform: uppercase; }
+      h1 { margin: 0; font: italic 700 clamp(3.6rem, 8vw, 7.7rem)/.84 Georgia, "Times New Roman", serif; letter-spacing: -.06em; color: #26334a; }
+      .date { color: var(--muted); font-size: .85rem; letter-spacing: .08em; text-align: right; line-height: 1.6; }
+      .round-action {
+        width: 46px;
+        height: 46px;
+        margin-top: 14px;
+        border: 1px solid rgba(100,137,180,.2);
+        border-radius: 50%;
+        background: rgba(255,255,255,.6);
+        cursor: pointer;
+      }
+
+      .memory-hero {
+        position: relative;
+        min-height: 330px;
+        margin-top: 38px;
+        padding: 46px clamp(28px, 5vw, 70px);
+        border: 1px solid rgba(255,255,255,.9);
+        border-radius: 30px;
+        background: linear-gradient(135deg, rgba(248,253,254,.96), rgba(218,238,255,.62));
+        box-shadow: 0 22px 60px rgba(66,105,151,.12);
+        overflow: hidden;
+      }
+      .memory-hero::before,
+      .memory-hero::after {
+        content: "";
+        position: absolute;
+        border-radius: 50%;
+      }
+      .memory-hero::before { width: 330px; height: 330px; right: -78px; top: -88px; background: rgba(185,215,255,.55); }
+      .memory-hero::after { width: 190px; height: 190px; right: 118px; bottom: -92px; background: rgba(255,255,255,.62); }
+      .hero-label { position: relative; z-index: 1; color: #718aa8; font: italic 1rem Georgia, serif; letter-spacing: .11em; }
+      .hero-number { position: relative; z-index: 1; margin: 20px 0 8px; font: 400 clamp(4.7rem, 9vw, 8.2rem)/.9 Georgia, "Times New Roman", serif; letter-spacing: -.07em; }
+      .hero-number span { margin-left: 10px; font-size: 1.25rem; font-style: italic; letter-spacing: .02em; color: #6985a6; }
+      .hero-copy { position: relative; z-index: 1; max-width: 390px; color: #64758c; line-height: 1.9; }
+      .orbital { position: absolute; right: 72px; top: 76px; width: 170px; height: 170px; z-index: 1; border: 1px solid rgba(68,103,146,.18); border-radius: 50%; }
+      .orbital::before { content: ""; position: absolute; width: 116px; height: 116px; inset: 26px; border: 1px dashed rgba(68,103,146,.2); border-radius: 50%; }
+      .orbital::after { content: "✦"; position: absolute; right: 4px; top: 23px; color: #6e9ed8; font-size: 1.4rem; }
+
+      .cards { display: grid; grid-template-columns: 1.2fr .8fr; gap: 18px; margin-top: 18px; }
+      .card { border: 1px solid rgba(255,255,255,.84); border-radius: 24px; background: var(--glass); padding: 24px; box-shadow: 0 13px 38px rgba(67,109,154,.09); }
+      .card-kicker { color: #7b91aa; font-size: .76rem; letter-spacing: .16em; text-transform: uppercase; }
+      .note-card { min-height: 170px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
+      .note-card p { margin: 18px 0; font: 1.25rem/1.75 Georgia, "Songti SC", serif; }
+      .note-sign { color: #7e94ae; font: italic .95rem Georgia, serif; }
+      .quick-card { display: grid; gap: 12px; align-content: center; }
+      .quick-title { margin: 0; font: italic 1.7rem Georgia, serif; }
+      .chat-cta { border: 0; border-radius: 16px; padding: 14px 18px; background: #2d3b55; color: white; cursor: pointer; box-shadow: 0 12px 26px rgba(37,50,76,.22); }
+
+      .chat-layout { height: calc(100vh - 36px); display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+      .sessions { padding: 30px 18px; border-right: 1px solid var(--line); background: rgba(240,248,255,.55); }
+      .session-head { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 22px; }
+      .session-head h2 { margin: 0; font: italic 1.7rem Georgia, serif; }
+      .new-chat { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.75); cursor: pointer; font-size: 1.25rem; }
+      .session-item { width: 100%; margin-bottom: 7px; padding: 14px; border: 0; border-radius: 16px; background: transparent; text-align: left; cursor: pointer; }
+      .session-item.active { background: rgba(255,255,255,.82); box-shadow: 0 9px 24px rgba(75,111,151,.1); }
+      .session-title { display: block; font-size: .92rem; }
+      .session-preview { display: block; margin-top: 6px; color: var(--muted); font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      .conversation { height: 100%; min-width: 0; display: grid; grid-template-rows: auto 1fr auto; }
+      .chat-head { padding: 24px 28px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; background: rgba(248,253,254,.34); }
+      .chat-head h2 { margin: 0; font: italic 1.55rem Georgia, serif; }
+      .chat-state { margin-top: 5px; color: var(--muted); font-size: .75rem; }
+      .head-actions { display: flex; gap: 9px; }
+      .icon-button { width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.66); cursor: pointer; display: grid; place-items: center; }
+      .icon-button svg { width: 19px; height: 19px; }
+      .messages { overflow: auto; padding: 36px clamp(22px, 5vw, 70px); scroll-behavior: smooth; }
+      .day-divider { display: flex; align-items: center; gap: 14px; margin: 0 auto 28px; color: #8a9bb0; font-size: .72rem; letter-spacing: .12em; }
+      .day-divider::before, .day-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+      .message { max-width: 74%; margin-bottom: 20px; padding: 17px 19px; border-radius: 20px; font-size: 1rem; line-height: 1.75; white-space: pre-wrap; }
+      .message.ai { background: rgba(248,253,254,.86); border: 1px solid rgba(255,255,255,.9); border-bottom-left-radius: 7px; box-shadow: 0 10px 28px rgba(80,117,157,.1); }
+      .message.user { margin-left: auto; background: linear-gradient(140deg, #b9d7ff, #a7ccff); border-bottom-right-radius: 7px; }
+      .message-time { display: block; margin-top: 7px; opacity: .55; font-size: .7rem; }
+
+      .composer-wrap { padding: 16px 24px calc(18px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(248,253,254,.68); backdrop-filter: blur(16px); }
+      .composer { max-width: 790px; margin: auto; display: flex; align-items: flex-end; gap: 10px; padding: 9px 10px 9px 15px; border: 1px solid rgba(91,132,179,.18); border-radius: 22px; background: rgba(255,255,255,.83); box-shadow: 0 10px 30px rgba(58,100,148,.1); }
+      textarea { flex: 1; resize: none; min-height: 42px; max-height: 124px; padding: 10px 2px; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 1rem; line-height: 1.4; }
+      textarea::placeholder { color: #9cacc0; }
+      .send { width: 42px; height: 42px; flex: 0 0 auto; border: 0; border-radius: 15px; background: #2c3b56; color: white; cursor: pointer; display: grid; place-items: center; transition: .2s ease; }
+      .send:disabled { opacity: .28; cursor: default; }
+      .send svg { width: 19px; height: 19px; }
+      .demo-note { margin: 8px 0 0; text-align: center; color: #8e9daf; font-size: .7rem; }
+
+      .mobile-bar { display: none; }
+      .placeholder { min-height: calc(100vh - 36px); padding: 60px; display: grid; place-items: center; text-align: center; }
+      .placeholder h2 { margin: 0 0 12px; font: italic 3rem Georgia, serif; }
+      .placeholder p { margin: 0; max-width: 410px; color: var(--muted); line-height: 1.8; }
+
+      @media (max-width: 780px) {
+        body { background: #eaf5ff; }
+        .shell { width: 100%; min-height: 100dvh; margin: 0; display: block; border: 0; border-radius: 0; box-shadow: none; }
+        .rail { display: none; }
+        .stage, .view, .home, .chat-layout { min-height: 100dvh; }
+        .view { padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
+        .home { padding: 28px 20px 110px; }
+        .home-head { align-items: center; }
+        h1 { font-size: clamp(3.7rem, 20vw, 5.8rem); }
+        .date { font-size: .72rem; }
+        .round-action { width: 40px; height: 40px; }
+        .memory-hero { min-height: 300px; margin-top: 30px; padding: 36px 26px; border-radius: 26px; }
+        .hero-number { font-size: 5.2rem; }
+        .orbital { width: 120px; height: 120px; right: 28px; top: 48px; opacity: .7; }
+        .orbital::before { width: 80px; height: 80px; inset: 19px; }
+        .hero-copy { max-width: 65%; font-size: .9rem; }
+        .cards { grid-template-columns: 1fr; }
+        .card { border-radius: 22px; }
+        .chat-layout { height: calc(100dvh - 74px - env(safe-area-inset-bottom)); display: block; }
+        .sessions { display: none; }
+        .conversation { height: 100%; }
+        .chat-head { padding: calc(16px + env(safe-area-inset-top)) 18px 14px; }
+        .messages { padding: 28px 17px; }
+        .message { max-width: 87%; font-size: .97rem; }
+        .composer-wrap { padding: 12px 12px 14px; }
+        .demo-note { display: none; }
+        .placeholder { min-height: calc(100dvh - 74px); padding: 40px 24px; }
+        .mobile-bar { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; height: calc(70px + env(safe-area-inset-bottom)); padding: 8px 18px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid rgba(76,111,151,.13); background: rgba(248,253,254,.86); backdrop-filter: blur(20px); }
+        .mobile-nav { border: 0; background: transparent; color: #8b9aae; display: grid; place-items: center; gap: 1px; cursor: pointer; font-size: .68rem; }
+        .mobile-nav svg { width: 21px; height: 21px; }
+        .mobile-nav.active { color: #29364f; }
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .view.active { animation: fade .28s ease; }
+        .memory-hero { animation: rise .55s ease both; }
+        .card { animation: rise .65s ease both; }
+        @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="rail">
+        <div class="brand"><div class="brand-mark">I</div><div><span class="brand-name">Imprint</span><span class="brand-note">private space</span></div></div>
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-button active" data-view="home"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>首页</button>
+          <button class="nav-button" data-view="chat"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>聊天</button>
+          <button class="nav-button" data-view="memories"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 21s-7-4.35-9.2-8.35C.78 8.98 3.15 5 7.4 5c2.03 0 3.58 1.1 4.6 2.45C13.02 6.1 14.57 5 16.6 5c4.25 0 6.62 3.98 4.6 7.65C19 16.65 12 21 12 21z"/></svg>印记</button>
+          <button class="nav-button" data-view="settings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.36.35.7.6 1 .3.3.7.45 1.1.45H21v4h-.09A1.7 1.7 0 0 0 19.4 15z"/></svg>设置</button>
+        </nav>
+        <div class="rail-foot"><span class="status-dot"></span>静态预览模式<br/>下一步接入你的 API</div>
+      </aside>
+
+      <section class="stage">
+        <section class="view active home" id="home" aria-label="Imprint 首页">
+          <header class="home-head">
+            <div><p class="eyebrow">A quiet place for every trace</p><h1>Imprint</h1></div>
+            <div><div class="date">TUE · OCT 07<br/>14:40</div><button class="round-action" aria-label="更多">···</button></div>
+          </header>
+          <article class="memory-hero">
+            <div class="hero-label">TOGETHER SINCE · 2026</div>
+            <div class="hero-number">01<span>day</span></div>
+            <p class="hero-copy">有些话不必消失。它们会留在这里，成为只属于你的痕迹。</p>
+            <div class="orbital" aria-hidden="true"></div>
+          </article>
+          <div class="cards">
+            <article class="card note-card" data-go-chat tabindex="0">
+              <span class="card-kicker">Today’s note</span>
+              <p>“新的房间已经亮起灯了。<br/>想说什么，就从这里开始。”</p>
+              <span class="note-sign">— Imprint</span>
+            </article>
+            <article class="card quick-card">
+              <span class="card-kicker">Continue</span>
+              <h2 class="quick-title">回到最近的对话</h2>
+              <button class="chat-cta" data-go-chat>打开聊天</button>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="chat" aria-label="聊天">
+          <div class="chat-layout">
+            <aside class="sessions">
+              <div class="session-head"><h2>Chats</h2><button class="new-chat" aria-label="新建会话">+</button></div>
+              <button class="session-item active"><span class="session-title">新的开始</span><span class="session-preview">这个家以后会慢慢长大</span></button>
+              <button class="session-item"><span class="session-title">设计 Imprint</span><span class="session-preview">冰蓝、奶白与手账感</span></button>
+            </aside>
+            <section class="conversation">
+              <header class="chat-head">
+                <div><h2>新的开始</h2><div class="chat-state">演示会话 · API 尚未接入</div></div>
+                <div class="head-actions"><button class="icon-button" aria-label="新建会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></button><button class="icon-button" aria-label="更多设置"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button></div>
+              </header>
+              <div class="messages" id="messages">
+                <div class="day-divider">TODAY</div>
+                <div class="message ai">欢迎来到 Imprint。这里会接入你自己的 API、聊天记录和记忆。<span class="message-time">14:38</span></div>
+                <div class="message user">我想让这里真正属于我。<span class="message-time">14:39</span></div>
+                <div class="message ai">那就从这一刻开始。页面、名字和留下来的每一道痕迹，都会按你的方式生长。<span class="message-time">14:40</span></div>
+              </div>
+              <div class="composer-wrap">
+                <form class="composer" id="composer">
+                  <label class="sr-only" for="messageInput">输入消息</label>
+                  <textarea id="messageInput" rows="1" placeholder="留下点什么……"></textarea>
+                  <button class="send" id="sendButton" type="submit" disabled aria-label="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg></button>
+                </form>
+                <p class="demo-note">当前为界面演示，下一步连接真实 API。</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view placeholder" id="memories"><div><h2>印记</h2><p>这里将展示从长期记忆中留下的重要片段。接入后端后，再决定哪些内容值得被看见。</p></div></section>
+        <section class="view placeholder" id="settings"><div><h2>设置</h2><p>这里将放 API 状态、模型和个人偏好。密钥只保留在后端，不会出现在页面里。</p></div></section>
+      </section>
+    </main>
+
+    <nav class="mobile-bar" aria-label="手机导航">
+      <button class="mobile-nav active" data-view="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>首页</span></button>
+      <button class="mobile-nav" data-view="memories"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 21s-7-4.35-9.2-8.35C.78 8.98 3.15 5 7.4 5c2.03 0 3.58 1.1 4.6 2.45C13.02 6.1 14.57 5 16.6 5c4.25 0 6.62 3.98 4.6 7.65C19 16.65 12 21 12 21z"/></svg><span>印记</span></button>
+      <button class="mobile-nav" data-view="chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg><span>聊天</span></button>
+      <button class="mobile-nav" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.83 2.83A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.4 1.6h-4A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-2.83-2.83A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 13.6v-4A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l2.83-2.83A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10.4 3h4A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l2.83 2.83A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.6 1.4v4a1.7 1.7 0 0 0-1.6.6z"/></svg><span>设置</span></button>
+    </nav>
+
+    <script>
+      const views = [...document.querySelectorAll('.view')];
+      const navButtons = [...document.querySelectorAll('[data-view]')];
+      function showView(id) {
+        views.forEach(view => view.classList.toggle('active', view.id === id));
+        navButtons.forEach(button => button.classList.toggle('active', button.dataset.view === id));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      navButtons.forEach(button => button.addEventListener('click', () => showView(button.dataset.view)));
+      document.querySelectorAll('[data-go-chat]').forEach(button => button.addEventListener('click', () => showView('chat')));
+      document.querySelector('.note-card').addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') showView('chat'); });
+
+      const input = document.querySelector('#messageInput');
+      const send = document.querySelector('#sendButton');
+      const messages = document.querySelector('#messages');
+      input.addEventListener('input', () => {
+        send.disabled = !input.value.trim();
+        input.style.height = 'auto';
+        input.style.height = `${Math.min(input.scrollHeight, 124)}px`;
+      });
+      document.querySelector('#composer').addEventListener('submit', event => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        const message = document.createElement('div');
+        message.className = 'message user';
+        message.textContent = text;
+        const time = document.createElement('span');
+        time.className = 'message-time';
+        time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        message.appendChild(time);
+        messages.appendChild(message);
+        input.value = '';
+        input.style.height = 'auto';
+        send.disabled = true;
+        messages.scrollTop = messages.scrollHeight;
+        window.setTimeout(() => {
+          const reply = document.createElement('div');
+          reply.className = 'message ai';
+          reply.textContent = '这条消息目前只留在演示页面。接入你的后端之后，我会从真实 API 回到这里。';
+          messages.appendChild(reply);
+          messages.scrollTop = messages.scrollHeight;
+        }, 550);
+      });
+    </script>
+  </body>
+</html>

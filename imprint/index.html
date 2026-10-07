@@ -226,10 +226,21 @@
       @keyframes blink { from { opacity: .28; transform: translateY(1px); } to { opacity: 1; transform: translateY(-1px); } }
 
       .mobile-bar { display: none; }
-      .placeholder { height: 100%; min-height: 0; padding: 60px; place-items: center; text-align: center; }
-      .placeholder.active { display: grid; }
-      .placeholder h2 { margin: 0 0 12px; font: italic 3rem Georgia, serif; }
-      .placeholder p { margin: 0; max-width: 410px; color: var(--muted); line-height: 1.8; }
+      .memories-view { height: 100%; min-height: 0; padding: clamp(26px, 5vw, 58px); display: none; grid-template-rows: auto minmax(0, 1fr); gap: 22px; overflow: hidden; }
+      .memories-view.active { display: grid; }
+      .memories-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+      .memories-title h2 { margin: 0 0 8px; font: italic 3.2rem Georgia, serif; }
+      .memories-title p { margin: 0; color: var(--muted); line-height: 1.65; }
+      .memory-search { width: min(390px, 48%); display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 15px; border: 1px solid rgba(91,132,179,.18); border-radius: 18px; background: rgba(255,255,255,.74); }
+      .memory-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; }
+      .memory-search button { border: 0; border-radius: 12px; padding: 10px 13px; background: #2d3b55; color: white; cursor: pointer; }
+      .memory-search button:disabled { opacity: .45; cursor: wait; }
+      .memory-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 14px; padding: 2px 4px 20px 0; }
+      .memory-card { min-width: 0; padding: 20px; border: 1px solid rgba(255,255,255,.9); border-radius: 22px; background: rgba(248,253,254,.76); box-shadow: 0 13px 38px rgba(67,109,154,.08); }
+      .memory-card::before { content: "✦"; display: block; margin-bottom: 10px; color: #6e9ed8; }
+      .memory-card p { margin: 0; color: #52657e; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; }
+      .memory-empty { grid-column: 1 / -1; align-self: center; margin: 60px auto; max-width: 430px; text-align: center; color: var(--muted); line-height: 1.8; }
+      .memory-empty strong { display: block; margin-bottom: 7px; color: var(--ink); font: italic 1.65rem Georgia, serif; }
       .settings-view { height: 100%; min-height: 0; padding: clamp(26px, 5vw, 58px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
       .settings-head { margin-bottom: 28px; }
       .settings-head h2 { margin: 0 0 8px; font: italic 3.2rem Georgia, serif; }
@@ -291,7 +302,13 @@
         .message { max-width: 87%; font-size: .97rem; }
         .composer-wrap { padding: 12px 12px 14px; }
         .demo-note { display: none; }
-        .placeholder { height: 100%; min-height: 0; padding: 40px 24px; }
+        .memories-view { padding: calc(22px + env(safe-area-inset-top)) 16px 18px; gap: 14px; }
+        .memories-head { display: grid; align-items: start; }
+        .memories-title h2 { font-size: 2.7rem; }
+        .memories-title p { font-size: .82rem; }
+        .memory-search { width: 100%; }
+        .memory-list { grid-template-columns: 1fr; }
+        .memory-card { padding: 17px; border-radius: 18px; }
         .settings-view { height: 100%; min-height: 0; padding: calc(22px + env(safe-area-inset-top)) 16px 24px; }
         .settings-head h2 { font-size: 2.7rem; }
         .settings-grid { grid-template-columns: 1fr; }
@@ -385,7 +402,13 @@
           </div>
         </section>
 
-        <section class="view placeholder" id="memories"><div><h2>印记</h2><p>这里将展示从长期记忆中留下的重要片段。接入后端后，再决定哪些内容值得被看见。</p></div></section>
+        <section class="view memories-view" id="memories" aria-label="长期记忆">
+          <header class="memories-head">
+            <div class="memories-title"><h2>印记</h2><p>由 Ombre 留下的长期记忆。默认目录不会调用模型。</p></div>
+            <form class="memory-search" id="memorySearch"><label class="sr-only" for="memoryQuery">搜索记忆</label><input id="memoryQuery" type="search" maxlength="500" placeholder="想起一件事……"><button id="memorySearchButton" type="submit">搜索</button></form>
+          </header>
+          <div class="memory-list" id="memoryList"><div class="memory-empty"><strong>正在翻找印记</strong>稍等一下，记忆目录正在打开。</div></div>
+        </section>
         <section class="view settings-view" id="settings">
           <header class="settings-head"><h2>设置</h2><p>模型密钥会通过加密连接保存到你的 VPS，页面只显示掩码。</p></header>
           <div class="settings-grid">
@@ -470,6 +493,9 @@
       const secretInput = document.querySelector('#secretInput');
       const loginError = document.querySelector('#loginError');
       const toastEl = document.querySelector('#toast');
+      const memoryListEl = document.querySelector('#memoryList');
+      const memoryQueryEl = document.querySelector('#memoryQuery');
+      const memorySearchButton = document.querySelector('#memorySearchButton');
 
       let secret = localStorage.getItem(SECRET_KEY) || '';
       let sessions = [];
@@ -481,6 +507,7 @@
       let sending = false;
       let toastTimer = null;
       let settingsLoaded = false;
+      let memoriesLoaded = false;
       let apiChain = [];
 
       function showToast(text) {
@@ -494,6 +521,7 @@
         views.forEach(view => view.classList.toggle('active', view.id === id));
         navButtons.forEach(button => button.classList.toggle('active', button.dataset.view === id));
         if (id === 'chat') requestAnimationFrame(scrollToBottom);
+        if (id === 'memories' && secret) loadMemories();
         if (id === 'settings' && secret) loadSettings();
       }
       navButtons.forEach(button => button.addEventListener('click', () => showView(button.dataset.view)));
@@ -696,6 +724,63 @@
           body: body === undefined ? undefined : JSON.stringify(body)
         });
       }
+
+      function memoryParts(raw) {
+        const text = String(raw || '').replace(/\r/g, '').trim();
+        if (!text) return [];
+        const blocks = text.split(/\n\s*\n+/).map(item => item.trim()).filter(Boolean);
+        if (blocks.length > 1) return blocks;
+        const lines = text.split('\n').map(item => item.trim()).filter(Boolean);
+        return lines.length >= 4 ? lines : [text];
+      }
+
+      function renderMemories(raw, query = '') {
+        memoryListEl.innerHTML = '';
+        const parts = memoryParts(raw);
+        if (!parts.length) {
+          const empty = document.createElement('div');
+          empty.className = 'memory-empty';
+          const title = document.createElement('strong');
+          title.textContent = query ? '没有找到这段印记' : '还没有留下长期印记';
+          empty.append(title, document.createTextNode(query ? '换一个词再想想。' : '继续聊天，重要的经历会在压缩后写入这里。'));
+          memoryListEl.appendChild(empty);
+          return;
+        }
+        parts.forEach(part => {
+          const card = document.createElement('article');
+          card.className = 'memory-card';
+          const copy = document.createElement('p');
+          copy.textContent = part;
+          card.appendChild(copy);
+          memoryListEl.appendChild(card);
+        });
+      }
+
+      async function loadMemories(query = '', force = false) {
+        if (memoriesLoaded && !query && !force) return;
+        memorySearchButton.disabled = true;
+        memoryListEl.innerHTML = '<div class="memory-empty"><strong>正在翻找印记</strong>Ombre 正在打开记忆目录。</div>';
+        try {
+          const result = await loopApi('memories', 'POST', { query });
+          renderMemories(result.text, query);
+          if (!query) memoriesLoaded = true;
+        } catch (error) {
+          memoryListEl.innerHTML = '';
+          const empty = document.createElement('div');
+          empty.className = 'memory-empty';
+          const title = document.createElement('strong');
+          title.textContent = '暂时读不到印记';
+          empty.append(title, document.createTextNode(error.message === 'unauthorized' ? '请重新登录。' : error.message));
+          memoryListEl.appendChild(empty);
+        } finally {
+          memorySearchButton.disabled = false;
+        }
+      }
+
+      document.querySelector('#memorySearch').addEventListener('submit', event => {
+        event.preventDefault();
+        loadMemories(memoryQueryEl.value.trim(), true);
+      });
 
       async function loadSettings(force = false) {
         if (settingsLoaded && !force) return;

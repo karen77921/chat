@@ -949,6 +949,45 @@ class McpManager:
 
 mcp_manager = McpManager()
 
+
+def mcp_result_text(result: Any, limit: int = 50_000) -> str:
+    """Flatten the text-bearing parts of an MCP result for a read-only UI."""
+    texts: list[str] = []
+    for item in getattr(result, "content", None) or []:
+        ctype = getattr(item, "type", "")
+        if ctype == "text":
+            texts.append(str(getattr(item, "text", "") or ""))
+        elif ctype == "resource":
+            resource = getattr(item, "resource", None)
+            value = getattr(resource, "text", None)
+            if value:
+                texts.append(str(value))
+    structured = getattr(result, "structuredContent", None)
+    if structured and not texts:
+        texts.append(json.dumps(structured, ensure_ascii=False))
+    text = "\n".join(part for part in texts if part).strip()
+    if getattr(result, "isError", False):
+        raise RuntimeError(text or "MCP tool returned an error")
+    return text[:limit]
+
+
+def ombre_tool(name: str) -> tuple[McpServer, Any] | None:
+    """Return one named tool from the configured Ombre server, if online."""
+    for server_name, server in mcp_manager.servers.items():
+        if "ombre" not in server_name.lower() or server.session is None:
+            continue
+        for tool in server.tools:
+            if str(getattr(tool, "name", "")) == name:
+                return server, tool
+    return None
+
+
+def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
+    """Only send arguments advertised by the connected MCP server version."""
+    schema = getattr(tool, "inputSchema", None)
+    properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    return {key: value for key, value in values.items() if key in properties}
+
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
@@ -1553,6 +1592,40 @@ async def loop_tools():
 @app.get("/loop/mcp")
 async def loop_mcp_list():
     return {"available": MCP_AVAILABLE, "servers": mcp_manager.public()}
+
+
+@app.post("/loop/memories")
+async def loop_memories(request: Request):
+    """Read Ombre's catalog or search it without exposing any write/delete tool."""
+    body = await request.json()
+    query = str(body.get("query") or "").strip()[:500]
+    if query:
+        target = ombre_tool("breath_search")
+        if target is None:
+            raise HTTPException(status_code=503, detail="Ombre memory search is offline")
+        server, tool = target
+        args = supported_tool_args(tool, {"query": query, "max_results": 24})
+        if "query" not in args:
+            args["query"] = query
+        mode = "search"
+    else:
+        target = ombre_tool("breath_advanced")
+        if target is not None:
+            server, tool = target
+            args = supported_tool_args(tool, {"catalog": True, "max_tokens": 8_000})
+            mode = "catalog"
+        else:
+            target = ombre_tool("pulse")
+            if target is None:
+                raise HTTPException(status_code=503, detail="Ombre memory catalog is offline")
+            server, tool = target
+            args = {}
+            mode = "pulse"
+    try:
+        result = await server.call(str(getattr(tool, "name", "")), args)
+        return {"ok": True, "mode": mode, "query": query, "text": mcp_result_text(result)}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Ombre read failed: {type(exc).__name__}: {exc}"[:600]) from exc
 
 
 @app.post("/loop/mcp")

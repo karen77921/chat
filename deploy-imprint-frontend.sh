@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="9b4d81e11e07d90406a3f8aa1e0c54c18855fb05"
-EXPECTED="7a8a3938aad646addcba7ef183cac63d66a3151cd6dc0a225e866d6e0b40e7c8"
+REV="0bc65b36368b66b6c652a5cb96cacf9fb7959ab5"
+EXPECTED="ba7c6ffbb99be7e15ba2d14738433fa846386a00731456bb7af9196a2e2ad0b6"
 TARGET="/var/www/imprint/index.html"
-BACKUP="/var/www/imprint/index.html.bak-9b4d81e"
+BACKUP="/var/www/imprint/index.html.bak-0bc65b3"
 TEMP_FILE="$(mktemp /tmp/imprint-index.XXXXXX)"
 trap 'rm -f "${TEMP_FILE}"' EXIT
 
@@ -32,4 +32,4 @@ printf '%s  %s\n' "${EXPECTED}" "${TARGET}" | sudo sha256sum -c -
 
 rollback_armed=0
 trap - ERR
-echo 'IMPRINT_GLASS_DEPLOY_OK'
+echo 'IMPRINT_FRONTEND_DEPLOY_OK'

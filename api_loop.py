@@ -37,6 +37,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import sqlite3
 import uuid
 from contextlib import AsyncExitStack
@@ -75,6 +76,7 @@ load_dotenv(HERE / ".env")
 LOOP_PORT = int(os.environ.get("LOOP_PORT", "3020"))
 LOOP_CONFIG = Path(os.environ.get("LOOP_CONFIG", str(HERE / "api_loop.config.json")))
 LOOP_CACHE_DIR = Path(os.environ.get("LOOP_CACHE_DIR", str(HERE / "loop_cache")))
+LOOP_BACKUP_DIR = Path(os.environ.get("LOOP_BACKUP_DIR", str(HERE / "backups")))
 RELAY_DB = os.environ.get("RELAY_DB", str(HERE.parent / "backend" / "relay.db"))
 RELAY_UPLOAD_DIR = os.environ.get("RELAY_UPLOAD_DIR", "")
 RELAY_URL = os.environ.get("RELAY_URL", "http://127.0.0.1:3011").rstrip("/")
@@ -107,6 +109,8 @@ SECRET_NAME_RE = re.compile(
 CONFIG_DEFAULTS: dict[str, Any] = {
     "history_n": HISTORY_N,     # how many earlier messages of this session go to the model
     "history_images": 2,        # of those, how many recent human images are re-sent as pixels
+    "temperature": TEMPERATURE,
+    "max_reply_tokens": MAX_TOKENS,
     "context_compaction": True, # roll old history into a durable per-session summary
     "compact_threshold": 120,   # user + assistant messages (about 60 chat rounds)
     "compact_keep_recent": 40,  # keep about 20 rounds verbatim after each compaction
@@ -118,6 +122,9 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "context_notes": "",       # bounded facts that must survive context compaction
     "max_tool_steps": 8,        # tool_calls rounds per turn before the model must answer
     "vision": "auto",           # auto | on | off — send images as image_url parts
+    "backup_enabled": True,
+    "backup_interval_hours": 24,
+    "backup_keep": 14,
     "persona_file": "",         # path; empty = PERSONA_FILE env, then PERSONA env, then default
     "attach_roots": [],         # optional allow-list of directories attach_file may read from
     "mcp_servers": [],          # [{name, transport: stdio|http, command, args, env, url, headers, enabled}]
@@ -167,6 +174,13 @@ def cfg_int(name: str, lo: int, hi: int) -> int:
         return int(CONFIG_DEFAULTS[name])
 
 
+def cfg_float(name: str, lo: float, hi: float) -> float:
+    try:
+        return max(lo, min(float(load_config().get(name, CONFIG_DEFAULTS[name])), hi))
+    except Exception:
+        return float(CONFIG_DEFAULTS[name])
+
+
 def cfg_bool(name: str) -> bool:
     value = load_config().get(name, CONFIG_DEFAULTS[name])
     if isinstance(value, bool):
@@ -197,6 +211,14 @@ def main_chain() -> list[dict[str, str]]:
 
 def history_n() -> int:
     return cfg_int("history_n", 0, 200)
+
+
+def model_temperature() -> float:
+    return cfg_float("temperature", 0.0, 2.0)
+
+
+def max_reply_tokens() -> int:
+    return cfg_int("max_reply_tokens", 256, 32_768)
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +337,7 @@ def session_rows() -> list[dict[str, Any]]:
                 "title": str(item.get("title") or "New chat"),
                 "since_id": int(item.get("since_id") or 0),
                 "created_at": item.get("created_at") or "",
+                "updated_at": item.get("updated_at") or item.get("created_at") or "",
                 "pinned": bool(item.get("pinned", False)),
             })
     return out
@@ -346,7 +369,8 @@ def sessions_public() -> dict[str, Any]:
 def create_session(title: str = "New chat", since_id: int = 0, activate: bool = True) -> dict[str, Any]:
     rows = session_rows()
     sid = "api-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
-    row = {"id": sid, "title": title or "New chat", "since_id": int(since_id or 0), "created_at": now_iso()}
+    created_at = now_iso()
+    row = {"id": sid, "title": title or "New chat", "since_id": int(since_id or 0), "created_at": created_at, "updated_at": created_at}
     rows.append(row)
     save_sessions(rows, sid if activate else None)
     return row
@@ -363,10 +387,49 @@ def patch_session(session_id: str, body: dict[str, Any]) -> dict[str, Any]:
             item["title"] = str(body.get("title") or item["title"]).strip() or item["title"]
         if "pinned" in body:
             item["pinned"] = bool(body.get("pinned"))
+        item["updated_at"] = now_iso()
     if not found:
         raise HTTPException(status_code=404, detail="session not found")
     active = session_id if body.get("active") else None
     return save_sessions(rows, active)
+
+
+def touch_session(session_id: str) -> None:
+    if not session_id:
+        return
+    rows = session_rows()
+    changed = False
+    for item in rows:
+        if item["id"] == session_id:
+            item["updated_at"] = now_iso()
+            changed = True
+            break
+    if changed:
+        save_sessions(rows)
+
+
+def delete_session(session_id: str) -> dict[str, Any]:
+    rows = session_rows()
+    kept = [item for item in rows if item["id"] != session_id]
+    if len(kept) == len(rows):
+        raise HTTPException(status_code=404, detail="session not found")
+    deleted_messages = 0
+    path = Path(RELAY_DB)
+    if path.exists():
+        with sqlite3.connect(str(path)) as conn:
+            cur = conn.execute(
+                "DELETE FROM messages WHERE json_valid(meta) AND json_extract(meta, '$.api_session') = ?",
+                (session_id,),
+            )
+            deleted_messages = int(cur.rowcount or 0)
+            _context_table(conn)
+            conn.execute("DELETE FROM api_context_summaries WHERE session_id = ?", (session_id,))
+            conn.commit()
+    active = active_session_id()
+    if active == session_id:
+        active = kept[-1]["id"] if kept else ""
+    result = save_sessions(kept, active)
+    return {**result, "ok": True, "deleted": session_id, "deleted_messages": deleted_messages}
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +582,10 @@ def relay_rows(
     if not path.exists() or limit <= 0:
         return []
     params: list[Any] = []
-    where = ["kind IN ('user','voice','reply')"]
+    where = [
+        "kind IN ('user','voice','reply')",
+        "(NOT json_valid(meta) OR json_extract(meta, '$.visible') IS NULL OR json_extract(meta, '$.visible') != 0)",
+    ]
     if before_id:
         where.append("id < ?")
         params.append(int(before_id))
@@ -561,6 +627,24 @@ def _context_table(conn: sqlite3.Connection) -> None:
                updated_at TEXT NOT NULL DEFAULT ''
            )"""
     )
+
+
+def set_message_visibility(message_id: int, visible: bool) -> dict[str, Any]:
+    path = Path(RELAY_DB)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="message database not found")
+    with sqlite3.connect(str(path)) as conn:
+        row = conn.execute("SELECT meta FROM messages WHERE id = ?", (int(message_id),)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="message not found")
+        try:
+            meta = json.loads(row[0] or "{}")
+        except Exception:
+            meta = {}
+        meta["visible"] = bool(visible)
+        conn.execute("UPDATE messages SET meta = ? WHERE id = ?", (json.dumps(meta, ensure_ascii=False), int(message_id)))
+        conn.commit()
+    return {"ok": True, "id": int(message_id), "visible": bool(visible)}
 
 
 def context_summary(session_id: str) -> tuple[str, int]:
@@ -1194,8 +1278,8 @@ async def stream_chat(route: dict[str, str], messages: list[dict[str, Any]], too
     body: dict[str, Any] = {
         "model": route["model"],
         "messages": messages,
-        "temperature": TEMPERATURE,
-        "max_tokens": MAX_TOKENS,
+        "temperature": model_temperature(),
+        "max_tokens": max_reply_tokens(),
         "stream": True,
     }
     if tools:
@@ -1246,8 +1330,8 @@ async def complete_chat(route: dict[str, str], messages: list[dict[str, Any]], t
     body: dict[str, Any] = {
         "model": route["model"],
         "messages": messages,
-        "temperature": TEMPERATURE,
-        "max_tokens": MAX_TOKENS,
+        "temperature": model_temperature(),
+        "max_tokens": max_reply_tokens(),
         "stream": False,
     }
     if tools:
@@ -1462,6 +1546,8 @@ def public_config() -> dict[str, Any]:
     return {
         "history_n": history_n(),
         "history_images": cfg_int("history_images", 0, 20),
+        "temperature": model_temperature(),
+        "max_reply_tokens": max_reply_tokens(),
         "context_compaction": cfg_bool("context_compaction"),
         "compact_threshold": cfg_int("compact_threshold", 20, 2000),
         "compact_keep_recent": cfg_int("compact_keep_recent", 2, 1000),
@@ -1473,6 +1559,10 @@ def public_config() -> dict[str, Any]:
         "context_notes": str(cfg.get("context_notes", CONFIG_DEFAULTS["context_notes"])),
         "max_tool_steps": cfg_int("max_tool_steps", 0, 50),
         "vision": str(cfg.get("vision", CONFIG_DEFAULTS["vision"])),
+        "backup_enabled": cfg_bool("backup_enabled"),
+        "backup_interval_hours": cfg_int("backup_interval_hours", 1, 168),
+        "backup_keep": cfg_int("backup_keep", 1, 90),
+        "backup_dir": str(LOOP_BACKUP_DIR),
         "persona": {k: v for k, v in persona_public().items() if k != "text"},
         "active_session": active_session_id(),
         "sessions": session_rows(),
@@ -1493,16 +1583,24 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
     for name, lo, hi in (
         ("history_n", 0, 200),
         ("history_images", 0, 20),
+        ("max_reply_tokens", 256, 32768),
         ("compact_threshold", 20, 2000),
         ("compact_keep_recent", 2, 1000),
         ("max_tool_steps", 0, 50),
+        ("backup_interval_hours", 1, 168),
+        ("backup_keep", 1, 90),
     ):
         if name in body:
             try:
                 cfg[name] = max(lo, min(int(body.get(name) or 0), hi))
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"{name} must be an integer")
-    for name in ("context_compaction", "compact_to_ombre", "ombre_auto_recall", "context_injection", "context_time"):
+    if "temperature" in body:
+        try:
+            cfg["temperature"] = max(0.0, min(float(body.get("temperature")), 2.0))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="temperature must be a number")
+    for name in ("context_compaction", "compact_to_ombre", "ombre_auto_recall", "context_injection", "context_time", "backup_enabled"):
         if name in body:
             value = body.get(name)
             if isinstance(value, bool):
@@ -1560,6 +1658,50 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
     return public_config()
 
 
+def create_backup() -> dict[str, Any]:
+    """Create a private local snapshot without interrupting the running relay."""
+    LOOP_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        os.chmod(LOOP_BACKUP_DIR, 0o700)
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    target = LOOP_BACKUP_DIR / f"{stamp}-{uuid.uuid4().hex[:4]}"
+    target.mkdir(mode=0o700)
+    copied: list[str] = []
+    relay_path = Path(RELAY_DB)
+    if relay_path.exists():
+        with sqlite3.connect(str(relay_path)) as source, sqlite3.connect(str(target / "relay.db")) as dest:
+            source.backup(dest)
+        copied.append("relay.db")
+    for source, name in (
+        (LOOP_CONFIG, "api_loop.config.json"),
+        (HERE / ".env", "service.env"),
+        (persona_path(), "persona.md"),
+    ):
+        if source and Path(source).exists():
+            shutil.copy2(str(source), str(target / name))
+            with contextlib.suppress(OSError):
+                os.chmod(target / name, 0o600)
+            copied.append(name)
+    manifest = {"created_at": now_iso(), "files": copied, "relay_db": str(relay_path)}
+    (target / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    keep = cfg_int("backup_keep", 1, 90)
+    snapshots = sorted((p for p in LOOP_BACKUP_DIR.iterdir() if p.is_dir()), reverse=True)
+    for old in snapshots[keep:]:
+        shutil.rmtree(old, ignore_errors=True)
+    return {"ok": True, "path": str(target), "files": copied, "kept": min(len(snapshots), keep)}
+
+
+async def backup_worker() -> None:
+    while True:
+        if cfg_bool("backup_enabled"):
+            try:
+                result = await asyncio.to_thread(create_backup)
+                print(f"[backup] created {result['path']}", flush=True)
+            except Exception as exc:
+                print(f"[backup] failed: {type(exc).__name__}: {exc}", flush=True)
+        await asyncio.sleep(cfg_int("backup_interval_hours", 1, 168) * 3600)
+
+
 # ---------------------------------------------------------------------------
 # HTTP surface
 # ---------------------------------------------------------------------------
@@ -1568,9 +1710,13 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
 async def lifespan(_: FastAPI):
     LOOP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     await mcp_manager.start_all()
+    backup_task = asyncio.create_task(backup_worker())
     try:
         yield
     finally:
+        backup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await backup_task
         await mcp_manager.stop_all()
 
 
@@ -1583,6 +1729,8 @@ async def healthz():
         "ok": True,
         "models": [r.get("model") for r in main_chain()],
         "history_n": history_n(),
+        "temperature": model_temperature(),
+        "max_reply_tokens": max_reply_tokens(),
         "context_compaction": cfg_bool("context_compaction"),
         "ombre_auto_recall": cfg_bool("ombre_auto_recall"),
         "context_injection": cfg_bool("context_injection"),
@@ -1590,6 +1738,8 @@ async def healthz():
         "context_timezone": str(load_config().get("context_timezone", CONFIG_DEFAULTS["context_timezone"])),
         "compact_threshold": cfg_int("compact_threshold", 20, 2000),
         "compact_keep_recent": cfg_int("compact_keep_recent", 2, 1000),
+        "backup_enabled": cfg_bool("backup_enabled"),
+        "backup_dir": str(LOOP_BACKUP_DIR),
         "relay_db": RELAY_DB,
         "relay_secret_loaded": bool(RELAY_SECRET),
         "persona_source": persona_public()["source"],
@@ -1606,6 +1756,14 @@ async def loop_config():
 @app.post("/loop/config")
 async def loop_config_update(request: Request):
     return update_config(await request.json())
+
+
+@app.post("/loop/backup")
+async def loop_backup_now():
+    try:
+        return await asyncio.to_thread(create_backup)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"backup failed: {type(exc).__name__}: {exc}"[:600]) from exc
 
 
 @app.get("/loop/persona")
@@ -1794,6 +1952,19 @@ async def loop_sessions_patch(session_id: str, request: Request):
     return patch_session(session_id, await request.json())
 
 
+@app.delete("/loop/sessions/{session_id}")
+async def loop_sessions_delete(session_id: str):
+    return delete_session(session_id)
+
+
+@app.patch("/loop/messages/{message_id}")
+async def loop_message_patch(message_id: int, request: Request):
+    body = await request.json()
+    if "visible" not in body:
+        raise HTTPException(status_code=400, detail="visible required")
+    return set_message_visibility(message_id, bool(body.get("visible")))
+
+
 @app.post("/loop/cancel")
 async def loop_cancel(request: Request):
     body = await request.json()
@@ -1841,6 +2012,8 @@ async def loop_ingest(request: Request):
         raise HTTPException(status_code=400, detail="empty text")
     session_id = str(body.get("session_id") or body.get("api_session") or active_session_id() or "").strip()
     dry = bool(body.get("dry"))
+    if session_id and not dry:
+        touch_session(session_id)
     task = asyncio.current_task()
     if task is not None:
         _active_turns.setdefault(session_id, set()).add(task)

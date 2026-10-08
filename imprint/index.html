@@ -180,8 +180,13 @@
       .session-head-actions { display: flex; gap: 8px; }
       .new-chat { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.75); cursor: pointer; font-size: 1.25rem; }
       .session-close, .session-toggle, .session-scrim { display: none; }
-      .session-item { width: 100%; margin-bottom: 7px; padding: 14px; border: 0; border-radius: 16px; background: transparent; text-align: left; cursor: pointer; }
+      .session-entry { position: relative; margin-bottom: 7px; }
+      .session-item { width: 100%; padding: 14px 70px 14px 14px; border: 0; border-radius: 16px; background: transparent; text-align: left; cursor: pointer; }
       .session-item.active { background: rgba(255,255,255,.82); box-shadow: 0 9px 24px rgba(75,111,151,.1); }
+      .session-actions { position: absolute; right: 7px; top: 50%; display: flex; gap: 3px; transform: translateY(-50%); opacity: 0; transition: opacity .18s ease; }
+      .session-entry:hover .session-actions, .session-entry:focus-within .session-actions { opacity: 1; }
+      .session-action { width: 28px; height: 28px; border: 0; border-radius: 9px; background: rgba(235,245,253,.9); color: #71849c; cursor: pointer; font-size: .72rem; }
+      .session-action.danger { color: #a26f7a; }
       .session-title { display: block; font-size: .92rem; }
       .session-preview { display: block; margin-top: 6px; color: var(--muted); font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -195,12 +200,14 @@
       .messages { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 36px clamp(22px, 5vw, 70px); scroll-behavior: smooth; }
       .day-divider { display: flex; align-items: center; gap: 14px; margin: 0 auto 28px; color: #8a9bb0; font-size: .72rem; letter-spacing: .12em; }
       .day-divider::before, .day-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
-      .message { max-width: 74%; margin-bottom: 20px; padding: 17px 19px; border-radius: 20px; font-size: 1rem; line-height: 1.75; white-space: pre-wrap; }
+      .message { position: relative; max-width: 74%; margin-bottom: 20px; padding: 17px 19px; border-radius: 20px; font-size: 1rem; line-height: 1.75; white-space: pre-wrap; }
       .message.ai { background: rgba(248,253,254,.86); border: 1px solid rgba(255,255,255,.9); border-bottom-left-radius: 7px; box-shadow: 0 10px 28px rgba(80,117,157,.1); }
       .message.user { margin-left: auto; background: linear-gradient(140deg, #b9d7ff, #a7ccff); border-bottom-right-radius: 7px; }
       .message.act { max-width: 62%; padding: 10px 14px; color: #6985a6; background: rgba(218,238,255,.58); border-radius: 14px; font-size: .82rem; box-shadow: none; }
       .message.streaming::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 4px; vertical-align: -.14em; background: #6e9ed8; animation: blink .72s infinite alternate; }
       .message-time { display: block; margin-top: 7px; opacity: .55; font-size: .7rem; }
+      .message-hide { position: absolute; top: -10px; right: 8px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 9px; background: rgba(248,253,254,.96); color: #7b8ba0; cursor: pointer; font-size: .68rem; opacity: 0; transition: opacity .18s ease; }
+      .message:hover .message-hide, .message:focus-within .message-hide { opacity: 1; }
 
       .composer-wrap { padding: 16px 24px calc(18px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(248,253,254,.68); backdrop-filter: blur(16px); }
       .composer { max-width: 790px; margin: auto; display: flex; align-items: flex-end; gap: 10px; padding: 9px 10px 9px 15px; border: 1px solid rgba(91,132,179,.18); border-radius: 22px; background: rgba(255,255,255,.83); box-shadow: 0 10px 30px rgba(58,100,148,.1); }
@@ -314,11 +321,13 @@
         .session-close { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.72); cursor: pointer; }
         .session-scrim { position: fixed; z-index: 45; inset: 0; background: rgba(42,60,84,.24); backdrop-filter: blur(3px); }
         .session-scrim.open { display: block; }
+        .session-actions { opacity: 1; }
         .conversation { height: 100%; }
         .chat-head { padding: calc(16px + env(safe-area-inset-top)) 18px 14px; }
         .session-toggle { display: grid; }
         .messages { padding: 28px 17px; }
         .message { max-width: 87%; font-size: .97rem; }
+        .message-hide { opacity: .62; }
         .composer-wrap { padding: 12px 12px 14px; }
         .demo-note { display: none; }
         .memories-view { padding: calc(22px + env(safe-area-inset-top)) 16px 18px; gap: 14px; }
@@ -450,6 +459,8 @@
               <div class="number-grid">
                 <div class="field"><label for="historyN">上文条数</label><input id="historyN" type="number" min="0" max="200"></div>
                 <div class="field"><label for="historyImages">历史图片</label><input id="historyImages" type="number" min="0" max="20"></div>
+                <div class="field"><label for="temperature">回复随机度</label><input id="temperature" type="number" min="0" max="2" step="0.1"></div>
+                <div class="field"><label for="maxReplyTokens">最大回复 Token</label><input id="maxReplyTokens" type="number" min="256" max="32768" step="256"></div>
                 <div class="field"><label for="compactThreshold">压缩阈值</label><input id="compactThreshold" type="number" min="20" max="2000"></div>
                 <div class="field"><label for="compactKeep">保留近期</label><input id="compactKeep" type="number" min="2" max="1000"></div>
                 <div class="field"><label for="toolSteps">工具步数</label><input id="toolSteps" type="number" min="0" max="50"></div>
@@ -464,6 +475,17 @@
               <div class="field"><label for="contextNotes">固定背景资料</label><textarea id="contextNotes" maxlength="12000" placeholder="只写每轮都必须知道、且不应被压缩丢失的事实。普通聊天记忆交给 Ombre。"></textarea></div>
               <div class="settings-actions"><button class="primary-button" id="saveContext" type="button">保存上下文设置</button></div>
               <div class="settings-hint" id="contextHint"></div>
+            </article>
+            <article class="settings-card">
+              <h3>自动备份</h3>
+              <p>定时备份聊天数据库、API 配置和系统提示词，备份只保存在你的 VPS 私有目录。</p>
+              <label class="check-row"><span>开启自动备份</span><input id="backupEnabled" type="checkbox"></label>
+              <div class="number-grid">
+                <div class="field"><label for="backupInterval">间隔（小时）</label><input id="backupInterval" type="number" min="1" max="168"></div>
+                <div class="field"><label for="backupKeep">保留份数</label><input id="backupKeep" type="number" min="1" max="90"></div>
+              </div>
+              <div class="settings-actions"><button class="primary-button" id="saveBackup" type="button">保存备份设置</button><button class="soft-button" id="backupNow" type="button">立即备份一次</button></div>
+              <div class="settings-hint" id="backupHint"></div>
             </article>
             <article class="settings-card">
               <h3>系统提示词</h3>
@@ -613,12 +635,33 @@
         time.className = 'message-time';
         time.textContent = formatTime(message.ts);
         bubble.appendChild(time);
+        if (Number.isFinite(Number(message.id)) && !message.streaming) {
+          const hide = document.createElement('button');
+          hide.className = 'message-hide';
+          hide.type = 'button';
+          hide.textContent = '隐藏';
+          hide.setAttribute('aria-label', '从聊天和后续上下文中隐藏这条消息');
+          hide.addEventListener('click', async () => {
+            if (!window.confirm('隐藏后，这条消息不会再显示，也不会继续发送给模型。确定吗？')) return;
+            hide.disabled = true;
+            try {
+              await loopApi(`messages/${encodeURIComponent(message.id)}`, 'PATCH', { visible: false });
+              messageMap.delete(String(message.id));
+              renderMessages();
+              showToast('消息已隐藏，原始数据仍保留在数据库中');
+            } catch (error) {
+              hide.disabled = false;
+              showToast(`隐藏失败：${error.message}`);
+            }
+          });
+          bubble.appendChild(hide);
+        }
         return bubble;
       }
 
       function renderMessages() {
         const rows = [...messageMap.values()]
-          .filter(message => sessionMatches(message) && message.kind !== 'thinking')
+          .filter(message => sessionMatches(message) && message.kind !== 'thinking' && message?.meta?.visible !== false)
           .sort((a, b) => Number(a.id) - Number(b.id));
         const drafts = [...streamDrafts.values()].filter(sessionMatches);
         messagesEl.innerHTML = '';
@@ -810,6 +853,8 @@
         renderApiRows();
         document.querySelector('#historyN').value = config.history_n ?? 200;
         document.querySelector('#historyImages').value = config.history_images ?? 2;
+        document.querySelector('#temperature').value = config.temperature ?? 0.7;
+        document.querySelector('#maxReplyTokens').value = config.max_reply_tokens ?? 2000;
         document.querySelector('#compactThreshold').value = config.compact_threshold ?? 120;
         document.querySelector('#compactKeep').value = config.compact_keep_recent ?? 40;
         document.querySelector('#toolSteps').value = config.max_tool_steps ?? 8;
@@ -821,6 +866,10 @@
         document.querySelector('#contextInjection').checked = config.context_injection !== false;
         document.querySelector('#contextTime').checked = config.context_time !== false;
         document.querySelector('#contextNotes').value = config.context_notes || '';
+        document.querySelector('#backupEnabled').checked = config.backup_enabled !== false;
+        document.querySelector('#backupInterval').value = config.backup_interval_hours ?? 24;
+        document.querySelector('#backupKeep').value = config.backup_keep ?? 14;
+        document.querySelector('#backupHint').textContent = `备份目录：${config.backup_dir || 'VPS 私有目录'}`;
         document.querySelector('#apiHint').textContent = apiChain.length
           ? `当前 ${apiChain.length} 个模型，第一行优先。`
           : '还没有配置模型。';
@@ -963,6 +1012,8 @@
           const config = await loopApi('config', 'POST', {
             history_n: Number(document.querySelector('#historyN').value),
             history_images: Number(document.querySelector('#historyImages').value),
+            temperature: Number(document.querySelector('#temperature').value),
+            max_reply_tokens: Number(document.querySelector('#maxReplyTokens').value),
             compact_threshold: Number(document.querySelector('#compactThreshold').value),
             compact_keep_recent: Number(document.querySelector('#compactKeep').value),
             max_tool_steps: Number(document.querySelector('#toolSteps').value),
@@ -979,6 +1030,38 @@
           hint.textContent = '✓ 已保存并立即生效';
         } catch (error) {
           hint.textContent = `保存失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      document.querySelector('#saveBackup').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        const hint = document.querySelector('#backupHint');
+        button.disabled = true;
+        try {
+          const config = await loopApi('config', 'POST', {
+            backup_enabled: document.querySelector('#backupEnabled').checked,
+            backup_interval_hours: Number(document.querySelector('#backupInterval').value),
+            backup_keep: Number(document.querySelector('#backupKeep').value)
+          });
+          applySettings(config);
+          hint.textContent = `✓ 已保存 · ${config.backup_dir}`;
+        } catch (error) {
+          hint.textContent = `保存失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      document.querySelector('#backupNow').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        const hint = document.querySelector('#backupHint');
+        button.disabled = true;
+        hint.textContent = '正在备份…';
+        try {
+          const result = await loopApi('backup', 'POST');
+          hint.textContent = `✓ 已备份 ${Array.isArray(result.files) ? result.files.length : 0} 个文件 · ${result.path}`;
+        } catch (error) {
+          hint.textContent = `备份失败：${error.message}`;
         } finally {
           button.disabled = false;
         }
@@ -1006,6 +1089,8 @@
         sessionListEl.innerHTML = '';
         const all = [{ id: LEGACY_SESSION, title: '旧主线', since_id: 0 }, ...sessions];
         all.forEach(item => {
+          const entry = document.createElement('div');
+          entry.className = 'session-entry';
           const button = document.createElement('button');
           button.className = `session-item${item.id === activeSession ? ' active' : ''}`;
           button.type = 'button';
@@ -1014,12 +1099,78 @@
           title.textContent = item.title || '新对话';
           const preview = document.createElement('span');
           preview.className = 'session-preview';
-          preview.textContent = item.id === LEGACY_SESSION ? '较早的聊天记录' : `从消息 #${item.since_id || 0} 开始`;
+          preview.textContent = item.id === LEGACY_SESSION
+            ? '较早的聊天记录'
+            : `更新于 ${item.updated_at ? new Date(item.updated_at).toLocaleDateString('zh-CN') : '今天'}`;
           button.append(title, preview);
           button.addEventListener('click', () => selectSession(item.id));
-          sessionListEl.appendChild(button);
+          entry.appendChild(button);
+          if (item.id !== LEGACY_SESSION) {
+            const actions = document.createElement('div');
+            actions.className = 'session-actions';
+            const rename = document.createElement('button');
+            rename.className = 'session-action';
+            rename.type = 'button';
+            rename.textContent = '改';
+            rename.setAttribute('aria-label', '重命名会话');
+            rename.addEventListener('click', event => {
+              event.stopPropagation();
+              renameSession(item.id);
+            });
+            const remove = document.createElement('button');
+            remove.className = 'session-action danger';
+            remove.type = 'button';
+            remove.textContent = '删';
+            remove.setAttribute('aria-label', '删除会话');
+            remove.addEventListener('click', event => {
+              event.stopPropagation();
+              deleteSession(item.id);
+            });
+            actions.append(rename, remove);
+            entry.appendChild(actions);
+          }
+          sessionListEl.appendChild(entry);
         });
         updateSessionHeader();
+      }
+
+      async function renameSession(id) {
+        const row = sessions.find(item => item.id === id);
+        if (!row) return;
+        const title = window.prompt('新的聊天名称', row.title || '新对话');
+        if (title == null || !title.trim()) return;
+        try {
+          const data = await loopApi(`sessions/${encodeURIComponent(id)}`, 'PATCH', { title: title.trim().slice(0, 80) });
+          sessions = Array.isArray(data.sessions) ? data.sessions : sessions;
+          renderSessions();
+          showToast('聊天名称已更新');
+        } catch (error) {
+          showToast(`重命名失败：${error.message}`);
+        }
+      }
+
+      async function deleteSession(id) {
+        if (generationActive) {
+          showToast('请先停止当前回复，再删除聊天');
+          return;
+        }
+        const row = sessions.find(item => item.id === id);
+        if (!row || !window.confirm(`确定删除“${row.title || '新对话'}”吗？该窗口的聊天记录会一起删除，Ombre 长期记忆不会删除。`)) return;
+        try {
+          const wasActive = activeSession === id;
+          const data = await loopApi(`sessions/${encodeURIComponent(id)}`, 'DELETE');
+          sessions = Array.isArray(data.sessions) ? data.sessions : sessions.filter(item => item.id !== id);
+          if (wasActive) {
+            activeSession = data.active_session || sessions.at(-1)?.id || LEGACY_SESSION;
+            backendActiveSession = data.active_session || '';
+            localStorage.setItem(SESSION_KEY, activeSession);
+            await loadHistory();
+          }
+          renderSessions();
+          showToast(`已删除聊天及 ${data.deleted_messages || 0} 条消息`);
+        } catch (error) {
+          showToast(`删除失败：${error.message}`);
+        }
       }
 
       async function loadSessions() {

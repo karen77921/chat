@@ -661,6 +661,41 @@ def patch_message(message_id: int, body: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "id": int(message_id), "text": text, "meta": meta}
 
 
+def batch_source(raw_ids: list[Any], session_id: str) -> dict[str, Any]:
+    try:
+        ids = [int(value) for value in raw_ids]
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="invalid batch_ids") from exc
+    if not ids or len(ids) > 500 or ids != sorted(set(ids)) or ids[0] <= 0:
+        raise HTTPException(status_code=400, detail="invalid batch_ids")
+    placeholders = ",".join("?" for _ in ids)
+    with sqlite3.connect(RELAY_DB) as conn:
+        rows = conn.execute(
+            f"SELECT id, direction, kind, text, meta FROM messages WHERE id IN ({placeholders}) ORDER BY id ASC",
+            ids,
+        ).fetchall()
+    if len(rows) != len(ids):
+        raise HTTPException(status_code=404, detail="batch message not found")
+    texts: list[str] = []
+    attachments: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            meta = json.loads(row[4] or "{}")
+        except Exception:
+            meta = {}
+        if row[1] != "in" or row[2] not in {"user", "voice"} or str(meta.get("api_session") or "") != session_id:
+            raise HTTPException(status_code=400, detail="batch session mismatch")
+        if meta.get("visible") is False:
+            continue
+        text = str(row[3] or "").strip()
+        if text:
+            texts.append(text)
+        attachments.extend(att for att in meta.get("attachments") or [] if isinstance(att, dict))
+    if not texts and not attachments:
+        raise HTTPException(status_code=400, detail="batch is hidden or empty")
+    return {"id": ids[0], "text": "\n\n".join(texts), "attachments": attachments, "session_id": session_id}
+
+
 def regeneration_source(reply_message_id: int, requested_session: str = "") -> dict[str, Any]:
     path = Path(RELAY_DB)
     if not path.exists():
@@ -695,6 +730,12 @@ def regeneration_source(reply_message_id: int, requested_session: str = "") -> d
             ).fetchone()
     if source is None:
         raise HTTPException(status_code=404, detail="source user message not found")
+    try:
+        source_meta = json.loads(source[2] or "{}")
+    except Exception:
+        source_meta = {}
+    if isinstance(source_meta.get("batch_ids"), list):
+        return batch_source(source_meta["batch_ids"], session_id)
     return {
         "id": int(source[0]),
         "text": str(source[1] or ""),
@@ -2109,6 +2150,11 @@ async def loop_ingest(request: Request):
     if not text and not atts:
         raise HTTPException(status_code=400, detail="empty text")
     session_id = str(body.get("session_id") or body.get("api_session") or active_session_id() or "").strip()
+    if isinstance(body.get("batch_ids"), list) and body["batch_ids"]:
+        batch = batch_source(body["batch_ids"], session_id)
+        if before_id is not None and before_id != body["batch_ids"][-1]:
+            raise HTTPException(status_code=400, detail="batch id mismatch")
+        text, atts, before_id = batch["text"], batch["attachments"], batch["id"]
     dry = bool(body.get("dry"))
     return await tracked_turn(text, atts, before_id, session_id, dry=dry)
 

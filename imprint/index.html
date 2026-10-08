@@ -231,11 +231,13 @@
       .composer-context-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .composer-context-close { width: 25px; height: 25px; flex: 0 0 auto; border: 0; border-radius: 8px; background: rgba(218,238,255,.7); cursor: pointer; }
       .composer { max-width: 790px; margin: auto; display: flex; align-items: flex-end; gap: 10px; padding: 9px 10px 9px 15px; border: 1px solid rgba(91,132,179,.18); border-radius: 22px; background: rgba(255,255,255,.83); box-shadow: 0 10px 30px rgba(58,100,148,.1); }
-      textarea { flex: 1; resize: none; min-height: 42px; max-height: 124px; padding: 10px 2px; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 1rem; line-height: 1.4; }
+      textarea { flex: 1; min-width: 0; resize: none; min-height: 42px; max-height: 124px; padding: 10px 2px; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 1rem; line-height: 1.4; }
       textarea::placeholder { color: #9cacc0; }
       .send { width: 42px; height: 42px; flex: 0 0 auto; border: 0; border-radius: 15px; background: #2c3b56; color: white; cursor: pointer; display: grid; place-items: center; transition: .2s ease; }
       .send:disabled { opacity: .28; cursor: default; }
       .send svg { width: 19px; height: 19px; }
+      .stage-message { min-width: 62px; height: 42px; flex: 0 0 auto; padding: 0 10px; border: 1px solid var(--line); border-radius: 14px; background: rgba(218,238,255,.72); color: #3c608a; cursor: pointer; font-size: .76rem; }
+      .stage-message:disabled { opacity: .42; cursor: default; }
       .stop-generation { width: 42px; height: 42px; flex: 0 0 auto; border: 0; border-radius: 15px; background: #2c3b56; color: white; cursor: pointer; display: grid; place-items: center; }
       .stop-generation::before { content: ""; width: 13px; height: 13px; border-radius: 3px; background: currentColor; }
       .stop-generation:disabled { opacity: .56; cursor: wait; }
@@ -361,7 +363,8 @@
         .composer { gap: 7px; padding: 7px 8px 7px 13px; }
         textarea { min-height: 38px; padding: 8px 1px; }
         .send, .stop-generation { width: 39px; height: 39px; border-radius: 13px; }
-        .demo-note { display: none; }
+        .stage-message { min-width: 56px; height: 39px; padding: 0 7px; font-size: .7rem; }
+        .demo-note { margin-top: 6px; font-size: .66rem; }
         .memories-view { padding: calc(22px + env(safe-area-inset-top)) 16px 18px; gap: 14px; }
         .memories-head { display: grid; align-items: start; }
         .memories-title h2 { font-size: 2.7rem; }
@@ -456,10 +459,11 @@
                 <form class="composer" id="composer">
                   <label class="sr-only" for="messageInput">输入消息</label>
                   <textarea id="messageInput" rows="1" placeholder="留下点什么……"></textarea>
-                  <button class="send" id="sendButton" type="submit" disabled aria-label="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg></button>
+                  <button class="stage-message" id="stageButton" type="button" disabled>发一段</button>
+                  <button class="send" id="sendButton" type="submit" disabled aria-label="触发回复" title="让 AI 回复"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg></button>
                   <button class="stop-generation" id="stopButton" type="button" aria-label="停止生成" hidden></button>
                 </form>
-                <p class="demo-note" id="composerNote">Enter 发送 · Shift + Enter 换行</p>
+                <p class="demo-note" id="composerNote">回车发一段 · 点纸飞机让 AI 回复</p>
               </div>
             </section>
           </div>
@@ -560,6 +564,7 @@
       const navButtons = [...document.querySelectorAll('[data-view]')];
       const input = document.querySelector('#messageInput');
       const send = document.querySelector('#sendButton');
+      const stageButton = document.querySelector('#stageButton');
       const stopButton = document.querySelector('#stopButton');
       const messagesEl = document.querySelector('#messages');
       const sessionListEl = document.querySelector('#sessionList');
@@ -593,6 +598,8 @@
       let stream = null;
       let typing = false;
       let sending = false;
+      let triggering = false;
+      let pumpPromise = null;
       let generationActive = false;
       let cancelling = false;
       let generationTimer = null;
@@ -611,27 +618,44 @@
         toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
       }
 
+      function stagedCount() {
+        return [...messageMap.values()].filter(message =>
+          sessionMatches(message) && message?.meta?.deferred === true &&
+          message?.meta?.reply_requested !== true && message?.meta?.visible !== false && !message.failed
+        ).length;
+      }
+
+      function hasFailedSegments() {
+        return [...messageMap.values()].some(message => sessionMatches(message) && message.failed);
+      }
+
+      function updateComposer() {
+        const count = stagedCount();
+        stageButton.disabled = triggering || !input.value.trim();
+        send.disabled = triggering || generationActive || (!input.value.trim() && !count);
+        if (!generationActive) {
+          composerNote.textContent = count
+            ? `${count} 段待回复 · 点纸飞机开始`
+            : '回车发一段 · 点纸飞机让 AI 回复';
+        }
+      }
+
       function setGeneration(active, label = '') {
-        const wasActive = generationActive;
         generationActive = Boolean(active);
         stopButton.hidden = !generationActive;
-        send.hidden = false;
+        send.hidden = generationActive;
         input.disabled = false;
         clearTimeout(generationTimer);
         if (generationActive) {
-          const waiting = pendingQueue.length ? ` · ${pendingQueue.length} 条等待发送` : '';
-          composerNote.textContent = `${label || '正在生成回复，可以随时停止'}${waiting}`;
+          composerNote.textContent = label || '正在生成回复，可以随时停止';
           generationTimer = setTimeout(() => {
             if (!generationActive) return;
             chatStateEl.textContent = '回复时间较长，仍在等待…';
-            composerNote.textContent = `仍在等待，可以停止${pendingQueue.length ? ` · ${pendingQueue.length} 条排队中` : ''}`;
+            composerNote.textContent = '仍在等待，可以停止；新消息可继续发一段';
           }, 25000);
-        } else {
-          composerNote.textContent = pendingQueue.length ? `${pendingQueue.length} 条消息等待发送` : 'Enter 发送 · Shift + Enter 换行';
         }
         if (!generationActive) cancelling = false;
-        send.disabled = !input.value.trim();
-        if (wasActive && !generationActive) queueMicrotask(drainQueue);
+        updateComposer();
       }
 
       function openSessionPanel() {
@@ -782,13 +806,12 @@
         messageMap.delete(String(message.id));
         pendingQueue = pendingQueue.filter(item => item.localId !== message.id);
         renderMessages();
-        enqueueMessage(message.rawText || message.text, message.quote || null);
+        enqueueSegment(message.rawText || message.text, message.quote || null);
       }
 
       function cancelQueuedMessage(message) {
         pendingQueue = pendingQueue.filter(item => item.localId !== message.id);
         messageMap.delete(String(message.id));
-        setGeneration(generationActive, generationActive ? '正在生成回复，可以随时停止' : '');
         renderMessages();
       }
 
@@ -827,10 +850,12 @@
         const time = document.createElement('span');
         time.className = 'message-time';
         time.textContent = formatTime(message.ts);
-        if (message.queued || message.failed || message?.meta?.edited_at) {
+        if (message.queued || message.failed || message?.meta?.edited_at ||
+            (message?.meta?.deferred && !message?.meta?.reply_requested)) {
           const state = document.createElement('span');
           state.className = 'message-state';
-          state.textContent = message.failed ? '发送失败' : message.queued ? '等待发送' : '已编辑';
+          state.textContent = message.failed ? '发送失败' : message.queued ? '发送中' :
+            message?.meta?.deferred && !message?.meta?.reply_requested ? '待回复' : '已编辑';
           time.appendChild(state);
         }
         bubble.appendChild(time);
@@ -885,6 +910,7 @@
           empty.className = 'empty-chat';
           empty.innerHTML = '<strong>一页新的空白</strong>在下面写下第一句话。';
           messagesEl.appendChild(empty);
+          updateComposer();
           return;
         }
         const divider = document.createElement('div');
@@ -903,6 +929,7 @@
           messagesEl.appendChild(row);
         }
         requestAnimationFrame(scrollToBottom);
+        updateComposer();
       }
 
       function putMessage(message) {
@@ -1368,8 +1395,8 @@
       }
 
       async function deleteSession(id) {
-        if (generationActive || sending || pendingQueue.length) {
-          showToast('请先停止回复并处理排队消息，再删除聊天');
+        if (generationActive || sending || pendingQueue.length || hasFailedSegments()) {
+          showToast('请先处理正在发送或发送失败的片段，再删除聊天');
           return;
         }
         const row = sessions.find(item => item.id === id);
@@ -1424,8 +1451,8 @@
 
       async function selectSession(id) {
         if (!id || id === activeSession) return;
-        if (generationActive || sending || pendingQueue.length) {
-          showToast('请先停止回复并处理排队消息，再切换聊天');
+        if (generationActive || sending || pendingQueue.length || hasFailedSegments()) {
+          showToast('请先处理正在发送或发送失败的片段，再切换聊天');
           return;
         }
         activeSession = id;
@@ -1444,8 +1471,8 @@
       }
 
       async function createSession() {
-        if (generationActive || sending || pendingQueue.length) {
-          showToast('请先停止回复并处理排队消息，再新建聊天');
+        if (generationActive || sending || pendingQueue.length || hasFailedSegments()) {
+          showToast('请先处理正在发送或发送失败的片段，再新建聊天');
           return;
         }
         try {
@@ -1487,7 +1514,20 @@
       }
 
       function handleStreamEvent(event) {
+        if (event.type === 'batch_triggered') {
+          if (!sessionMatches(event)) return;
+          for (const id of event.message_ids || []) {
+            const message = messageMap.get(String(id));
+            if (message) {
+              message.meta = { ...(message.meta || {}), reply_requested: true };
+              putMessage(message);
+            }
+          }
+          renderMessages();
+          return;
+        }
         if (event.type === 'typing') {
+          if (event.api_session != null && !sessionMatches(event)) return;
           typing = Boolean(event.active);
           setGeneration(typing, typing ? '正在准备回复…' : '');
           renderMessages();
@@ -1618,13 +1658,13 @@
           ts: item.ts,
           queued: Boolean(item.queued),
           failed: Boolean(item.failed),
-          meta: activeSession === LEGACY_SESSION ? {} : { api_session: item.sessionId }
+          meta: { ...(item.sessionId ? { api_session: item.sessionId } : {}), deferred: true, reply_requested: false }
         };
       }
 
-      function enqueueMessage(rawText, quote = null) {
+      function enqueueSegment(rawText, quote = null) {
         const clean = String(rawText || '').trim();
-        if (!clean) return;
+        if (!clean) return Promise.resolve(false);
         const quoted = quote?.text ? `> 引用：${quote.text.replace(/\s+/g, ' ').trim().slice(0, 180)}\n\n` : '';
         const item = {
           localId: `local-${Date.now()}-${++localSequence}`,
@@ -1633,90 +1673,128 @@
           text: quoted + clean,
           ts: new Date().toISOString(),
           sessionId: activeSession === LEGACY_SESSION ? '' : activeSession,
-          queued: generationActive || sending,
+          queued: true,
           failed: false
         };
         putMessage(localMessage(item));
-        if (item.queued) {
-          pendingQueue.push(item);
-          setGeneration(generationActive, generationActive ? '正在生成回复，可以随时停止' : '正在发送上一条消息…');
-          renderMessages();
-          return;
-        }
-        dispatchMessage(item);
-      }
-
-      async function drainQueue() {
-        if (generationActive || sending || !pendingQueue.length) return;
-        const item = pendingQueue.shift();
-        if (!messageMap.has(String(item.localId))) {
-          drainQueue();
-          return;
-        }
-        item.queued = false;
-        putMessage(localMessage(item));
+        pendingQueue.push(item);
         renderMessages();
-        await dispatchMessage(item);
+        return pumpSegments();
       }
 
-      async function dispatchMessage(item) {
-        if (!item?.text || sending) return;
+      function pumpSegments() {
+        if (pumpPromise) return pumpPromise;
+        pumpPromise = (async () => {
+          while (pendingQueue.length) {
+            const item = pendingQueue.shift();
+            if (messageMap.has(String(item.localId))) await dispatchSegment(item);
+          }
+        })().finally(() => {
+          pumpPromise = null;
+          updateComposer();
+          if (pendingQueue.length) queueMicrotask(pumpSegments);
+        });
+        return pumpPromise;
+      }
+
+      async function dispatchSegment(item) {
         sending = true;
         item.queued = false;
         item.failed = false;
         putMessage(localMessage(item));
         renderMessages();
         try {
-          const payload = { text: item.text };
+          const payload = { text: item.text, defer: true };
           if (item.sessionId) payload.api_session = item.sessionId;
           const data = await api('/app/send', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
           });
           messageMap.delete(String(item.localId));
-          putMessage({ id: data.id, from: 'human', kind: 'user', text: item.text, ts: item.ts, meta: item.sessionId ? { api_session: item.sessionId } : {} });
-          typing = true;
-          setGeneration(true, '正在准备回复…');
-          chatStateEl.textContent = '正在准备回复…';
+          putMessage({ id: data.id, from: 'human', kind: 'user', text: item.text, ts: item.ts, meta: data.meta || { api_session: item.sessionId, deferred: true, reply_requested: false } });
           if (item.sessionId) titleSessionFromMessage(item.sessionId, item.rawText);
           renderMessages();
+          return true;
         } catch (error) {
           item.failed = true;
           item.queued = false;
           putMessage(localMessage(item));
-          setGeneration(false);
           renderMessages();
           if (error.message !== 'unauthorized') {
-            if (!input.value) input.value = item.rawText;
-            showToast('发送失败，消息已保留，可以重试');
+            showToast('这一段发送失败，点消息旁的 ••• 重试');
           }
+          return false;
         } finally {
           sending = false;
-          send.disabled = !input.value.trim();
-          if (!generationActive) queueMicrotask(drainQueue);
+          updateComposer();
+        }
+      }
+
+      function consumeInput(force = false) {
+        if (triggering && !force) return Promise.resolve(false);
+        const text = input.value.trim();
+        if (!text) return Promise.resolve(false);
+        const quote = replyTarget;
+        input.value = '';
+        input.style.height = 'auto';
+        clearReplyTarget();
+        updateComposer();
+        return enqueueSegment(text, quote);
+      }
+
+      async function triggerReply() {
+        if (triggering || generationActive) return;
+        triggering = true;
+        updateComposer();
+        try {
+          if (input.value.trim()) await consumeInput(true);
+          if (pumpPromise) await pumpPromise;
+          if ([...messageMap.values()].some(message => sessionMatches(message) && message.failed)) {
+            showToast('有一段发送失败，请先重试或删除');
+            return;
+          }
+          if (!stagedCount()) {
+            showToast('先发一段消息，再点纸飞机');
+            return;
+          }
+          const sessionId = activeSession === LEGACY_SESSION ? '' : activeSession;
+          const result = await api('/app/trigger', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_session: sessionId })
+          });
+          for (const id of result.message_ids || []) {
+            const message = messageMap.get(String(id));
+            if (message) {
+              message.meta = { ...(message.meta || {}), reply_requested: true };
+              putMessage(message);
+            }
+          }
+          typing = true;
+          setGeneration(true, '正在准备回复…');
+          chatStateEl.textContent = '正在准备回复…';
+          renderMessages();
+        } catch (error) {
+          if (error.message !== 'unauthorized') showToast(`触发回复失败：${error.message}`);
+        } finally {
+          triggering = false;
+          updateComposer();
         }
       }
 
       input.addEventListener('input', () => {
-        send.disabled = !input.value.trim();
+        updateComposer();
         input.style.height = 'auto';
         input.style.height = `${Math.min(input.scrollHeight, 124)}px`;
       });
       input.addEventListener('keydown', event => {
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
           event.preventDefault();
-          document.querySelector('#composer').requestSubmit();
+          consumeInput();
         }
       });
+      stageButton.addEventListener('click', () => consumeInput());
       document.querySelector('#composer').addEventListener('submit', event => {
         event.preventDefault();
-        const text = input.value.trim();
-        if (!text) return;
-        const quote = replyTarget;
-        input.value = '';
-        input.style.height = 'auto';
-        clearReplyTarget();
-        send.disabled = true;
-        enqueueMessage(text, quote);
+        triggerReply();
       });
       document.querySelectorAll('.new-chat, [aria-label="新建会话"]').forEach(button => button.addEventListener('click', createSession));
       loginForm.addEventListener('submit', async event => {

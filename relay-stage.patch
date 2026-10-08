@@ -1,0 +1,95 @@
+diff --git a/backend/app.py b/backend/app.py
+index c3a2e25..9d26fbc 100644
+--- a/backend/app.py
++++ b/backend/app.py
+@@ -367,6 +367,7 @@ def _forward_to_loop_sync(msg: dict) -> None:
+         "ts": msg.get("ts"),
+         "kind": msg.get("kind"),
+         "session_id": meta.get("api_session") or "",
++        "batch_ids": meta.get("batch_ids") or [],
+         "attachments": meta.get("attachments") or [],  # the loop downloads them via /uploads/{name}
+     }, ensure_ascii=False).encode("utf-8")
+     req = urllib.request.Request(
+@@ -709,23 +710,77 @@ async def app_send(request: Request):
+     text = (body.get("text") or "").strip()
+     attachments = body.get("attachments") if isinstance(body.get("attachments"), list) else []
+     api_session = str(body.get("api_session") or body.get("session_id") or "").strip()
++    defer = body.get("defer") is True
+     if not text and not attachments:
+         raise HTTPException(status_code=400, detail="empty text")
+     meta = {"user": "human", "attachments": attachments}
+     if api_session:
+         meta["api_session"] = api_session
++    if defer:
++        meta.update({"deferred": True, "reply_requested": False})
+     msg = save_message("in", "user", text, meta)
+     # Route to exactly one AI body. "desktop" keeps the Claude Code channel;
+     # "loop" calls the optional server-side API loop.
++    if not defer:
++        if brain_target() == "loop":
++            asyncio.create_task(forward_to_loop(msg))
++        else:
++            await broadcast(plugin_subs, plugin_payload(msg))
++    # echo to the PWA so the sender's bubble + other tabs stay in sync
++    await broadcast(app_subs, app_payload(msg))
++    # the AI starts processing — push a typing state to the PWA
++    if not defer:
++        await broadcast(app_subs, {"type": "typing", "active": True, "api_session": api_session})
++    return {"id": msg["id"], "meta": meta}
++
++
++@app.post("/app/trigger")
++async def app_trigger(request: Request):
++    """Claim this session's saved segments, then ask the AI for one reply."""
++    check_auth(request)
++    body = await request.json()
++    api_session = str(body.get("api_session") or body.get("session_id") or "").strip()
++    if api_session == "__legacy__":
++        api_session = ""
++    with db() as conn:
++        conn.execute("BEGIN IMMEDIATE")
++        rows = conn.execute(
++            "SELECT * FROM messages WHERE direction = 'in' AND kind = 'user' "
++            "AND json_valid(meta) AND json_extract(meta, '$.deferred') = 1 "
++            "AND coalesce(json_extract(meta, '$.reply_requested'), 0) = 0 "
++            "AND coalesce(json_extract(meta, '$.api_session'), '') = ? "
++            "AND coalesce(json_extract(meta, '$.visible'), 1) != 0 ORDER BY id ASC",
++            (api_session,),
++        ).fetchall()
++        if not rows:
++            raise HTTPException(status_code=409, detail="no segments waiting for a reply")
++        if len(rows) > 500:
++            raise HTTPException(status_code=413, detail="too many segments in one reply")
++        claimed_at = now_iso()
++        batch_ids = [row["id"] for row in rows]
++        for row in rows:
++            meta = json.loads(row["meta"] or "{}")
++            meta["reply_requested"] = True
++            meta["reply_requested_at"] = claimed_at
++            if row["id"] == batch_ids[-1]:
++                meta["batch_ids"] = batch_ids
++            conn.execute(
++                "UPDATE messages SET meta = ? WHERE id = ?",
++                (json.dumps(meta, ensure_ascii=False), row["id"]),
++            )
++        last = rows[-1]
++        msg = {
++            "id": last["id"], "ts": last["ts"], "direction": last["direction"],
++            "kind": last["kind"], "text": last["text"],
++            "meta": {**json.loads(last["meta"] or "{}"), "batch_ids": batch_ids},
++        }
+     if brain_target() == "loop":
+         asyncio.create_task(forward_to_loop(msg))
+     else:
+         await broadcast(plugin_subs, plugin_payload(msg))
+-    # echo to the PWA so the sender's bubble + other tabs stay in sync
+-    await broadcast(app_subs, app_payload(msg))
+-    # the AI starts processing — push a typing state to the PWA
+-    await broadcast(app_subs, {"type": "typing", "active": True})
+-    return {"id": msg["id"]}
++    await broadcast(app_subs, {"type": "batch_triggered", "message_ids": batch_ids, "api_session": api_session})
++    await broadcast(app_subs, {"type": "typing", "active": True, "api_session": api_session})
++    return {"ok": True, "message_ids": batch_ids, "count": len(rows)}
+ 
+ 
+ @app.post("/app/upload")

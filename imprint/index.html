@@ -191,27 +191,36 @@
       .session-preview { display: block; margin-top: 6px; color: var(--muted); font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
       .conversation { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
-      .chat-head { padding: 24px 28px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; background: rgba(248,253,254,.34); }
-      .chat-head h2 { margin: 0; font: italic 1.55rem Georgia, serif; }
-      .chat-state { margin-top: 5px; color: var(--muted); font-size: .75rem; }
+      .chat-head { padding: 17px 24px; border-bottom: 1px solid rgba(91,132,179,.1); display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; background: rgba(248,253,254,.72); backdrop-filter: blur(22px); }
+      .chat-identity { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+      .chat-avatar { width: 35px; height: 35px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(145deg, #f8fdfe, #b9d7ff); color: #435e83; font: italic 1.2rem Georgia, serif; box-shadow: 0 4px 14px rgba(91,132,179,.15); }
+      .chat-identity-text { min-width: 0; }
+      .chat-head h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; font-weight: 600; }
+      .chat-state { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .7rem; }
       .head-actions { display: flex; gap: 9px; }
       .icon-button { width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.66); cursor: pointer; display: grid; place-items: center; }
       .icon-button.session-toggle, .icon-button.chat-back { display: none; }
       .icon-button svg { width: 19px; height: 19px; }
-      .messages { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; overflow-anchor: none; padding: 36px clamp(22px, 5vw, 70px); }
+      .messages { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; overflow-anchor: none; padding: 36px clamp(22px, 5vw, 70px); background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(218,238,255,.13)); }
       .day-divider { display: flex; align-items: center; gap: 14px; margin: 0 auto 28px; color: #8a9bb0; font-size: .72rem; letter-spacing: .12em; }
       .day-divider::before, .day-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
       .message-row { position: relative; display: flex; align-items: flex-end; gap: 7px; max-width: 82%; margin-bottom: 20px; }
       .message-row.user { margin-left: auto; flex-direction: row-reverse; }
       .message { position: relative; max-width: 100%; min-width: 58px; padding: 15px 18px; border-radius: 20px; font-size: 1rem; line-height: 1.72; overflow-wrap: anywhere; }
-      .message.ai { background: rgba(248,253,254,.86); border: 1px solid rgba(255,255,255,.9); border-bottom-left-radius: 7px; box-shadow: 0 10px 28px rgba(80,117,157,.1); }
-      .message.user { background: linear-gradient(140deg, #b9d7ff, #a7ccff); border-bottom-right-radius: 7px; }
+      .message.ai { background: rgba(248,253,254,.9); border: 1px solid rgba(255,255,255,.94); border-bottom-left-radius: 7px; box-shadow: 0 5px 20px rgba(80,117,157,.07); }
+      .message.user { background: linear-gradient(140deg, #c6e2ff, #a7ccff); border-bottom-right-radius: 7px; }
       .message.act { max-width: 62%; padding: 10px 14px; color: #6985a6; background: rgba(218,238,255,.58); border-radius: 14px; font-size: .82rem; box-shadow: none; }
       .message.failed { border-color: rgba(181,103,119,.3); background: rgba(255,243,246,.9); }
       .message.queued { opacity: .76; }
       .message.streaming::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 4px; vertical-align: -.14em; background: #6e9ed8; animation: blink .72s infinite alternate; }
       .message-content { display: block; white-space: pre-wrap; }
       .message-content pre { max-width: 100%; margin: 10px 0 2px; padding: 12px 13px; overflow-x: auto; border-radius: 12px; background: rgba(38,52,77,.9); color: #f2f7fb; font: .84rem/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+      .message-attachments { display: grid; gap: 8px; margin-top: 8px; }
+      .message-attachment-image { display: block; width: min(240px, 58vw); max-height: 280px; object-fit: cover; border-radius: 13px; background: rgba(218,238,255,.55); cursor: pointer; }
+      .message-attachment-file { display: flex; align-items: center; gap: 9px; max-width: 250px; padding: 9px 11px; border: 1px solid rgba(91,132,179,.16); border-radius: 12px; background: rgba(255,255,255,.55); color: #435b79; text-align: left; cursor: pointer; }
+      .message-attachment-file span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .attachment-viewer { position: fixed; z-index: 75; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(19,29,47,.88); cursor: zoom-out; }
+      .attachment-viewer img { max-width: 100%; max-height: 90%; object-fit: contain; }
       .message-quote { display: block; margin: 0 0 10px; padding: 8px 10px; border-left: 3px solid rgba(69,112,163,.38); border-radius: 0 9px 9px 0; background: rgba(255,255,255,.38); color: #63758d; font-size: .82rem; line-height: 1.5; }
       .message-time { display: block; margin-top: 7px; opacity: .55; font-size: .7rem; }
       .message-state { display: inline-block; margin-left: 8px; color: #617895; font-size: .68rem; }
@@ -226,11 +235,19 @@
       .message-action.danger { color: #9e6471; }
 
       .composer-wrap { padding: 11px 24px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(248,253,254,.8); backdrop-filter: blur(16px); }
+      .composer-row { max-width: 850px; margin: auto; display: flex; align-items: flex-end; gap: 9px; }
+      .attach-button { width: 44px; height: 44px; flex: 0 0 auto; border: 1px solid rgba(91,132,179,.18); border-radius: 50%; background: rgba(255,255,255,.82); color: #49678c; cursor: pointer; font-size: 1.7rem; line-height: 1; box-shadow: 0 5px 18px rgba(58,100,148,.08); }
+      .attachment-preview { max-width: 850px; margin: 0 auto 8px; display: none; gap: 8px; overflow-x: auto; padding: 2px; }
+      .attachment-preview.show { display: flex; }
+      .attachment-chip { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 230px; flex: 0 0 auto; padding: 5px 6px 5px 5px; border: 1px solid rgba(91,132,179,.15); border-radius: 13px; background: rgba(255,255,255,.82); color: #526985; font-size: .74rem; }
+      .attachment-chip img { width: 36px; height: 36px; border-radius: 9px; object-fit: cover; }
+      .attachment-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .attachment-chip button { width: 25px; height: 25px; flex: 0 0 auto; border: 0; border-radius: 50%; background: #e9f3fc; color: #6b7e98; cursor: pointer; }
       .composer-context { max-width: 790px; margin: 0 auto 7px; display: none; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.7); color: #63758d; font-size: .78rem; }
       .composer-context.show { display: flex; }
       .composer-context-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .composer-context-close { width: 25px; height: 25px; flex: 0 0 auto; border: 0; border-radius: 8px; background: rgba(218,238,255,.7); cursor: pointer; }
-      .composer { max-width: 790px; margin: auto; display: flex; align-items: flex-end; gap: 10px; padding: 9px 10px 9px 15px; border: 1px solid rgba(91,132,179,.18); border-radius: 22px; background: rgba(255,255,255,.83); box-shadow: 0 10px 30px rgba(58,100,148,.1); }
+      .composer { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 10px; padding: 9px 10px 9px 15px; border: 1px solid rgba(91,132,179,.18); border-radius: 22px; background: rgba(255,255,255,.9); box-shadow: 0 10px 30px rgba(58,100,148,.1); }
       textarea { flex: 1; min-width: 0; resize: none; min-height: 42px; max-height: 124px; padding: 10px 2px; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 1rem; line-height: 1.4; }
       textarea::placeholder { color: #9cacc0; }
       .send { width: 42px; height: 42px; flex: 0 0 auto; border: 0; border-radius: 15px; background: #2c3b56; color: white; cursor: pointer; display: grid; place-items: center; transition: .2s ease; }
@@ -241,6 +258,17 @@
       .stop-generation { width: 42px; height: 42px; flex: 0 0 auto; border: 0; border-radius: 15px; background: #2c3b56; color: white; cursor: pointer; display: grid; place-items: center; }
       .stop-generation::before { content: ""; width: 13px; height: 13px; border-radius: 3px; background: currentColor; }
       .stop-generation:disabled { opacity: .56; cursor: wait; }
+      .attach-sheet-scrim { position: fixed; z-index: 69; inset: 0; display: none; background: rgba(27,39,61,.28); backdrop-filter: blur(3px); }
+      .attach-sheet-scrim.open { display: block; }
+      .attach-sheet { position: fixed; z-index: 70; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); width: min(430px, calc(100% - 24px)); padding: 9px; border: 1px solid rgba(255,255,255,.82); border-radius: 23px; background: rgba(245,250,255,.96); box-shadow: 0 24px 70px rgba(35,56,86,.25); visibility: hidden; pointer-events: none; transform: translate(-50%, 120%); transition: transform .22s ease, visibility .22s ease; }
+      .attach-sheet.open { visibility: visible; pointer-events: auto; transform: translate(-50%, 0); }
+      .attach-sheet-title { padding: 9px 12px 11px; color: #8192a7; font-size: .75rem; text-align: center; }
+      .attach-sheet-help { margin: 8px 14px 4px; color: #8b9aab; font-size: .7rem; line-height: 1.5; text-align: center; }
+      .attach-option { width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 14px; border: 0; border-radius: 15px; background: transparent; text-align: left; cursor: pointer; font-size: 1rem; }
+      .attach-option:hover { background: rgba(218,238,255,.55); }
+      .attach-option-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: #dfedfd; color: #4a78af; font-size: 1.1rem; }
+      .attach-cancel { width: 100%; margin-top: 4px; padding: 12px; border: 0; border-radius: 14px; background: white; color: #667891; cursor: pointer; }
+      .file-picker { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
       [hidden] { display: none !important; }
       .demo-note { margin: 7px 0 0; text-align: center; color: #7f90a5; font-size: .7rem; }
       .typing-bubble { display: inline-flex; align-items: center; gap: 5px; min-width: 64px; }
@@ -348,19 +376,23 @@
         .session-scrim.open { display: block; }
         .session-actions { opacity: 1; }
         .conversation { height: 100%; }
-        .chat-head { min-height: 66px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; }
-        .chat-head h2 { font-size: 1.25rem; }
+        .chat-head { min-height: 66px; padding: calc(8px + env(safe-area-inset-top)) 12px 9px; }
+        .chat-head h2 { font-size: .98rem; }
+        .chat-avatar { width: 31px; height: 31px; }
         .icon-button.session-toggle, .icon-button.chat-back { display: grid; }
         .head-actions { gap: 6px; }
         .icon-button { width: 36px; height: 36px; border-radius: 12px; }
         .messages { padding: 22px 13px 26px; }
         .message-row { max-width: 92%; margin-bottom: 16px; }
         .message { font-size: .95rem; padding: 13px 15px; }
+        .message-row.ai .message { -webkit-touch-callout: none; }
         .message-menu-button { opacity: .78; }
         .message-actions { position: fixed; left: 12px !important; right: 12px !important; bottom: calc(12px + env(safe-area-inset-bottom)); justify-content: center; flex-wrap: wrap; padding: 9px; }
         .message-action { padding: 9px 12px; font-size: .78rem; }
         .composer-wrap { padding: 9px 10px calc(9px + env(safe-area-inset-bottom)); }
         body.keyboard-open .composer-wrap { padding-bottom: 9px; }
+        .composer-row { gap: 7px; }
+        .attach-button { width: 39px; height: 39px; font-size: 1.5rem; }
         .composer { gap: 7px; padding: 7px 8px 7px 13px; }
         textarea { min-height: 38px; padding: 8px 1px; }
         .send, .stop-generation { width: 39px; height: 39px; border-radius: 13px; }
@@ -449,21 +481,26 @@
             </aside>
             <section class="conversation">
               <header class="chat-head">
-                <div><h2 id="chatTitle">新的开始</h2><div class="chat-state" id="chatState">正在连接…</div></div>
-                <div class="head-actions"><button class="icon-button chat-back" id="chatBack" aria-label="返回首页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button><button class="icon-button session-toggle" id="sessionToggle" aria-label="会话列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button class="icon-button" aria-label="新建会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></button></div>
+                <button class="icon-button chat-back" id="chatBack" aria-label="返回首页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+                <div class="chat-identity"><span class="chat-avatar" aria-hidden="true">✦</span><div class="chat-identity-text"><h2 id="chatTitle">新的开始</h2><div class="chat-state" id="chatState">正在连接…</div></div></div>
+                <div class="head-actions"><button class="icon-button session-toggle" id="sessionToggle" aria-label="会话列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button class="icon-button" aria-label="新建会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></button></div>
               </header>
               <div class="messages" id="messages">
                 <div class="empty-chat"><strong>正在读取印记</strong>稍等一下，过去的对话正在回来。</div>
               </div>
               <div class="composer-wrap">
                 <div class="composer-context" id="composerContext"><span class="composer-context-text" id="composerContextText"></span><button class="composer-context-close" id="composerContextClose" type="button" aria-label="取消引用">×</button></div>
-                <form class="composer" id="composer">
-                  <label class="sr-only" for="messageInput">输入消息</label>
-                  <textarea id="messageInput" rows="1" placeholder="留下点什么……"></textarea>
-                  <button class="stage-message" id="stageButton" type="button" disabled>发一段</button>
-                  <button class="send" id="sendButton" type="submit" disabled aria-label="触发回复" title="让 AI 回复"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg></button>
-                  <button class="stop-generation" id="stopButton" type="button" aria-label="停止生成" hidden></button>
-                </form>
+                <div class="attachment-preview" id="attachmentPreview" aria-live="polite"></div>
+                <div class="composer-row">
+                  <button class="attach-button" id="attachButton" type="button" aria-label="添加照片或文件" aria-expanded="false">+</button>
+                  <form class="composer" id="composer">
+                    <label class="sr-only" for="messageInput">输入消息</label>
+                    <textarea id="messageInput" rows="1" placeholder="发一条消息……"></textarea>
+                    <button class="stage-message" id="stageButton" type="button" disabled>发一段</button>
+                    <button class="send" id="sendButton" type="submit" disabled aria-label="触发回复" title="让 AI 回复"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg></button>
+                    <button class="stop-generation" id="stopButton" type="button" aria-label="停止生成" hidden></button>
+                  </form>
+                </div>
                 <p class="demo-note" id="composerNote">回车发一段 · 点纸飞机让 AI 回复</p>
               </div>
             </section>
@@ -544,6 +581,19 @@
       <button class="mobile-nav" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.83 2.83A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.4 1.6h-4A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-2.83-2.83A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 13.6v-4A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l2.83-2.83A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10.4 3h4A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l2.83 2.83A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.6 1.4v4a1.7 1.7 0 0 0-1.6.6z"/></svg><span>设置</span></button>
     </nav>
 
+    <div class="attach-sheet-scrim" id="attachSheetScrim"></div>
+    <div class="attach-sheet" id="attachSheet" role="dialog" aria-modal="true" aria-label="添加内容" aria-hidden="true">
+      <div class="attach-sheet-title">添加到聊天</div>
+      <button class="attach-option" id="chooseCamera" type="button"><span class="attach-option-icon">⌾</span>拍照</button>
+      <button class="attach-option" id="choosePhotos" type="button"><span class="attach-option-icon">▧</span>照片图库</button>
+      <button class="attach-option" id="chooseFiles" type="button"><span class="attach-option-icon">▤</span>选取文件</button>
+      <p class="attach-sheet-help">图片与文本文件可供 AI 阅读；其他文件会保存为附件。</p>
+      <button class="attach-cancel" id="attachCancel" type="button">取消</button>
+    </div>
+    <input class="file-picker" id="cameraPicker" type="file" accept="image/*" capture="environment" aria-label="拍照" />
+    <input class="file-picker" id="photoPicker" type="file" accept="image/*" multiple aria-label="选择照片" />
+    <input class="file-picker" id="filePicker" type="file" multiple aria-label="选择文件" />
+
     <div class="login-screen" id="loginScreen" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
       <form class="login-card" id="loginForm">
         <h2 id="loginTitle">回到 Imprint</h2>
@@ -566,6 +616,13 @@
       const input = document.querySelector('#messageInput');
       const send = document.querySelector('#sendButton');
       const stageButton = document.querySelector('#stageButton');
+      const attachButton = document.querySelector('#attachButton');
+      const attachmentPreview = document.querySelector('#attachmentPreview');
+      const attachSheet = document.querySelector('#attachSheet');
+      const attachSheetScrim = document.querySelector('#attachSheetScrim');
+      const cameraPicker = document.querySelector('#cameraPicker');
+      const photoPicker = document.querySelector('#photoPicker');
+      const filePicker = document.querySelector('#filePicker');
       const stopButton = document.querySelector('#stopButton');
       const messagesEl = document.querySelector('#messages');
       const sessionListEl = document.querySelector('#sessionList');
@@ -605,6 +662,8 @@
       let cancelling = false;
       let generationTimer = null;
       let pendingQueue = [];
+      let pendingAttachments = [];
+      const attachmentObjectUrls = new Map();
       let replyTarget = null;
       let localSequence = 0;
       let toastTimer = null;
@@ -617,6 +676,111 @@
         toastEl.classList.add('show');
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
+      }
+
+      function openAttachmentSheet() {
+        input.blur();
+        attachSheet.classList.add('open');
+        attachSheetScrim.classList.add('open');
+        attachSheet.setAttribute('aria-hidden', 'false');
+        attachButton.setAttribute('aria-expanded', 'true');
+      }
+
+      function closeAttachmentSheet() {
+        attachSheet.classList.remove('open');
+        attachSheetScrim.classList.remove('open');
+        attachSheet.setAttribute('aria-hidden', 'true');
+        attachButton.setAttribute('aria-expanded', 'false');
+      }
+
+      attachButton.addEventListener('click', () => attachSheet.classList.contains('open') ? closeAttachmentSheet() : openAttachmentSheet());
+      attachSheetScrim.addEventListener('click', closeAttachmentSheet);
+      document.querySelector('#attachCancel').addEventListener('click', closeAttachmentSheet);
+      for (const [buttonId, picker] of [['chooseCamera', cameraPicker], ['choosePhotos', photoPicker], ['chooseFiles', filePicker]]) {
+        document.querySelector(`#${buttonId}`).addEventListener('click', () => {
+          closeAttachmentSheet();
+          picker.click();
+        });
+      }
+
+      async function prepareSelectedFile(file) {
+        const heic = /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+        const largeImage = file.type.startsWith('image/') && file.size > 8 * 1024 * 1024;
+        if (!heic && !largeImage) return file;
+        const url = URL.createObjectURL(file);
+        try {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          const scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+          canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .82));
+          if (!blob) throw new Error('image conversion failed');
+          return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      }
+
+      function renderAttachmentPreview() {
+        attachmentPreview.replaceChildren();
+        attachmentPreview.classList.toggle('show', pendingAttachments.length > 0);
+        pendingAttachments.forEach((entry, index) => {
+          const chip = document.createElement('div');
+          chip.className = 'attachment-chip';
+          if (entry.file.type.startsWith('image/')) {
+            const image = document.createElement('img');
+            image.src = entry.previewUrl;
+            image.alt = '';
+            chip.appendChild(image);
+          } else {
+            const icon = document.createElement('span');
+            icon.textContent = '▤';
+            chip.appendChild(icon);
+          }
+          const name = document.createElement('span');
+          name.className = 'attachment-chip-name';
+          name.textContent = entry.file.name;
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.textContent = '×';
+          remove.setAttribute('aria-label', `移除 ${entry.file.name}`);
+          remove.addEventListener('click', () => {
+            URL.revokeObjectURL(entry.previewUrl);
+            pendingAttachments.splice(index, 1);
+            renderAttachmentPreview();
+            updateComposer();
+          });
+          chip.append(name, remove);
+          attachmentPreview.appendChild(chip);
+        });
+      }
+
+      async function addSelectedFiles(files) {
+        for (const original of files) {
+          if (pendingAttachments.length >= 6) { showToast('每段消息最多添加 6 个附件'); break; }
+          try {
+            const file = await prepareSelectedFile(original);
+            if (file.size > 10 * 1024 * 1024) { showToast(`${file.name} 超过 10 MB，无法发送`); continue; }
+            if (!file.size) { showToast(`${file.name} 是空文件`); continue; }
+            pendingAttachments.push({ file, previewUrl: URL.createObjectURL(file) });
+          } catch (_) {
+            showToast(`${original.name} 无法读取；请尝试换一张照片`);
+          }
+        }
+        renderAttachmentPreview();
+        updateComposer();
+      }
+
+      for (const picker of [cameraPicker, photoPicker, filePicker]) {
+        picker.addEventListener('change', () => {
+          const files = [...(picker.files || [])];
+          picker.value = '';
+          if (files.length) addSelectedFiles(files);
+        });
       }
 
       function stagedCount() {
@@ -632,8 +796,9 @@
 
       function updateComposer() {
         const count = stagedCount();
-        stageButton.disabled = triggering || !input.value.trim();
-        send.disabled = triggering || generationActive || (!input.value.trim() && !count);
+        const hasDraft = Boolean(input.value.trim() || pendingAttachments.length);
+        stageButton.disabled = triggering || !hasDraft;
+        send.disabled = triggering || generationActive || (!hasDraft && !count);
         if (!generationActive) {
           composerNote.textContent = count
             ? `${count} 段待回复 · 点纸飞机开始`
@@ -750,12 +915,131 @@
         });
       }
 
+      function attachmentPath(attachment) {
+        try {
+          const url = new URL(String(attachment.url || ''), location.origin);
+          return url.origin === location.origin && url.pathname.startsWith(`${API_BASE}/uploads/`) ? url.href : '';
+        } catch (_) { return ''; }
+      }
+
+      async function attachmentObjectUrl(attachment) {
+        if (attachment.localUrl) return attachment.localUrl;
+        const path = attachmentPath(attachment);
+        if (!path) throw new Error('附件地址无效');
+        if (!attachmentObjectUrls.has(path)) {
+          const loaded = fetch(path, { headers: authHeaders() }).then(response => {
+            if (!response.ok) throw new Error('无法读取附件');
+            return response.blob();
+          }).then(blob => URL.createObjectURL(blob)).catch(error => {
+            attachmentObjectUrls.delete(path);
+            throw error;
+          });
+          attachmentObjectUrls.set(path, loaded);
+        }
+        return attachmentObjectUrls.get(path);
+      }
+
+      async function downloadAttachment(attachment) {
+        try {
+          const url = await attachmentObjectUrl(attachment);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = attachment.name || '附件';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        } catch (error) { showToast(`附件打开失败：${error.message}`); }
+      }
+
+      function renderMessageAttachments(host, attachments) {
+        if (!Array.isArray(attachments) || !attachments.length) return;
+        const wrap = document.createElement('div');
+        wrap.className = 'message-attachments';
+        for (const attachment of attachments) {
+          if (!attachment || typeof attachment !== 'object') continue;
+          if (String(attachment.mime || '').startsWith('image/')) {
+            const image = document.createElement('img');
+            image.className = 'message-attachment-image';
+            image.alt = attachment.name || '图片附件';
+            image.loading = 'lazy';
+            attachmentObjectUrl(attachment).then(url => { if (image.isConnected) image.src = url; }).catch(() => { image.alt = '图片暂时无法加载'; });
+            image.addEventListener('click', async () => {
+              try {
+                const url = await attachmentObjectUrl(attachment);
+                const viewer = document.createElement('div');
+                viewer.className = 'attachment-viewer';
+                const full = document.createElement('img');
+                full.src = url;
+                full.alt = attachment.name || '图片附件';
+                viewer.appendChild(full);
+                viewer.addEventListener('click', () => viewer.remove());
+                document.body.appendChild(viewer);
+              } catch (_) { showToast('图片暂时无法打开'); }
+            });
+            wrap.appendChild(image);
+          } else {
+            const button = document.createElement('button');
+            button.className = 'message-attachment-file';
+            button.type = 'button';
+            const icon = document.createElement('span');
+            icon.textContent = '▤';
+            const name = document.createElement('span');
+            name.textContent = attachment.name || '文件';
+            button.append(icon, name);
+            button.addEventListener('click', () => downloadAttachment(attachment));
+            wrap.appendChild(button);
+          }
+        }
+        host.appendChild(wrap);
+      }
+
       function setReplyTarget(message) {
         const parts = messageParts(message.text);
-        replyTarget = { id: message.id, text: parts.text.replace(/\s+/g, ' ').trim().slice(0, 120) };
+        const attachment = message?.meta?.attachments?.[0];
+        const summary = parts.text.replace(/\s+/g, ' ').trim() || (attachment ? `附件：${attachment.name || '图片'}` : '这条消息');
+        replyTarget = { id: message.id, text: summary.slice(0, 120) };
         composerContextText.textContent = `引用：${replyTarget.text || '这条消息'}`;
         composerContext.classList.add('show');
         input.focus();
+      }
+
+      function enableLongPressQuote(bubble, message) {
+        let timer = null;
+        let startX = 0;
+        let startY = 0;
+        let fired = false;
+        const clear = () => { clearTimeout(timer); timer = null; };
+        bubble.addEventListener('pointerdown', event => {
+          if (event.pointerType !== 'touch' || event.target.closest('button, a')) return;
+          fired = false;
+          startX = event.clientX;
+          startY = event.clientY;
+          timer = setTimeout(() => {
+            fired = true;
+            navigator.vibrate?.(10);
+            window.getSelection()?.removeAllRanges();
+            setReplyTarget(message);
+          }, 480);
+        });
+        bubble.addEventListener('pointermove', event => {
+          if (Math.abs(event.clientX - startX) > 12 || Math.abs(event.clientY - startY) > 12) clear();
+        });
+        for (const name of ['pointerup', 'pointercancel', 'pointerleave']) bubble.addEventListener(name, clear);
+        bubble.addEventListener('contextmenu', event => {
+          if (!window.matchMedia('(pointer: coarse)').matches) return;
+          event.preventDefault();
+          clear();
+          if (!fired) {
+            fired = true;
+            setReplyTarget(message);
+          }
+        });
+        bubble.addEventListener('click', event => {
+          if (!fired) return;
+          event.preventDefault();
+          event.stopPropagation();
+          fired = false;
+        }, true);
       }
 
       function clearReplyTarget() {
@@ -822,12 +1106,13 @@
         messageMap.delete(String(message.id));
         pendingQueue = pendingQueue.filter(item => item.localId !== message.id);
         renderMessages();
-        enqueueSegment(message.rawText || message.text, message.quote || null);
+        enqueueSegment(message.rawText || '', message.quote || null, message.files || [], message.uploaded || []);
       }
 
       function cancelQueuedMessage(message) {
         pendingQueue = pendingQueue.filter(item => item.localId !== message.id);
         messageMap.delete(String(message.id));
+        for (const entry of message.files || []) URL.revokeObjectURL(entry.previewUrl);
         renderMessages();
       }
 
@@ -863,6 +1148,7 @@
         }
         appendRichText(content, parts.text);
         bubble.appendChild(content);
+        renderMessageAttachments(bubble, message?.meta?.attachments || message.attachments);
         const time = document.createElement('span');
         time.className = 'message-time';
         time.textContent = formatTime(message.ts);
@@ -876,6 +1162,7 @@
         }
         bubble.appendChild(time);
         row.appendChild(bubble);
+        if (side === 'ai' && !message.streaming && message.kind !== 'act') enableLongPressQuote(bubble, message);
 
         const persisted = Number.isFinite(Number(message.id));
         const actionable = !message.streaming && message.kind !== 'act' && (persisted || message.failed || message.queued);
@@ -932,7 +1219,7 @@
         }
         const divider = document.createElement('div');
         divider.className = 'day-divider';
-        divider.textContent = 'RECENT';
+        divider.textContent = '今天';
         messagesEl.appendChild(divider);
         rows.slice(-200).forEach(message => messagesEl.appendChild(createMessageNode(message)));
         for (const [key, message] of streamDrafts) {
@@ -1690,6 +1977,14 @@
       }
 
       function localMessage(item) {
+        const attachments = item.files.map((entry, index) => ({
+          ...(item.uploaded[index] || {}),
+          name: entry.file.name,
+          size: entry.file.size,
+          mime: entry.file.type || 'application/octet-stream',
+          kind: entry.file.type.startsWith('image/') ? 'image' : 'file',
+          localUrl: entry.previewUrl
+        }));
         return {
           id: item.localId,
           from: 'human',
@@ -1698,20 +1993,24 @@
           rawText: item.rawText,
           quote: item.quote,
           ts: item.ts,
+          files: item.files,
+          uploaded: item.uploaded,
           queued: Boolean(item.queued),
           failed: Boolean(item.failed),
-          meta: { ...(item.sessionId ? { api_session: item.sessionId } : {}), deferred: true, reply_requested: false }
+          meta: { ...(item.sessionId ? { api_session: item.sessionId } : {}), attachments, deferred: true, reply_requested: false }
         };
       }
 
-      function enqueueSegment(rawText, quote = null) {
+      function enqueueSegment(rawText, quote = null, files = [], uploaded = []) {
         const clean = String(rawText || '').trim();
-        if (!clean) return Promise.resolve(false);
+        if (!clean && !files.length) return Promise.resolve(false);
         const quoted = quote?.text ? `> 引用：${quote.text.replace(/\s+/g, ' ').trim().slice(0, 180)}\n\n` : '';
         const item = {
           localId: `local-${Date.now()}-${++localSequence}`,
           rawText: clean,
           quote,
+          files,
+          uploaded: [...uploaded],
           text: quoted + clean,
           ts: new Date().toISOString(),
           sessionId: activeSession === LEGACY_SESSION ? '' : activeSession,
@@ -1746,14 +2045,26 @@
         putMessage(localMessage(item));
         renderMessages({ scroll: 'bottom' });
         try {
-          const payload = { text: item.text, defer: true };
+          for (let index = item.uploaded.length; index < item.files.length; index += 1) {
+            const file = item.files[index].file;
+            const attachment = await api(`/app/upload?name=${encodeURIComponent(file.name)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': file.type || 'application/octet-stream' },
+              body: file
+            });
+            attachment.name = file.name.replace(/[\\/\u0000-\u001f]/g, '_').slice(0, 120);
+            item.uploaded.push(attachment);
+            const path = attachmentPath(attachment);
+            if (path) attachmentObjectUrls.set(path, Promise.resolve(item.files[index].previewUrl));
+          }
+          const payload = { text: item.text, attachments: item.uploaded, defer: true };
           if (item.sessionId) payload.api_session = item.sessionId;
           const data = await api('/app/send', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
           });
           messageMap.delete(String(item.localId));
           putMessage({ id: data.id, from: 'human', kind: 'user', text: item.text, ts: item.ts, meta: data.meta || { api_session: item.sessionId, deferred: true, reply_requested: false } });
-          if (item.sessionId) titleSessionFromMessage(item.sessionId, item.rawText);
+          if (item.sessionId) titleSessionFromMessage(item.sessionId, item.rawText || item.files[0]?.file.name || '附件');
           renderMessages({ scroll: 'bottom' });
           return true;
         } catch (error) {
@@ -1774,13 +2085,16 @@
       function consumeInput(force = false) {
         if (triggering && !force) return Promise.resolve(false);
         const text = input.value.trim();
-        if (!text) return Promise.resolve(false);
+        if (!text && !pendingAttachments.length) return Promise.resolve(false);
         const quote = replyTarget;
+        const files = pendingAttachments;
+        pendingAttachments = [];
         input.value = '';
         input.style.height = 'auto';
+        renderAttachmentPreview();
         clearReplyTarget();
         updateComposer();
-        return enqueueSegment(text, quote);
+        return enqueueSegment(text, quote, files);
       }
 
       async function triggerReply() {
@@ -1788,7 +2102,7 @@
         triggering = true;
         updateComposer();
         try {
-          if (input.value.trim()) await consumeInput(true);
+          if (input.value.trim() || pendingAttachments.length) await consumeInput(true);
           if (pumpPromise) await pumpPromise;
           if ([...messageMap.values()].some(message => sessionMatches(message) && message.failed)) {
             showToast('有一段发送失败，请先重试或删除');

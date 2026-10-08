@@ -1757,6 +1757,10 @@
             return;
           }
           const sessionId = activeSession === LEGACY_SESSION ? '' : activeSession;
+          typing = true;
+          setGeneration(true, '正在准备回复…');
+          chatStateEl.textContent = '正在准备回复…';
+          renderMessages();
           const result = await api('/app/trigger', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_session: sessionId })
@@ -1768,11 +1772,11 @@
               putMessage(message);
             }
           }
-          typing = true;
-          setGeneration(true, '正在准备回复…');
-          chatStateEl.textContent = '正在准备回复…';
           renderMessages();
         } catch (error) {
+          typing = false;
+          setGeneration(false);
+          renderMessages();
           if (error.message !== 'unauthorized') showToast(`触发回复失败：${error.message}`);
         } finally {
           triggering = false;

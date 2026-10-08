@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="0bc65b36368b66b6c652a5cb96cacf9fb7959ab5"
+REV="d3d9de188c0883065a75ec3a83e47223d5fe51e3"
 BACKEND_HASH="fed4fbc2148af0afef8b213c26353883bbdca822f144b547d0de1317f14b9001"
-FRONTEND_HASH="ba7c6ffbb99be7e15ba2d14738433fa846386a00731456bb7af9196a2e2ad0b6"
+FRONTEND_HASH="426d346f11f413528c9b076d79216690bf9b0bc02b9488334881dc3785bd6e90"
 RELAY_PATCH_HASH="2a77ef3933d811cd96ff743f47c3f0c48f1e1a393ce5407d8d05036c7136543e"
 BACKEND_TMP="${HOME}/api_loop.py.new"
 FRONTEND_TMP="${HOME}/imprint-index.html.new"
 RELAY_PATCH_TMP="${HOME}/imprint-relay-stage.patch"
 RELAY_DIR="$(systemctl show companion-relay -p WorkingDirectory --value)"
 RELAY_TARGET="${RELAY_DIR}/app.py"
-RELAY_BACKUP="${RELAY_TARGET}.bak-0bc65b3"
-BACKEND_BACKUP="/root/companion-loop/api_loop.py.bak-0bc65b3"
-FRONTEND_BACKUP="/var/www/imprint/index.html.bak-0bc65b3"
+RELAY_BACKUP="${RELAY_TARGET}.bak-d3d9de1"
+BACKEND_BACKUP="/root/companion-loop/api_loop.py.bak-d3d9de1"
+FRONTEND_BACKUP="/var/www/imprint/index.html.bak-d3d9de1"
 
 if [[ -z "${RELAY_DIR}" ]] || ! sudo test -f "${RELAY_TARGET}"; then
   echo 'Cannot locate companion-relay app.py; no files changed.' >&2

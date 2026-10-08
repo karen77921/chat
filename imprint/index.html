@@ -1184,6 +1184,24 @@
         }
       }
 
+      async function deleteOwnMessage(message) {
+        if (generationActive || sending || triggering) {
+          showToast('请先停止当前回复，再删除消息');
+          return;
+        }
+        if (!window.confirm('删除这条消息？它会从聊天记录和之后发送给 AI 的原文中移除。若 AI 已回复或已写入 Ombre 长期记忆，相关内容不会自动抹除。')) return;
+        try {
+          const sessionId = activeSession === LEGACY_SESSION ? '' : activeSession;
+          await loopApi(`messages/${encodeURIComponent(message.id)}`, 'DELETE', { session_id: sessionId });
+          messageMap.delete(String(message.id));
+          if (replyTarget?.id === message.id) clearReplyTarget();
+          renderMessages();
+          showToast('已删除这条消息；已形成的回复和长期记忆需另行处理');
+        } catch (error) {
+          showToast(`删除失败：${error.message}`);
+        }
+      }
+
       async function editMessage(message) {
         const parts = messageParts(message.text);
         const next = window.prompt('编辑这条消息', parts.text);
@@ -1311,11 +1329,38 @@
             addMessageAction(actions, '取消发送', () => cancelQueuedMessage(message), true);
           } else {
             addMessageAction(actions, '引用', () => setReplyTarget(message));
-            if (side === 'user') addMessageAction(actions, '编辑', () => editMessage(message));
+            if (side === 'user') {
+              addMessageAction(actions, '编辑', () => editMessage(message));
+              addMessageAction(actions, '删除消息', () => deleteOwnMessage(message), true);
+            }
             if (side === 'ai' && message.kind === 'reply') addMessageAction(actions, failed ? '重试整次回复' : '重新生成整次回复', () => regenerateMessage(message));
-            addMessageAction(actions, message.bubbleCount > 1 ? '隐藏整次回复' : '隐藏', () => hideMessage(message), true);
+            if (side === 'ai') addMessageAction(actions, message.bubbleCount > 1 ? '隐藏整次回复' : '隐藏', () => hideMessage(message), true);
           }
           row.append(menuButton, actions);
+          if (side === 'user' && persisted) {
+            let pressTimer;
+            let startX = 0;
+            let startY = 0;
+            bubble.addEventListener('pointerdown', event => {
+              if (event.pointerType !== 'touch') return;
+              startX = event.clientX;
+              startY = event.clientY;
+              pressTimer = setTimeout(() => {
+                navigator.vibrate?.(10);
+                actions.classList.add('open');
+              }, 480);
+            });
+            bubble.addEventListener('pointermove', event => {
+              if (Math.abs(event.clientX - startX) > 12 || Math.abs(event.clientY - startY) > 12) clearTimeout(pressTimer);
+            });
+            for (const name of ['pointerup', 'pointercancel', 'pointerleave']) bubble.addEventListener(name, () => clearTimeout(pressTimer));
+            bubble.addEventListener('contextmenu', event => {
+              if (!window.matchMedia('(pointer: coarse)').matches) return;
+              event.preventDefault();
+              clearTimeout(pressTimer);
+              actions.classList.add('open');
+            });
+          }
         }
         return row;
       }

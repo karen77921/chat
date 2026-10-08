@@ -657,8 +657,55 @@ def patch_message(message_id: int, body: dict[str, Any]) -> dict[str, Any]:
             "UPDATE messages SET text = ?, meta = ? WHERE id = ?",
             (text, json.dumps(meta, ensure_ascii=False), int(message_id)),
         )
+        if "text" in body or body.get("visible") is False:
+            _invalidate_compacted_context(conn, str(meta.get("api_session") or ""), int(message_id))
         conn.commit()
     return {"ok": True, "id": int(message_id), "text": text, "meta": meta}
+
+
+def _invalidate_compacted_context(conn: sqlite3.Connection, session_id: str, message_id: int) -> bool:
+    """A changed old message must not survive inside the per-session rolling summary."""
+    _context_table(conn)
+    row = conn.execute(
+        "SELECT last_compacted_id FROM api_context_summaries WHERE session_id = ?", (session_id,)
+    ).fetchone()
+    if row is None or int(row[0] or 0) < message_id:
+        return False
+    conn.execute("DELETE FROM api_context_summaries WHERE session_id = ?", (session_id,))
+    return True
+
+
+def delete_user_message(message_id: int, session_id: str) -> dict[str, Any]:
+    """Remove one human message from the relay and future raw/compacted context."""
+    if message_id <= 0:
+        raise HTTPException(status_code=400, detail="invalid message id")
+    path = Path(RELAY_DB)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="message database not found")
+    with sqlite3.connect(str(path)) as conn:
+        row = conn.execute(
+            "SELECT direction, kind, meta FROM messages WHERE id = ?", (message_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="message not found")
+        if str(row[0]) != "in" or str(row[1]) not in {"user", "voice"}:
+            raise HTTPException(status_code=400, detail="only user messages can be deleted here")
+        try:
+            meta = json.loads(row[2] or "{}")
+        except Exception:
+            meta = {}
+        actual_session = str(meta.get("api_session") or "")
+        if actual_session != session_id:
+            raise HTTPException(status_code=400, detail="message belongs to another session")
+        if any(not task.done() for task in _active_turns.get(session_id, set())):
+            raise HTTPException(status_code=409, detail="stop the current reply before deleting a message")
+        conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+        summary_reset = _invalidate_compacted_context(conn, session_id, message_id)
+        conn.commit()
+    return {
+        "ok": True, "id": message_id, "summary_reset": summary_reset,
+        "long_term_memory_may_contain": True,
+    }
 
 
 def batch_source(raw_ids: list[Any], session_id: str) -> dict[str, Any]:
@@ -2069,6 +2116,14 @@ async def loop_message_patch(message_id: int, request: Request):
     if "visible" not in body and "text" not in body:
         raise HTTPException(status_code=400, detail="visible or text required")
     return patch_message(message_id, body)
+
+
+@app.delete("/loop/messages/{message_id}")
+async def loop_message_delete(message_id: int, request: Request):
+    body = await request.json()
+    if not isinstance(body, dict) or "session_id" not in body:
+        raise HTTPException(status_code=400, detail="session_id required")
+    return delete_user_message(message_id, str(body.get("session_id") or "").strip())
 
 
 @app.post("/loop/cancel")

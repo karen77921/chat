@@ -314,7 +314,7 @@
 
       @media (max-width: 780px) {
         body { background: #eaf5ff; }
-        .shell { width: 100%; height: var(--app-height, 100dvh); margin: 0; display: block; border: 0; border-radius: 0; box-shadow: none; }
+        .shell { position: fixed; top: var(--app-top, 0px); left: var(--app-left, 0px); width: var(--app-width, 100%); height: var(--app-height, 100dvh); margin: 0; display: block; border: 0; border-radius: 0; box-shadow: none; }
         .rail { display: none; }
         .stage { height: calc(100dvh - 70px - env(safe-area-inset-bottom)); }
         body.chat-open .stage { height: var(--app-height, 100dvh); }
@@ -360,6 +360,7 @@
         .message-actions { position: fixed; left: 12px !important; right: 12px !important; bottom: calc(12px + env(safe-area-inset-bottom)); justify-content: center; flex-wrap: wrap; padding: 9px; }
         .message-action { padding: 9px 12px; font-size: .78rem; }
         .composer-wrap { padding: 9px 10px calc(9px + env(safe-area-inset-bottom)); }
+        body.keyboard-open .composer-wrap { padding-bottom: 9px; }
         .composer { gap: 7px; padding: 7px 8px 7px 13px; }
         textarea { min-height: 38px; padding: 8px 1px; }
         .send, .stop-generation { width: 39px; height: 39px; border-radius: 13px; }
@@ -686,12 +687,24 @@
       document.querySelector('.note-card').addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') showView('chat'); });
 
       function syncViewportHeight() {
-        const height = window.visualViewport?.height || window.innerHeight;
-        document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
+        const viewport = window.visualViewport;
+        const root = document.documentElement.style;
+        root.setProperty('--app-height', `${viewport?.height || window.innerHeight}px`);
+        root.setProperty('--app-width', `${viewport?.width || window.innerWidth}px`);
+        root.setProperty('--app-top', `${viewport?.offsetTop || 0}px`);
+        root.setProperty('--app-left', `${viewport?.offsetLeft || 0}px`);
+        document.body.classList.toggle('keyboard-open',
+          document.activeElement === input && Boolean(viewport) && window.innerHeight - viewport.height > 120);
       }
       syncViewportHeight();
       window.visualViewport?.addEventListener('resize', syncViewportHeight);
+      window.visualViewport?.addEventListener('scroll', syncViewportHeight);
       window.addEventListener('orientationchange', syncViewportHeight);
+      input.addEventListener('focus', () => {
+        syncViewportHeight();
+        setTimeout(syncViewportHeight, 250);
+      });
+      input.addEventListener('blur', () => setTimeout(syncViewportHeight, 250));
 
       function authHeaders(extra = {}) {
         return { Authorization: `Bearer ${secret}`, ...extra };

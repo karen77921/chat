@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="83cb7df88d9a858d03e4cc0ea90737f05cd47fdb"
-BACKEND_HASH="7f186951bb6d66ca60e9b5ba7d720e6965c95340771b5c7d87cadd03601af490"
-FRONTEND_HASH="51a6e81914cbb0eb31096ab6d6c2dd04d593587b7f19b0d912e066a9196c99f2"
+REV="4f5e1ba5b8508647f48074b14fa99e46d4352f31"
+BACKEND_HASH="a0a9e5503203ba1e349b7c16c7a7778c58c6f0c8ea6966af1a663be9a09316c4"
+FRONTEND_HASH="522081f1767d26ed6710f93a828471d69a9b288c5bdae407646fce1927bff79d"
 BACKEND_TARGET="/root/companion-loop/api_loop.py"
 FRONTEND_TARGET="/var/www/imprint/index.html"
-BACKEND_BACKUP="${BACKEND_TARGET}.bak-83cb7df"
-FRONTEND_BACKUP="${FRONTEND_TARGET}.bak-83cb7df"
+BACKEND_BACKUP="${BACKEND_TARGET}.bak-4f5e1ba"
+FRONTEND_BACKUP="${FRONTEND_TARGET}.bak-4f5e1ba"
 BACKEND_TEMP="$(mktemp /tmp/imprint-delete-backend.XXXXXX)"
 FRONTEND_TEMP="$(mktemp /tmp/imprint-delete-frontend.XXXXXX)"
 trap 'rm -f "${BACKEND_TEMP}" "${FRONTEND_TEMP}"' EXIT
@@ -46,7 +46,7 @@ sudo systemctl restart companion-api-loop
 sleep 2
 sudo systemctl is-active companion-api-loop
 curl -fsS 127.0.0.1:3020/healthz | jq -e '.ok == true' >/dev/null
-curl -fsS 127.0.0.1:3020/openapi.json | jq -e '.paths["/loop/messages/{message_id}"].delete' >/dev/null
+curl -fsS 127.0.0.1:3020/openapi.json | jq -e '.paths["/loop/messages/{message_id}/delete"].post' >/dev/null
 printf '%s  %s\n%s  %s\n' \
   "${BACKEND_HASH}" "${BACKEND_TARGET}" \
   "${FRONTEND_HASH}" "${FRONTEND_TARGET}" | sudo sha256sum -c -

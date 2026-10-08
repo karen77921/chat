@@ -190,16 +190,23 @@
       .session-title { display: block; font-size: .92rem; }
       .session-preview { display: block; margin-top: 6px; color: var(--muted); font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-      .conversation { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
-      .chat-head { padding: 17px 24px; border-bottom: 1px solid rgba(91,132,179,.1); display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; background: rgba(248,253,254,.72); backdrop-filter: blur(22px); }
-      .chat-identity { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 10px; text-align: center; }
-      .chat-avatar { width: 35px; height: 35px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(145deg, #f8fdfe, #b9d7ff); color: #435e83; font: italic 1.2rem Georgia, serif; box-shadow: 0 4px 14px rgba(91,132,179,.15); }
-      .chat-identity-text { min-width: 0; }
-      .chat-head h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; font-weight: 600; }
-      .chat-state { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .7rem; }
-      .head-actions { display: flex; gap: 9px; }
+      .conversation { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+      .chat-head { position: relative; min-height: 74px; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(235,237,240,.76); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); }
+      .chat-identity { position: absolute; left: 50%; width: min(36%, 220px); min-width: 0; transform: translateX(-50%); text-align: center; pointer-events: none; }
+      .chat-avatar { width: 50px; height: 50px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; padding: 0; border: 2px solid rgba(255,255,255,.85); border-radius: 50%; background: radial-gradient(circle at 70% 18%, #6c6b79, #17171d 62%); box-shadow: 0 4px 14px rgba(0,0,0,.16); cursor: pointer; }
+      .chat-avatar svg { width: 100%; height: 100%; }
+      .chat-head h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.03rem; font-weight: 600; letter-spacing: .02em; }
+      .chat-presence { display: flex; justify-content: center; align-items: center; gap: 5px; min-width: 0; margin-top: 3px; }
+      .chat-state { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #7f8187; font-size: .68rem; }
+      .presence-switch { width: 22px; height: 12px; flex: 0 0 auto; border-radius: 99px; background: #79797c; padding: 2px; }
+      .presence-switch::after { content: ''; display: block; width: 8px; height: 8px; margin-left: 10px; border-radius: 50%; background: white; }
+      .head-actions { display: flex; align-items: center; gap: 0; padding: 3px 6px; border: 1px solid rgba(255,255,255,.65); border-radius: 30px; background: rgba(255,255,255,.84); box-shadow: 0 5px 20px rgba(0,0,0,.07); }
+      .head-actions button { width: 35px; height: 35px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #6f7074; cursor: pointer; }
+      .head-actions .session-toggle { display: grid; }
+      .head-actions button:active { background: rgba(0,0,0,.08); }
+      .head-actions svg { width: 19px; height: 19px; }
       .icon-button { width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.66); cursor: pointer; display: grid; place-items: center; }
-      .icon-button.session-toggle, .icon-button.chat-back { display: none; }
+      .icon-button.session-toggle { display: none; }
       .icon-button svg { width: 19px; height: 19px; }
       .messages { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; overflow-anchor: none; padding: 36px clamp(22px, 5vw, 70px); background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(218,238,255,.13)); }
       .day-divider { display: flex; align-items: center; gap: 14px; margin: 0 auto 28px; color: #8a9bb0; font-size: .72rem; letter-spacing: .12em; }
@@ -376,12 +383,13 @@
         .session-scrim.open { display: block; }
         .session-actions { opacity: 1; }
         .conversation { height: 100%; }
-        .chat-head { min-height: 66px; padding: calc(8px + env(safe-area-inset-top)) 12px 9px; }
-        .chat-head h2 { font-size: .98rem; }
-        .chat-avatar { width: 31px; height: 31px; }
-        .icon-button.session-toggle, .icon-button.chat-back { display: grid; }
-        .head-actions { gap: 6px; }
-        .icon-button { width: 36px; height: 36px; border-radius: 12px; }
+        .chat-head { min-height: calc(75px + env(safe-area-inset-top)); padding: calc(8px + env(safe-area-inset-top)) 12px 10px; background: rgba(232,233,236,.79); }
+        .chat-avatar { width: 48px; height: 48px; }
+        .chat-head h2 { font-size: 1rem; }
+        .head-actions { padding: 2px 5px; }
+        .head-actions button { width: 32px; height: 36px; }
+        .head-actions svg { width: 19px; height: 19px; }
+        .head-actions .session-toggle { display: grid; }
         .messages { padding: 22px 13px 26px; }
         .message-row { max-width: 92%; margin-bottom: 16px; }
         .message { font-size: .95rem; padding: 13px 15px; }
@@ -422,6 +430,61 @@
         .eyebrow, .date br, .note-sign { display: none; }
         .round-action { margin-top: 0; }
         .hero-copy { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+      }
+
+      @media (max-width: 780px) {
+        body.chat-open, body.chat-open .shell, .conversation { background: #e8e9eb; }
+        .messages { background: radial-gradient(circle at 77% 36%, rgba(255,255,255,.55), transparent 26%), radial-gradient(circle at 20% 72%, rgba(188,192,198,.23), transparent 34%), #e8e9eb; }
+        .message-row.ai { max-width: 100%; }
+        .message.ai { padding-left: 8px; background: transparent; border: 0; box-shadow: none; }
+        .message.user { background: rgba(248,248,251,.82); box-shadow: 0 5px 16px rgba(63,64,69,.05); }
+        .day-divider::before, .day-divider::after { background: rgba(116,119,127,.15); }
+        .composer-wrap { border-top: 0; background: rgba(232,233,235,.8); -webkit-backdrop-filter: blur(20px); }
+        .composer { border-color: rgba(255,255,255,.56); background: rgba(250,250,252,.8); }
+        .attach-button { border-color: rgba(255,255,255,.7); background: rgba(250,250,252,.84); color: #66676d; }
+        .stage-message { border-color: rgba(90,91,98,.1); background: rgba(246,246,248,.8); color: #66676d; }
+        .send, .stop-generation { background: #56575d; }
+      }
+
+      @media (max-width: 360px) {
+        .chat-identity { width: 92px; }
+        .chat-head h2 { font-size: .94rem; }
+        .chat-state { max-width: 65px; font-size: .61rem; }
+        .chat-avatar { width: 43px; height: 43px; }
+        .head-actions button { width: 29px; }
+      }
+
+      @media (prefers-color-scheme: dark) and (max-width: 780px) {
+        body.chat-open, body.chat-open .shell, .conversation { color: #f1f0f2; background: #141416; }
+        .chat-head { color: #f4f3f4; background: rgba(20,20,22,.76); }
+        .chat-state { color: #929197; }
+        .presence-switch { background: #77777b; }
+        .head-actions { border-color: rgba(255,255,255,.12); background: rgba(43,43,46,.83); box-shadow: 0 5px 20px rgba(0,0,0,.17); }
+        .head-actions button { color: #a8a7ac; }
+        .head-actions button:active { background: rgba(255,255,255,.08); }
+        .messages { background: radial-gradient(ellipse at 65% 42%, rgba(94,94,96,.22), transparent 24%), radial-gradient(ellipse at 12% 73%, rgba(74,73,76,.25), transparent 23%), radial-gradient(ellipse at 90% 91%, rgba(91,89,92,.17), transparent 20%), #141416; }
+        .message.ai { color: #e8e6e8; }
+        .message.user { color: #f1eff2; background: #343338; box-shadow: none; }
+        .message.act { color: #aaa8b1; background: rgba(72,72,78,.54); }
+        .message-time, .day-divider { color: #96939b; }
+        .message-state { color: #a9a5b1; }
+        .message-menu-button { color: #a7a4af; }
+        .message-actions { border-color: rgba(255,255,255,.12); background: #2b2a2e; }
+        .message-action { color: #eeeaf1; }
+        .message-action:hover { background: #3d3b43; }
+        .message-quote { color: #c6c0cb; background: rgba(255,255,255,.07); }
+        .composer-wrap { background: rgba(20,20,22,.8); }
+        .composer, .attach-button, .attachment-chip, .composer-context { border-color: rgba(255,255,255,.11); background: rgba(45,44,48,.85); color: #f0eef1; }
+        textarea { color: #f1eff2; }
+        textarea::placeholder { color: #8d8991; }
+        .stage-message { border-color: rgba(255,255,255,.12); background: #37363b; color: #d2cfd5; }
+        .send, .stop-generation { background: #6a6871; }
+        .demo-note { color: #8d8991; }
+        .sessions { color: #f1eff2; background: rgba(31,31,34,.98); }
+        .session-item.active, .new-chat, .session-close { color: #f1eff2; background: rgba(70,69,74,.78); }
+        .attach-sheet { border-color: rgba(255,255,255,.14); background: rgba(39,38,42,.97); color: #f1eff2; }
+        .attach-option-icon, .attach-cancel { background: #3b3a40; color: #e6e3e9; }
+        .attach-option:hover { background: rgba(255,255,255,.08); }
       }
 
       @media (prefers-reduced-motion: no-preference) {
@@ -481,9 +544,9 @@
             </aside>
             <section class="conversation">
               <header class="chat-head">
-                <button class="icon-button chat-back" id="chatBack" aria-label="返回首页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
-                <div class="chat-identity"><span class="chat-avatar" aria-hidden="true">✦</span><div class="chat-identity-text"><h2 id="chatTitle">新的开始</h2><div class="chat-state" id="chatState">正在连接…</div></div></div>
-                <div class="head-actions"><button class="icon-button session-toggle" id="sessionToggle" aria-label="会话列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><button class="icon-button" aria-label="新建会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg></button></div>
+                <button class="chat-avatar" id="chatBack" type="button" aria-label="返回首页"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="portrait" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f5f3ef"/><stop offset="1" stop-color="#a9a7b0"/></linearGradient></defs><path d="M4 46c4-14 11-19 20-19s17 6 20 19" fill="#0a0b10"/><path d="M19 12c7-6 17-2 18 7l-4 10-8 4-8-6-1-8z" fill="url(#portrait)"/><path d="M14 16C16 2 38 1 40 17c-7-5-13-3-16 1-3 3-6 4-10 5z" fill="#08080d"/><path d="M16 21c7 0 10-5 13-9 3 6 7 8 12 9-2-15-22-20-26-6z" fill="#111118"/><path d="M16 31c4 6 12 11 19 4l-8 11H13z" fill="#d6d1d0" opacity=".8"/></svg></button>
+                <div class="chat-identity"><h2 id="chatTitle">Ombre</h2><div class="chat-presence"><span class="chat-state" id="chatState">正在连接…</span><span class="presence-switch" aria-hidden="true"></span></div></div>
+                <div class="head-actions" aria-label="聊天快捷操作"><button id="chatHomeShortcut" type="button" aria-label="首页" title="首页"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 3v13.3a3.6 3.6 0 1 0 2 3.2V8.2l7-1.5V3.4L10 5.3z"/></svg></button><button id="chatMemoryShortcut" type="button" aria-label="记忆" title="记忆"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><path d="m4 6 1 1 2-2M11 6h9"/><circle cx="5" cy="14" r="2"/><path d="M11 14h9M4 21h16"/></svg></button><button class="session-toggle" id="sessionToggle" type="button" aria-label="会话列表" title="会话列表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button></div>
               </header>
               <div class="messages" id="messages">
                 <div class="empty-chat"><strong>正在读取印记</strong>稍等一下，过去的对话正在回来。</div>
@@ -838,6 +901,8 @@
       sessionClose.addEventListener('click', closeSessionPanel);
       sessionScrim.addEventListener('click', closeSessionPanel);
       chatBack.addEventListener('click', () => showView('home'));
+      document.querySelector('#chatHomeShortcut').addEventListener('click', () => showView('home'));
+      document.querySelector('#chatMemoryShortcut').addEventListener('click', () => showView('memories'));
 
       function showView(id) {
         views.forEach(view => view.classList.toggle('active', view.id === id));
@@ -1653,7 +1718,8 @@
 
       function updateSessionHeader() {
         const current = sessions.find(item => item.id === activeSession);
-        chatTitleEl.textContent = current?.title || (activeSession === LEGACY_SESSION ? '旧主线' : '新的开始');
+        chatTitleEl.textContent = 'Ombre';
+        chatTitleEl.title = current?.title || (activeSession === LEGACY_SESSION ? '旧主线' : '新的开始');
       }
 
       function renderSessions() {

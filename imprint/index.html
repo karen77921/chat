@@ -198,7 +198,7 @@
       .icon-button { width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.66); cursor: pointer; display: grid; place-items: center; }
       .icon-button.session-toggle, .icon-button.chat-back { display: none; }
       .icon-button svg { width: 19px; height: 19px; }
-      .messages { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 36px clamp(22px, 5vw, 70px); scroll-behavior: smooth; }
+      .messages { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; overflow-anchor: none; padding: 36px clamp(22px, 5vw, 70px); }
       .day-divider { display: flex; align-items: center; gap: 14px; margin: 0 auto 28px; color: #8a9bb0; font-size: .72rem; letter-spacing: .12em; }
       .day-divider::before, .day-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
       .message-row { position: relative; display: flex; align-items: flex-end; gap: 7px; max-width: 82%; margin-bottom: 20px; }
@@ -688,7 +688,6 @@
       function syncViewportHeight() {
         const height = window.visualViewport?.height || window.innerHeight;
         document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
-        if (document.body.classList.contains('chat-open')) requestAnimationFrame(scrollToBottom);
       }
       syncViewportHeight();
       window.visualViewport?.addEventListener('resize', syncViewportHeight);
@@ -711,6 +710,10 @@
 
       function scrollToBottom() {
         messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function nearMessageBottom() {
+        return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 72;
       }
 
       function messageParts(raw) {
@@ -894,7 +897,8 @@
 
       document.addEventListener('click', () => document.querySelectorAll('.message-actions.open').forEach(item => item.classList.remove('open')));
 
-      function renderMessages() {
+      function renderMessages({ scroll = 'preserve' } = {}) {
+        const previousScroll = messagesEl.scrollTop;
         const rows = [...messageMap.values()]
           .filter(message => sessionMatches(message) && message.kind !== 'thinking' && message?.meta?.visible !== false)
           .sort((a, b) => {
@@ -918,18 +922,40 @@
         divider.textContent = 'RECENT';
         messagesEl.appendChild(divider);
         rows.slice(-200).forEach(message => messagesEl.appendChild(createMessageNode(message)));
-        drafts.forEach(message => messagesEl.appendChild(createMessageNode({ ...message, streaming: true })));
+        for (const [key, message] of streamDrafts) {
+          if (!sessionMatches(message)) continue;
+          const node = createMessageNode({ ...message, streaming: true });
+          node.dataset.streamId = key;
+          messagesEl.appendChild(node);
+        }
         if (typing && !drafts.length) {
           const row = document.createElement('div');
-          row.className = 'message-row ai';
+          row.className = 'message-row ai typing-row';
           const bubble = document.createElement('div');
           bubble.className = 'message ai typing-bubble';
           bubble.innerHTML = '<i></i><i></i><i></i><span class="typing-label">正在想…</span>';
           row.appendChild(bubble);
           messagesEl.appendChild(row);
         }
-        requestAnimationFrame(scrollToBottom);
+        if (scroll === 'bottom') scrollToBottom();
+        else messagesEl.scrollTop = previousScroll;
         updateComposer();
+      }
+
+      function updateStreamDraft(key, message, firstChunk) {
+        if (firstChunk) {
+          renderMessages({ scroll: nearMessageBottom() ? 'bottom' : 'preserve' });
+          return;
+        }
+        const row = [...messagesEl.querySelectorAll('[data-stream-id]')]
+          .find(node => node.dataset.streamId === key);
+        if (!row) {
+          renderMessages();
+          return;
+        }
+        const content = row.querySelector('.message-content');
+        content.replaceChildren();
+        appendRichText(content, message.text || '');
       }
 
       function putMessage(message) {
@@ -1446,7 +1472,7 @@
           since = next;
         }
         localRows.forEach(putMessage);
-        renderMessages();
+        renderMessages({ scroll: 'bottom' });
       }
 
       async function selectSession(id) {
@@ -1528,29 +1554,32 @@
         }
         if (event.type === 'typing') {
           if (event.api_session != null && !sessionMatches(event)) return;
+          const wasTyping = typing;
           typing = Boolean(event.active);
           setGeneration(typing, typing ? '正在准备回复…' : '');
-          renderMessages();
+          if (typing !== wasTyping) renderMessages({ scroll: typing && nearMessageBottom() ? 'bottom' : 'preserve' });
           return;
         }
         if (event.type === 'thinking_delta') {
           if (!sessionMatches(event)) return;
+          const wasTyping = typing;
           typing = !event.done;
           setGeneration(!event.done, event.done ? '' : '正在思考…');
           chatStateEl.textContent = event.done ? '正在组织回复…' : '正在思考…';
-          renderMessages();
+          if (typing !== wasTyping) renderMessages();
           return;
         }
         if (event.type === 'reply_delta') {
           if (!sessionMatches(event)) return;
           const key = String(event.stream_id || 'reply');
+          const firstChunk = !streamDrafts.has(key);
           const current = streamDrafts.get(key) || { id: Number.MAX_SAFE_INTEGER, from: 'ai', kind: 'reply', text: '', ts: event.ts || new Date().toISOString(), api_session: event.api_session || '' };
           current.text += event.text || '';
           streamDrafts.set(key, current);
           typing = false;
           setGeneration(true, '正在生成回复…');
           chatStateEl.textContent = '正在生成回复…';
-          renderMessages();
+          updateStreamDraft(key, current, firstChunk);
           return;
         }
         if (event.id != null) {
@@ -1678,7 +1707,7 @@
         };
         putMessage(localMessage(item));
         pendingQueue.push(item);
-        renderMessages();
+        renderMessages({ scroll: 'bottom' });
         return pumpSegments();
       }
 
@@ -1702,7 +1731,7 @@
         item.queued = false;
         item.failed = false;
         putMessage(localMessage(item));
-        renderMessages();
+        renderMessages({ scroll: 'bottom' });
         try {
           const payload = { text: item.text, defer: true };
           if (item.sessionId) payload.api_session = item.sessionId;
@@ -1712,13 +1741,13 @@
           messageMap.delete(String(item.localId));
           putMessage({ id: data.id, from: 'human', kind: 'user', text: item.text, ts: item.ts, meta: data.meta || { api_session: item.sessionId, deferred: true, reply_requested: false } });
           if (item.sessionId) titleSessionFromMessage(item.sessionId, item.rawText);
-          renderMessages();
+          renderMessages({ scroll: 'bottom' });
           return true;
         } catch (error) {
           item.failed = true;
           item.queued = false;
           putMessage(localMessage(item));
-          renderMessages();
+          renderMessages({ scroll: 'bottom' });
           if (error.message !== 'unauthorized') {
             showToast('这一段发送失败，点消息旁的 ••• 重试');
           }
@@ -1760,7 +1789,7 @@
           typing = true;
           setGeneration(true, '正在准备回复…');
           chatStateEl.textContent = '正在准备回复…';
-          renderMessages();
+          renderMessages({ scroll: 'bottom' });
           const result = await api('/app/trigger', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_session: sessionId })

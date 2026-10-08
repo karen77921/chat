@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="57159ce8e16a01055e3c492b6d571b897a3e3e46"
-EXPECTED="7ef086a10fa39f0872b8d12582f18034f28b6b4051480a7c836c4082e2059ff3"
+REV="75644566953e14bf44749d8fb5758365e34d49d3"
+EXPECTED="ab85f1a4288091058db8cbb4105c268743691940e178dbc1f008116b62547680"
 TARGET="/var/www/imprint/index.html"
-BACKUP="/var/www/imprint/index.html.bak-57159ce"
+BACKUP="/var/www/imprint/index.html.bak-7564456"
 TEMP_FILE="$(mktemp /tmp/imprint-index.XXXXXX)"
 trap 'rm -f "${TEMP_FILE}"' EXIT
 

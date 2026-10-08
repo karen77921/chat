@@ -973,8 +973,16 @@
 
       const BUBBLE_MARKER = '⟦气泡⟧';
 
-      function splitReplyBubbles(raw) {
-        const text = String(raw || '');
+      function splitReplyBubbles(raw, streaming = false) {
+        let text = String(raw || '');
+        if (streaming) {
+          for (let length = BUBBLE_MARKER.length - 1; length > 0; length -= 1) {
+            if (text.endsWith(BUBBLE_MARKER.slice(0, length))) {
+              text = text.slice(0, -length);
+              break;
+            }
+          }
+        }
         const lines = text.split(/\r?\n/);
         const parts = [];
         let current = [];
@@ -1004,7 +1012,7 @@
 
       function displayBubbles(message) {
         if (message.from !== 'ai' || message.kind !== 'reply') return [message];
-        const parts = splitReplyBubbles(message.text);
+        const parts = splitReplyBubbles(message.text, Boolean(message.streaming));
         if (parts.length === 1 && parts[0] === message.text) return [message];
         return parts.map((text, index) => ({
           ...message,
@@ -1341,7 +1349,7 @@
         rows.slice(-200).forEach(message => displayBubbles(message).forEach(part => messagesEl.appendChild(createMessageNode(part))));
         for (const [key, message] of streamDrafts) {
           if (!sessionMatches(message)) continue;
-          const parts = displayBubbles(message);
+          const parts = displayBubbles({ ...message, streaming: true });
           parts.forEach((part, index) => {
             const node = createMessageNode({ ...part, streaming: index === parts.length - 1 });
             node.dataset.streamId = key;
@@ -1370,7 +1378,7 @@
         }
         const rows = [...messagesEl.querySelectorAll('[data-stream-id]')]
           .filter(node => node.dataset.streamId === key);
-        const parts = splitReplyBubbles(message.text);
+        const parts = splitReplyBubbles(message.text, true);
         if (rows.length !== parts.length) {
           renderMessages({ scroll: nearMessageBottom() ? 'bottom' : 'preserve' });
           return;

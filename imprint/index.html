@@ -216,6 +216,8 @@
       .day-divider::before, .day-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
       .message-row { position: relative; display: flex; align-items: flex-end; gap: 7px; max-width: 82%; margin-bottom: 20px; }
       .message-row.user { margin-left: auto; flex-direction: row-reverse; }
+      .message-row.reply-part { margin-bottom: 7px; }
+      .message-row.reply-part.reply-last { margin-bottom: 20px; }
       .message { position: relative; max-width: 100%; min-width: 58px; padding: 15px 18px; border-radius: 20px; font-size: 1rem; line-height: 1.72; overflow-wrap: anywhere; }
       .message.ai { background: rgba(248,253,254,.9); border: 1px solid rgba(255,255,255,.94); border-bottom-left-radius: 7px; box-shadow: 0 5px 20px rgba(80,117,157,.07); }
       .message.user { background: linear-gradient(140deg, #c6e2ff, #a7ccff); border-bottom-right-radius: 7px; }
@@ -969,6 +971,49 @@
         return match ? { quote: match[1], text: match[2] } : { quote: '', text: value };
       }
 
+      const BUBBLE_MARKER = '⟦气泡⟧';
+
+      function splitReplyBubbles(raw) {
+        const text = String(raw || '');
+        const lines = text.split(/\r?\n/);
+        const parts = [];
+        let current = [];
+        let fence = '';
+        let foundMarker = false;
+        for (const line of lines) {
+          const opening = line.match(/^\s*(`{3,}|~{3,})/);
+          if (opening) {
+            const type = opening[1][0];
+            if (!fence) fence = type;
+            else if (fence === type) fence = '';
+          }
+          if (!fence && line.trim() === BUBBLE_MARKER) {
+            foundMarker = true;
+            const part = current.join('\n').trim();
+            if (part) parts.push(part);
+            current = [];
+          } else {
+            current.push(line);
+          }
+        }
+        if (!foundMarker) return [text];
+        const last = current.join('\n').trim();
+        if (last) parts.push(last);
+        return parts.length ? parts : [text];
+      }
+
+      function displayBubbles(message) {
+        if (message.from !== 'ai' || message.kind !== 'reply') return [message];
+        const parts = splitReplyBubbles(message.text);
+        if (parts.length === 1 && parts[0] === message.text) return [message];
+        return parts.map((text, index) => ({
+          ...message,
+          text,
+          bubblePart: index,
+          bubbleCount: parts.length
+        }));
+      }
+
       function appendRichText(host, raw) {
         const parts = String(raw || '').split(/```/);
         parts.forEach((part, index) => {
@@ -1202,7 +1247,7 @@
         const side = message.from === 'human' ? 'user' : 'ai';
         const failed = Boolean(message.failed || message?.meta?.api?.error);
         const row = document.createElement('div');
-        row.className = `message-row ${side}`;
+        row.className = `message-row ${side}${message.bubbleCount > 1 ? ` reply-part${message.bubblePart === message.bubbleCount - 1 ? ' reply-last' : ''}` : ''}`;
         const bubble = document.createElement('div');
         bubble.className = `message ${side}${message.kind === 'act' ? ' act' : ''}${message.streaming ? ' streaming' : ''}${failed ? ' failed' : ''}${message.queued ? ' queued' : ''}`;
         bubble.dataset.messageId = String(message.id || '');
@@ -1217,10 +1262,13 @@
         }
         appendRichText(content, parts.text);
         bubble.appendChild(content);
-        renderMessageAttachments(bubble, message?.meta?.attachments || message.attachments);
+        if (message.bubbleCount == null || message.bubblePart === message.bubbleCount - 1) {
+          renderMessageAttachments(bubble, message?.meta?.attachments || message.attachments);
+        }
         const time = document.createElement('span');
         time.className = 'message-time';
         time.textContent = formatTime(message.ts);
+        if (message.bubbleCount > 1 && message.bubblePart < message.bubbleCount - 1) time.hidden = true;
         if (message.queued || message.failed || message?.meta?.edited_at ||
             (message?.meta?.deferred && !message?.meta?.reply_requested)) {
           const state = document.createElement('span');
@@ -1256,8 +1304,8 @@
           } else {
             addMessageAction(actions, '引用', () => setReplyTarget(message));
             if (side === 'user') addMessageAction(actions, '编辑', () => editMessage(message));
-            if (side === 'ai' && message.kind === 'reply') addMessageAction(actions, failed ? '重试' : '重新生成', () => regenerateMessage(message));
-            addMessageAction(actions, '隐藏', () => hideMessage(message), true);
+            if (side === 'ai' && message.kind === 'reply') addMessageAction(actions, failed ? '重试整次回复' : '重新生成整次回复', () => regenerateMessage(message));
+            addMessageAction(actions, message.bubbleCount > 1 ? '隐藏整次回复' : '隐藏', () => hideMessage(message), true);
           }
           row.append(menuButton, actions);
         }
@@ -1290,12 +1338,16 @@
         divider.className = 'day-divider';
         divider.textContent = '今天';
         messagesEl.appendChild(divider);
-        rows.slice(-200).forEach(message => messagesEl.appendChild(createMessageNode(message)));
+        rows.slice(-200).forEach(message => displayBubbles(message).forEach(part => messagesEl.appendChild(createMessageNode(part))));
         for (const [key, message] of streamDrafts) {
           if (!sessionMatches(message)) continue;
-          const node = createMessageNode({ ...message, streaming: true });
-          node.dataset.streamId = key;
-          messagesEl.appendChild(node);
+          const parts = displayBubbles(message);
+          parts.forEach((part, index) => {
+            const node = createMessageNode({ ...part, streaming: index === parts.length - 1 });
+            node.dataset.streamId = key;
+            node.dataset.segmentIndex = String(index);
+            messagesEl.appendChild(node);
+          });
         }
         if (typing && !drafts.length) {
           const row = document.createElement('div');
@@ -1316,15 +1368,18 @@
           renderMessages({ scroll: nearMessageBottom() ? 'bottom' : 'preserve' });
           return;
         }
-        const row = [...messagesEl.querySelectorAll('[data-stream-id]')]
-          .find(node => node.dataset.streamId === key);
-        if (!row) {
-          renderMessages();
+        const rows = [...messagesEl.querySelectorAll('[data-stream-id]')]
+          .filter(node => node.dataset.streamId === key);
+        const parts = splitReplyBubbles(message.text);
+        if (rows.length !== parts.length) {
+          renderMessages({ scroll: nearMessageBottom() ? 'bottom' : 'preserve' });
           return;
         }
-        const content = row.querySelector('.message-content');
+        const follow = nearMessageBottom();
+        const content = rows[rows.length - 1].querySelector('.message-content');
         content.replaceChildren();
-        appendRichText(content, message.text || '');
+        appendRichText(content, parts[parts.length - 1] || '');
+        if (follow) scrollToBottom();
       }
 
       function putMessage(message) {

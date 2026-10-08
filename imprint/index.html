@@ -1192,7 +1192,7 @@
         if (!window.confirm('删除这条消息？它会从聊天记录和之后发送给 AI 的原文中移除。若 AI 已回复或已写入 Ombre 长期记忆，相关内容不会自动抹除。')) return;
         try {
           const sessionId = activeSession === LEGACY_SESSION ? '' : activeSession;
-          await loopApi(`messages/${encodeURIComponent(message.id)}`, 'DELETE', { session_id: sessionId });
+          await loopApi(`messages/${encodeURIComponent(message.id)}/delete`, 'POST', { session_id: sessionId });
           messageMap.delete(String(message.id));
           if (replyTarget?.id === message.id) clearReplyTarget();
           renderMessages();

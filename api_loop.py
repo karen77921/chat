@@ -2120,10 +2120,19 @@ async def loop_message_patch(message_id: int, request: Request):
 
 @app.delete("/loop/messages/{message_id}")
 async def loop_message_delete(message_id: int, request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="session_id required") from exc
     if not isinstance(body, dict) or "session_id" not in body:
         raise HTTPException(status_code=400, detail="session_id required")
     return delete_user_message(message_id, str(body.get("session_id") or "").strip())
+
+
+@app.post("/loop/messages/{message_id}/delete")
+async def loop_message_delete_via_relay(message_id: int, request: Request):
+    """Relay forwards POST JSON bodies, but its DELETE proxy drops the body."""
+    return await loop_message_delete(message_id, request)
 
 
 @app.post("/loop/cancel")

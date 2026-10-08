@@ -629,22 +629,78 @@ def _context_table(conn: sqlite3.Connection) -> None:
     )
 
 
-def set_message_visibility(message_id: int, visible: bool) -> dict[str, Any]:
+def patch_message(message_id: int, body: dict[str, Any]) -> dict[str, Any]:
     path = Path(RELAY_DB)
     if not path.exists():
         raise HTTPException(status_code=404, detail="message database not found")
     with sqlite3.connect(str(path)) as conn:
-        row = conn.execute("SELECT meta FROM messages WHERE id = ?", (int(message_id),)).fetchone()
+        row = conn.execute("SELECT direction, kind, text, meta FROM messages WHERE id = ?", (int(message_id),)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="message not found")
         try:
-            meta = json.loads(row[0] or "{}")
+            meta = json.loads(row[3] or "{}")
         except Exception:
             meta = {}
-        meta["visible"] = bool(visible)
-        conn.execute("UPDATE messages SET meta = ? WHERE id = ?", (json.dumps(meta, ensure_ascii=False), int(message_id)))
+        text = str(row[2] or "")
+        if "text" in body:
+            if str(row[0]) != "in" or str(row[1]) not in {"user", "voice"}:
+                raise HTTPException(status_code=400, detail="only user messages can be edited")
+            text = str(body.get("text") or "").strip()
+            if not text:
+                raise HTTPException(status_code=400, detail="text cannot be empty")
+            if len(text) > 100_000:
+                raise HTTPException(status_code=400, detail="text is too long")
+            meta["edited_at"] = now_iso()
+        if "visible" in body:
+            meta["visible"] = bool(body.get("visible"))
+        conn.execute(
+            "UPDATE messages SET text = ?, meta = ? WHERE id = ?",
+            (text, json.dumps(meta, ensure_ascii=False), int(message_id)),
+        )
         conn.commit()
-    return {"ok": True, "id": int(message_id), "visible": bool(visible)}
+    return {"ok": True, "id": int(message_id), "text": text, "meta": meta}
+
+
+def regeneration_source(reply_message_id: int, requested_session: str = "") -> dict[str, Any]:
+    path = Path(RELAY_DB)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="message database not found")
+    with sqlite3.connect(str(path)) as conn:
+        reply = conn.execute(
+            "SELECT direction, kind, meta FROM messages WHERE id = ?",
+            (int(reply_message_id),),
+        ).fetchone()
+        if reply is None or str(reply[0]) != "out" or str(reply[1]) != "reply":
+            raise HTTPException(status_code=400, detail="reply message required")
+        try:
+            reply_meta = json.loads(reply[2] or "{}")
+        except Exception:
+            reply_meta = {}
+        session_id = str(reply_meta.get("api_session") or reply_meta.get("session") or requested_session or "").strip()
+        if requested_session and session_id and requested_session != session_id:
+            raise HTTPException(status_code=400, detail="message belongs to another session")
+        if session_id:
+            source = conn.execute(
+                "SELECT id, text, meta FROM messages WHERE id < ? AND direction = 'in' "
+                "AND kind IN ('user','voice') AND json_valid(meta) "
+                "AND json_extract(meta, '$.api_session') = ? ORDER BY id DESC LIMIT 1",
+                (int(reply_message_id), session_id),
+            ).fetchone()
+        else:
+            source = conn.execute(
+                "SELECT id, text, meta FROM messages WHERE id < ? AND direction = 'in' "
+                "AND kind IN ('user','voice') AND (NOT json_valid(meta) OR json_extract(meta, '$.api_session') IS NULL "
+                "OR json_extract(meta, '$.api_session') = '') ORDER BY id DESC LIMIT 1",
+                (int(reply_message_id),),
+            ).fetchone()
+    if source is None:
+        raise HTTPException(status_code=404, detail="source user message not found")
+    return {
+        "id": int(source[0]),
+        "text": str(source[1] or ""),
+        "attachments": relay_message_attachments(int(source[0])),
+        "session_id": session_id,
+    }
 
 
 def context_summary(session_id: str) -> tuple[str, int]:
@@ -1960,9 +2016,9 @@ async def loop_sessions_delete(session_id: str):
 @app.patch("/loop/messages/{message_id}")
 async def loop_message_patch(message_id: int, request: Request):
     body = await request.json()
-    if "visible" not in body:
-        raise HTTPException(status_code=400, detail="visible required")
-    return set_message_visibility(message_id, bool(body.get("visible")))
+    if "visible" not in body and "text" not in body:
+        raise HTTPException(status_code=400, detail="visible or text required")
+    return patch_message(message_id, body)
 
 
 @app.post("/loop/cancel")
@@ -1986,6 +2042,30 @@ def _atts_from(body: dict[str, Any], msg_id: int | None) -> list[dict[str, Any]]
     return relay_message_attachments(msg_id)
 
 
+async def tracked_turn(
+    text: str,
+    atts: list[dict[str, Any]],
+    msg_id: int | None,
+    session_id: str,
+    *,
+    dry: bool = False,
+) -> dict[str, Any]:
+    if session_id and not dry:
+        touch_session(session_id)
+    task = asyncio.current_task()
+    if task is not None:
+        _active_turns.setdefault(session_id, set()).add(task)
+    try:
+        return await handle_turn(text, atts, msg_id, session_id, dry=dry)
+    finally:
+        if task is not None:
+            active = _active_turns.get(session_id)
+            if active is not None:
+                active.discard(task)
+                if not active:
+                    _active_turns.pop(session_id, None)
+
+
 @app.post("/loop/chat")
 async def loop_chat(request: Request):
     """Direct chat without the relay round-trip (no streaming, no act chips). Handy for tests."""
@@ -1996,6 +2076,24 @@ async def loop_chat(request: Request):
         raise HTTPException(status_code=400, detail="empty text")
     session_id = str(body.get("session_id") or body.get("api_session") or active_session_id() or "").strip()
     return await handle_turn(text, atts, None, session_id, dry=True, use_context=bool(body.get("use_context", True)))
+
+
+@app.post("/loop/regenerate")
+async def loop_regenerate(request: Request):
+    body = await request.json()
+    try:
+        reply_message_id = int(body.get("reply_message_id"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="reply_message_id required") from exc
+    requested_session = str(body.get("session_id") or body.get("api_session") or "").strip()
+    source = regeneration_source(reply_message_id, requested_session)
+    patch_message(reply_message_id, {"visible": False})
+    return await tracked_turn(
+        source["text"],
+        source["attachments"],
+        source["id"],
+        source["session_id"],
+    )
 
 
 @app.post("/loop/ingest")
@@ -2012,20 +2110,7 @@ async def loop_ingest(request: Request):
         raise HTTPException(status_code=400, detail="empty text")
     session_id = str(body.get("session_id") or body.get("api_session") or active_session_id() or "").strip()
     dry = bool(body.get("dry"))
-    if session_id and not dry:
-        touch_session(session_id)
-    task = asyncio.current_task()
-    if task is not None:
-        _active_turns.setdefault(session_id, set()).add(task)
-    try:
-        return await handle_turn(text, atts, before_id, session_id, dry=dry)
-    finally:
-        if task is not None:
-            active = _active_turns.get(session_id)
-            if active is not None:
-                active.discard(task)
-                if not active:
-                    _active_turns.pop(session_id, None)
+    return await tracked_turn(text, atts, before_id, session_id, dry=dry)
 
 
 if __name__ == "__main__":

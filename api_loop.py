@@ -1533,6 +1533,51 @@ async def complete_chat(route: dict[str, str], messages: list[dict[str, Any]], t
     }
 
 
+def model_ids_from_response(payload: Any) -> list[str]:
+    """Extract model IDs from common OpenAI-compatible /models responses."""
+    rows: Any = payload
+    if isinstance(payload, dict):
+        rows = payload.get("data")
+        if not isinstance(rows, list):
+            rows = payload.get("models")
+    if not isinstance(rows, list):
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        value = row.get("id") or row.get("name") if isinstance(row, dict) else row
+        model_id = str(value or "").strip()
+        if model_id and model_id not in seen:
+            seen.add(model_id)
+            found.append(model_id)
+    return found[:1000]
+
+
+def route_credentials(body: dict[str, Any], *, require_model: bool = False) -> dict[str, str]:
+    """Resolve an edited route while retaining a previously saved masked key."""
+    raw_idx = body.get("index", -1)
+    try:
+        idx = int(raw_idx if str(raw_idx).strip() else -1)
+    except (TypeError, ValueError):
+        idx = -1
+    saved = main_chain()
+    prev = saved[idx] if 0 <= idx < len(saved) else {}
+    key = str(body.get("key") or "")
+    if (not key or "***" in key) and prev:
+        key = str(prev.get("key") or "")
+    route = {
+        "url": str(body.get("url") or prev.get("url") or "").strip().rstrip("/"),
+        "key": key,
+        "model": str(body.get("model") or prev.get("model") or "").strip(),
+    }
+    required = ("url", "key", "model") if require_model else ("url", "key")
+    if any(not route[name] for name in required):
+        raise HTTPException(status_code=400, detail=f"{'/'.join(required)} required")
+    if not route["url"].startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="API address must start with http:// or https://")
+    return route
+
+
 async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, sink=None, think_sink=None, stream: bool = True) -> dict[str, Any]:
     """Walk the model chain. Falls back to the next route only if nothing was streamed yet."""
     tried: list[str] = []
@@ -2085,12 +2130,7 @@ async def loop_test(request: Request):
     """Round-trip one tiny prompt through a route (index into main_chain, or an ad-hoc url/key/model)."""
     body = await request.json()
     if body.get("url") and body.get("model"):
-        idx = int(body.get("index", -1) if str(body.get("index", "")).strip() != "" else -1)
-        prev = main_chain()[idx] if 0 <= idx < len(main_chain()) else {}
-        key = str(body.get("key") or "")
-        if (not key or "***" in key) and prev:
-            key = prev.get("key", "")
-        route = {"url": str(body["url"]).rstrip("/"), "key": key, "model": str(body["model"])}
+        route = route_credentials(body, require_model=True)
     else:
         chain = main_chain()
         idx = int(body.get("index") or 0)
@@ -2106,6 +2146,40 @@ async def loop_test(request: Request):
         return {"ok": False, "model": route["model"], "error": f"HTTP {exc.status} {exc.detail}"[:600]}
     except Exception as exc:
         return {"ok": False, "model": route["model"], "error": f"{type(exc).__name__}: {exc}"[:600]}
+
+
+@app.post("/loop/models")
+async def loop_models(request: Request):
+    """List models offered by one saved or currently edited OpenAI-compatible API."""
+    body = await request.json()
+    route = route_credentials(body)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45, connect=20), trust_env=True) as client:
+            response = await client.get(
+                route["url"] + "/models",
+                headers={"Authorization": f"Bearer {route['key']}", "Accept": "application/json"},
+            )
+        await _raise_for(response, route)
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="模型接口没有返回 JSON") from exc
+        models = model_ids_from_response(payload)
+        if not models:
+            raise HTTPException(status_code=502, detail="接口连接成功，但没有找到可选择的模型")
+        return {"ok": True, "models": models, "count": len(models)}
+    except HTTPException:
+        raise
+    except ModelError as exc:
+        detail = exc.detail
+        try:
+            parsed = json.loads(detail)
+            detail = str(parsed.get("error", {}).get("message") or parsed.get("message") or detail)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        raise HTTPException(status_code=502, detail=f"拉取模型失败：HTTP {exc.status} {detail}"[:600]) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"拉取模型失败：{type(exc).__name__}: {exc}"[:600]) from exc
 
 
 @app.get("/loop/sessions")

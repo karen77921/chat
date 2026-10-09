@@ -331,11 +331,14 @@
       .settings-card h3 { margin: 0; font: italic 1.55rem Georgia, serif; }
       .settings-card > p { margin: 8px 0 20px; color: var(--muted); font-size: .86rem; line-height: 1.65; }
       .api-row { position: relative; display: grid; gap: 10px; margin: 14px 0; padding: 15px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.55); }
+      .api-row.active { border-color: rgba(84,137,198,.48); background: rgba(229,242,255,.72); box-shadow: 0 9px 25px rgba(73,119,170,.1); }
       .api-row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .api-priority { color: #52657e; font-size: .82rem; font-weight: 650; }
       .api-row-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
       .api-mini-button { padding: 6px 9px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.72); color: #62758e; cursor: pointer; font-size: .74rem; }
       .api-mini-button:disabled { opacity: .4; cursor: default; }
+      .api-mini-button.active-choice { border-color: #587ca6; background: #587ca6; color: #fff; }
+      .api-mini-button.active-choice:disabled { opacity: 1; }
       .api-test-status { min-height: 18px; color: #7589a2; font-size: .75rem; }
       .field { display: grid; gap: 7px; }
       .field label { color: #6f8097; font-size: .78rem; letter-spacing: .04em; }
@@ -600,12 +603,12 @@
           <div class="settings-grid">
             <article class="settings-card wide">
               <h3>API · 模型</h3>
-              <p>可以保存多个接口。第一行是主接口；遇到限流、超时或服务错误时，会依次使用下面的备用接口。</p>
+              <p>可以保存多个接口并从服务商自动拉取模型。标记为“当前使用”的接口会先扣费；只有它失败时才会使用备用接口。</p>
               <div id="apiRows"></div>
               <div class="settings-actions">
-                <button class="soft-button" id="addApiRow" type="button">+ 添加备用 API</button>
+                <button class="soft-button" id="addApiRow" type="button">+ 添加 API</button>
                 <button class="primary-button" id="saveApi" type="button">保存全部接口</button>
-                <button class="soft-button" id="testApi" type="button">保存并测试主接口</button>
+                <button class="soft-button" id="testApi" type="button">保存并测试当前接口</button>
               </div>
               <div class="settings-hint" id="apiHint">正在读取服务器配置…</div>
             </article>
@@ -1518,15 +1521,33 @@
         }
         apiChain.forEach((row, index) => {
           const wrap = document.createElement('div');
-          wrap.className = 'api-row';
+          wrap.className = `api-row${index === 0 ? ' active' : ''}`;
           wrap.dataset.index = String(index);
           const head = document.createElement('div');
           head.className = 'api-row-head';
           const priority = document.createElement('span');
           priority.className = 'api-priority';
-          priority.textContent = index === 0 ? '主接口 · 优先使用' : `备用接口 ${index}`;
+          priority.textContent = index === 0 ? '当前使用 · 优先扣费' : `备用接口 ${index}`;
           const rowTools = document.createElement('div');
           rowTools.className = 'api-row-tools';
+          const choose = document.createElement('button');
+          choose.className = `api-mini-button${index === 0 ? ' active-choice' : ''}`;
+          choose.type = 'button';
+          choose.textContent = index === 0 ? '✓ 当前使用' : '设为当前';
+          choose.disabled = index === 0;
+          choose.addEventListener('click', async () => {
+            const selected = apiChain.splice(index, 1)[0];
+            apiChain.unshift(selected);
+            renderApiRows();
+            const hint = document.querySelector('#apiHint');
+            hint.textContent = '正在切换当前 API…';
+            try {
+              await saveApiChain();
+              showToast('已切换当前 API');
+            } catch (error) {
+              hint.textContent = `切换未保存：${error.message}`;
+            }
+          });
           const up = document.createElement('button');
           up.className = 'api-mini-button';
           up.type = 'button';
@@ -1561,13 +1582,27 @@
           const modelField = document.createElement('div');
           modelField.className = 'field';
           const modelLabel = document.createElement('label');
-          modelLabel.textContent = '模型名称';
-          const model = document.createElement('input');
+          modelLabel.textContent = '模型（从服务商拉取）';
+          const model = document.createElement('select');
           model.dataset.key = 'model';
+          const knownModels = Array.isArray(row.models) ? row.models : [];
+          const modelNames = [...new Set([row.model, ...knownModels].filter(Boolean))];
+          const placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = knownModels.length ? '请选择模型' : '请先拉取模型';
+          model.appendChild(placeholder);
+          modelNames.forEach(name => {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            model.appendChild(option);
+          });
           model.value = row.model || '';
-          model.placeholder = 'claude-opus-4-6';
-          model.autocomplete = 'off';
-          modelField.append(modelLabel, model);
+          const fetchModels = document.createElement('button');
+          fetchModels.className = 'api-mini-button';
+          fetchModels.type = 'button';
+          fetchModels.textContent = knownModels.length ? `重新拉取（${knownModels.length}）` : '拉取模型';
+          modelField.append(modelLabel, model, fetchModels);
           grid.append(urlField, modelField);
           const keyField = document.createElement('div');
           keyField.className = 'field';
@@ -1595,6 +1630,27 @@
           testOne.textContent = '测试此接口';
           const status = document.createElement('div');
           status.className = 'api-test-status';
+          fetchModels.addEventListener('click', async () => {
+            const current = apiChain[index];
+            if (!current.url || (!current.key && Number(current.index) < 0)) {
+              status.textContent = '请先填写 API 地址和 Key。';
+              return;
+            }
+            fetchModels.disabled = true;
+            status.textContent = '正在从服务商拉取模型…';
+            try {
+              const body = { index: current.index, url: current.url };
+              if (current.key) body.key = current.key;
+              const result = await loopApi('models', 'POST', body);
+              current.models = result.models || [];
+              if (!current.models.includes(current.model)) current.model = current.models[0] || '';
+              renderApiRows();
+              document.querySelector('#apiHint').textContent = `✓ 已拉取 ${result.count || current.models.length} 个模型，请选择后保存。`;
+            } catch (error) {
+              status.textContent = `✕ ${error.message}`;
+              fetchModels.disabled = false;
+            }
+          });
           testOne.addEventListener('click', async () => {
             const current = apiChain[index];
             if (!current.url || !current.model || (!current.key && Number(current.index) < 0)) {
@@ -1614,17 +1670,23 @@
               testOne.disabled = false;
             }
           });
-          rowTools.append(up, down, testOne, remove);
+          rowTools.append(choose, up, down, testOne, remove);
           head.append(priority, rowTools);
           wrap.append(head, grid, keyField, status);
           wrap.addEventListener('input', event => {
             const field = event.target.closest('[data-key]');
             if (field) apiChain[index][field.dataset.key] = field.value;
           });
+          wrap.addEventListener('change', event => {
+            const field = event.target.closest('[data-key]');
+            if (!field) return;
+            apiChain[index][field.dataset.key] = field.value;
+            if (field.dataset.key === 'url' || field.dataset.key === 'key') apiChain[index].models = [];
+          });
           host.appendChild(wrap);
         });
         const hint = document.querySelector('#apiHint');
-        if (hint) hint.textContent = `当前编辑 ${apiChain.length} 个接口，保存后按从上到下的顺序生效。`;
+        if (hint) hint.textContent = `当前编辑 ${apiChain.length} 个接口；第一行是当前接口，其余仅在失败时备用。`;
       }
 
       function applySettings(config) {
@@ -1653,7 +1715,7 @@
         document.querySelector('#backupKeep').value = config.backup_keep ?? 14;
         document.querySelector('#backupHint').textContent = `备份目录：${config.backup_dir || 'VPS 私有目录'}`;
         document.querySelector('#apiHint').textContent = apiChain.length
-          ? `当前 ${apiChain.length} 个模型，第一行优先。`
+          ? `已保存 ${apiChain.length} 个接口；第一行“当前使用”，其余只在失败时备用。`
           : '还没有配置模型。';
         document.querySelector('#contextHint').textContent = `当前可用工具：${Array.isArray(config.tools) ? config.tools.length : 0} 个`;
         mcpServers = Array.isArray(config.mcp_servers) ? config.mcp_servers : [];
@@ -1856,7 +1918,7 @@
           return item;
         });
         for (const row of rows) {
-          if (!row.url || !row.model || (!row.key && Number(row.index) < 0)) throw new Error('每一行都要填写 API 地址、模型名称和 Key');
+          if (!row.url || !row.model || (!row.key && Number(row.index) < 0)) throw new Error('每一行都要填写 API 地址和 Key，并先拉取、选择模型');
         }
         const config = await loopApi('config', 'POST', { main_chain: rows });
         applySettings(config);
@@ -1865,7 +1927,7 @@
       }
 
       document.querySelector('#addApiRow').addEventListener('click', () => {
-        apiChain.push({ index: -1, url: '', model: '', key: '', key_masked: '' });
+        apiChain.push({ index: -1, url: '', model: '', models: [], key: '', key_masked: '' });
         renderApiRows();
         document.querySelector('.api-row:last-child input')?.focus();
       });

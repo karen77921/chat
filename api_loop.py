@@ -1065,6 +1065,71 @@ def tool_public_name(server: str, tool: str) -> str:
     return name[:64] or "tool"
 
 
+def compatible_tool_schema(raw: Any, *, _root: dict[str, Any] | None = None, _depth: int = 0) -> dict[str, Any]:
+    """Reduce arbitrary MCP JSON Schema to the subset accepted by strict model gateways."""
+    if _depth > 12 or not isinstance(raw, dict):
+        return {"type": "string"}
+    root = _root or raw
+    ref = raw.get("$ref") or raw.get("ref")
+    if isinstance(ref, str) and ref.startswith("#/"):
+        target: Any = root
+        for part in ref[2:].split("/"):
+            target = target.get(part) if isinstance(target, dict) else None
+        if isinstance(target, dict) and target is not raw:
+            return compatible_tool_schema(target, _root=root, _depth=_depth + 1)
+    union = raw.get("anyOf") or raw.get("oneOf")
+    if isinstance(union, list):
+        choices = [item for item in union if isinstance(item, dict) and item.get("type") != "null"]
+        if choices:
+            merged = dict(choices[0])
+            if raw.get("description") and not merged.get("description"):
+                merged["description"] = raw["description"]
+            return compatible_tool_schema(merged, _root=root, _depth=_depth + 1)
+
+    schema_type: Any = raw.get("type")
+    nullable = False
+    if isinstance(schema_type, list):
+        nullable = "null" in schema_type
+        schema_type = next((item for item in schema_type if item != "null"), None)
+    if isinstance(schema_type, str):
+        schema_type = schema_type.lower()
+    if schema_type not in {"object", "array", "string", "number", "integer", "boolean"}:
+        schema_type = "object" if isinstance(raw.get("properties"), dict) else "array" if raw.get("items") else "string"
+
+    clean: dict[str, Any] = {"type": schema_type}
+    description = str(raw.get("description") or raw.get("title") or "").strip()
+    if description:
+        clean["description"] = description[:1024]
+    if nullable or raw.get("nullable") is True:
+        clean["nullable"] = True
+    if "const" in raw:
+        clean["enum"] = [raw["const"]]
+    elif isinstance(raw.get("enum"), list) and raw["enum"]:
+        clean["enum"] = raw["enum"][:200]
+
+    if schema_type == "object":
+        properties = raw.get("properties")
+        if isinstance(properties, dict):
+            clean_props = {
+                str(name): compatible_tool_schema(value, _root=root, _depth=_depth + 1)
+                for name, value in properties.items()
+            }
+            clean["properties"] = clean_props
+            required = raw.get("required")
+            if isinstance(required, list):
+                valid = [str(name) for name in required if str(name) in clean_props]
+                if valid:
+                    clean["required"] = valid
+        elif raw.get("additionalProperties"):
+            clean["description"] = (description + " Free-form JSON object.").strip()[:1024]
+    elif schema_type == "array":
+        items = raw.get("items")
+        if isinstance(items, list):
+            items = next((item for item in items if isinstance(item, dict)), {})
+        clean["items"] = compatible_tool_schema(items, _root=root, _depth=_depth + 1)
+    return clean
+
+
 class McpServer:
     """One MCP server held open in its own task (anyio transports must enter/exit in one task)."""
 
@@ -1218,7 +1283,7 @@ class McpManager:
                     "function": {
                         "name": tool_public_name(s.name, t.name),
                         "description": (t.description or f"{t.name} on MCP server {s.name}")[:1024],
-                        "parameters": schema,
+                        "parameters": compatible_tool_schema(schema),
                     },
                 })
         return out

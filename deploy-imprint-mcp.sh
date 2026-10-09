@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="41a24dc7bf779e316850c996cc82c3ba86b08d96"
-BACKEND_HASH="70a4b06cf1a99e12387bf877bcf236d9b23080019bbba111721447cae7d8b698"
-FRONTEND_HASH="95dc6d170b6f491cad9be498cee9bac0444bae89b0f997685d39154acd3bf4e7"
+REV="d79800ab062ae413b61ac3dc76af36467403b97e"
+BACKEND_HASH="270b552cfcdb821b5d10bfbb7e3b7ece3a80a2121fe855d7139091dc95963269"
+FRONTEND_HASH="bfe6188b1051d8d392d8b64b54009b2df60f9fa6ad6a69941a41d00ea8170fe8"
 BACKEND_TARGET="/root/companion-loop/api_loop.py"
 FRONTEND_TARGET="/var/www/imprint/index.html"
-BACKEND_BACKUP="${BACKEND_TARGET}.bak-41a24dc"
-FRONTEND_BACKUP="${FRONTEND_TARGET}.bak-41a24dc"
+BACKEND_BACKUP="${BACKEND_TARGET}.bak-d79800a"
+FRONTEND_BACKUP="${FRONTEND_TARGET}.bak-d79800a"
 BACKEND_TEMP="$(mktemp /tmp/imprint-mcp-backend.XXXXXX)"
 FRONTEND_TEMP="$(mktemp /tmp/imprint-mcp-frontend.XXXXXX)"
 trap 'rm -f "${BACKEND_TEMP}" "${FRONTEND_TEMP}"' EXIT
@@ -49,6 +49,8 @@ curl -fsS 127.0.0.1:3020/healthz | jq -e '.ok == true' >/dev/null
 curl -fsS 127.0.0.1:3020/loop/config | jq -e '.mcp_available == true and (.mcp_memory_write | type == "boolean")' >/dev/null
 curl -fsS 127.0.0.1:3020/loop/mcp | jq -e '.servers | type == "array"' >/dev/null
 curl -fsS 127.0.0.1:3020/openapi.json | jq -e '.paths["/loop/models"].post' >/dev/null
+curl -fsS 127.0.0.1:3020/loop/wake | jq -e '(.control.enabled | type == "boolean") and (.pending | type == "array")' >/dev/null
+curl -fsS 127.0.0.1:3020/openapi.json | jq -e '.paths["/loop/wake/test"].post and .paths["/loop/wake/precise"].post' >/dev/null
 printf '%s  %s\n%s  %s\n' \
   "${BACKEND_HASH}" "${BACKEND_TARGET}" \
   "${FRONTEND_HASH}" "${FRONTEND_TARGET}" | sudo sha256sum -c -

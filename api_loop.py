@@ -226,7 +226,69 @@ def max_reply_tokens() -> int:
 # bounded context injection — environment + fixed facts
 # ---------------------------------------------------------------------------
 
-def context_injection_text() -> str:
+def parse_message_time(value: Any) -> dt.datetime | None:
+    """Accept the relay's ISO timestamp (and older Unix timestamps) as UTC."""
+    if isinstance(value, (int, float)):
+        stamp = float(value)
+        if stamp > 10_000_000_000:
+            stamp /= 1000
+        with contextlib.suppress(ValueError, OSError, OverflowError):
+            return dt.datetime.fromtimestamp(stamp, dt.timezone.utc)
+        return None
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    with contextlib.suppress(ValueError):
+        parsed = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=dt.timezone.utc) if parsed.tzinfo is None else parsed.astimezone(dt.timezone.utc)
+    return None
+
+
+def elapsed_words(seconds: float) -> str:
+    total = max(0, int(seconds))
+    if total < 60:
+        return "刚刚" if total < 10 else f"约 {total} 秒"
+    minutes = total // 60
+    if minutes < 60:
+        return f"约 {minutes} 分钟"
+    hours, minute = divmod(minutes, 60)
+    if hours < 24:
+        return f"约 {hours} 小时" + (f" {minute} 分钟" if minute else "")
+    days, hour = divmod(hours, 24)
+    return f"约 {days} 天" + (f" {hour} 小时" if hour else "")
+
+
+def previous_user_times(session_id: str, before_id: int | None) -> tuple[dt.datetime | None, dt.datetime | None]:
+    """Return previous user-message times for this window and for all windows."""
+    path = Path(RELAY_DB)
+    if not path.exists():
+        return None, None
+    cutoff = "AND id < ?" if before_id else ""
+    cutoff_args: list[Any] = [int(before_id)] if before_id else []
+    base = (
+        "SELECT ts FROM messages WHERE direction = 'in' AND kind IN ('user','voice') "
+        "AND (NOT json_valid(meta) OR json_extract(meta, '$.visible') IS NULL "
+        "OR json_extract(meta, '$.visible') != 0) " + cutoff
+    )
+    try:
+        with sqlite3.connect(str(path)) as conn:
+            global_row = conn.execute(base + " ORDER BY id DESC LIMIT 1", cutoff_args).fetchone()
+            if session_id:
+                session_sql = base + " AND json_valid(meta) AND json_extract(meta, '$.api_session') = ? ORDER BY id DESC LIMIT 1"
+                session_row = conn.execute(session_sql, [*cutoff_args, session_id]).fetchone()
+            else:
+                session_sql = base + " AND (NOT json_valid(meta) OR json_extract(meta, '$.api_session') IS NULL " \
+                    "OR json_extract(meta, '$.api_session') = '') ORDER BY id DESC LIMIT 1"
+                session_row = conn.execute(session_sql, cutoff_args).fetchone()
+    except (sqlite3.Error, ValueError, TypeError):
+        return None, None
+    return (
+        parse_message_time(session_row[0]) if session_row else None,
+        parse_message_time(global_row[0]) if global_row else None,
+    )
+
+
+def context_injection_text(session_id: str = "", before_id: int | None = None) -> str:
     """Small stable context block injected into the system prompt on every turn."""
     if not cfg_bool("context_injection"):
         return ""
@@ -250,6 +312,29 @@ def context_injection_text() -> str:
             "这是每轮请求时更新的可靠时间。需要判断今天、昨天、星期、时段、经过多久或未来日期时，"
             "以它为基准计算；不要声称看不到时间，也不要无故复述给用户。"
         )
+        session_previous, global_previous = previous_user_times(session_id, before_id)
+        previous = global_previous or session_previous
+        if previous is None:
+            blocks.append(
+                "【聊天间隔】\n这是现有记录中的第一次聊天，没有更早的用户消息可用于计算间隔。"
+            )
+        else:
+            previous_local = previous.astimezone(timezone)
+            first_today = previous_local.date() != current.date()
+            timing = (
+                "【聊天间隔】\n"
+                f"用户上一次在任意聊天窗口发消息的时间：{previous_local:%Y-%m-%d %H:%M:%S}；"
+                f"距离现在已经过去 {elapsed_words((current - previous_local).total_seconds())}。"
+                f"{'这是用户今天第一次回来聊天。' if first_today else '用户今天已经来聊过。'}"
+            )
+            if session_previous and global_previous and session_previous != global_previous:
+                session_local = session_previous.astimezone(timezone)
+                timing += (
+                    f"\n当前聊天窗口上一次收到用户消息：{session_local:%Y-%m-%d %H:%M:%S}，"
+                    f"距现在 {elapsed_words((current - session_local).total_seconds())}。"
+                )
+            timing += "\n你可以自然地感知久别或刚聊过，但不要每次机械汇报间隔，也不要假装期间发生过对话。"
+            blocks.append(timing)
     notes = str(cfg.get("context_notes") or "").strip()[:12_000]
     if notes:
         blocks.append(
@@ -970,7 +1055,7 @@ async def build_messages(
 ) -> tuple[list[dict[str, Any]], bool]:
     """→ (messages, had_images). History images are only re-sent for the newest history_images human rows."""
     system_text = persona_text()
-    injected = context_injection_text()
+    injected = context_injection_text(session_id, before_id)
     if injected:
         system_text += "\n\n" + injected
     compacted = {"summary": "", "last_id": 0, "compacted": False}

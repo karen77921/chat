@@ -1529,8 +1529,11 @@ async def stream_chat(route: dict[str, str], messages: list[dict[str, Any]], too
     think_parts: list[str] = []
     usage: dict[str, Any] = {}
     acc: dict[int, dict[str, Any]] = {}
-    # trust_env=True: model endpoints are on the internet, so HTTP(S)_PROXY / NO_PROXY apply.
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=30), trust_env=True) as client:
+    # Long-thinking models and some gateways can stay silent for several minutes before the
+    # first SSE frame. Do not turn that silence into ReadTimeout; the UI stop button cancels
+    # the tracked task when the user no longer wants to wait.
+    timeout = httpx.Timeout(connect=30, read=None, write=60, pool=30)
+    async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
         async with client.stream(
             "POST",
             route["url"].rstrip("/") + "/chat/completions",
@@ -2365,12 +2368,15 @@ async def loop_regenerate(request: Request):
     requested_session = str(body.get("session_id") or body.get("api_session") or "").strip()
     source = regeneration_source(reply_message_id, requested_session)
     patch_message(reply_message_id, {"visible": False})
-    return await tracked_turn(
+    result = await tracked_turn(
         source["text"],
         source["attachments"],
         source["id"],
         source["session_id"],
     )
+    if not result.get("ok"):
+        patch_message(reply_message_id, {"visible": True})
+    return result
 
 
 @app.post("/loop/ingest")

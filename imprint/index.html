@@ -1267,7 +1267,11 @@
         try {
           const sessionId = activeSession === LEGACY_SESSION ? '' : activeSession;
           const result = await loopApi('regenerate', 'POST', { reply_message_id: Number(message.id), session_id: sessionId });
-          if (!result.ok && !result.api?.cancelled) showToast('重新生成遇到错误，请查看失败气泡');
+          if (!result.ok) {
+            if (original) putMessage(original);
+            renderMessages();
+            if (!result.api?.cancelled) showToast('重新生成失败，已恢复原回复');
+          }
         } catch (error) {
           if (original) putMessage(original);
           setGeneration(false);

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="38b9a52a61530a7172dcaedfa9b40e747a5873fe"
-BACKEND_HASH="3be4f5f99707e3b859bc039ea6f1cc5b87bde6b8c89e4228ddd4b753c4b9fe86"
+REV="85305681d32d46746c7149ce95ed7d47b2447b91"
+BACKEND_HASH="6c74b573dd2fa548fc94334a8a9f994e13bfaf634c4613bf77bb0c2852d72094"
 FRONTEND_HASH="2cf8c6feca93fb291fa912ae95853aa169de0749b80ef292f3f52cb9fb90d11e"
 BACKEND_TARGET="/root/companion-loop/api_loop.py"
 FRONTEND_TARGET="/var/www/imprint/index.html"
-BACKEND_BACKUP="${BACKEND_TARGET}.bak-38b9a52"
-FRONTEND_BACKUP="${FRONTEND_TARGET}.bak-38b9a52"
+BACKEND_BACKUP="${BACKEND_TARGET}.bak-8530568"
+FRONTEND_BACKUP="${FRONTEND_TARGET}.bak-8530568"
 BACKEND_TEMP="$(mktemp /tmp/imprint-mcp-backend.XXXXXX)"
 FRONTEND_TEMP="$(mktemp /tmp/imprint-mcp-frontend.XXXXXX)"
 trap 'rm -f "${BACKEND_TEMP}" "${FRONTEND_TEMP}"' EXIT

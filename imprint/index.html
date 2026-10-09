@@ -649,6 +649,18 @@
               <div class="settings-hint" id="mcpHint">连接地址和令牌只保存在 VPS；请只连接你信任的服务。已有的本机 stdio 连接可在这里查看状态。</div>
             </article>
             <article class="settings-card">
+              <h3>自主唤醒 · Wake 2.0</h3>
+              <p>给 AI 自然醒来的机会。低频模式平均约每天 6 次机会、至少间隔 90 分钟；醒来后仍可选择沉默。AI 也能为未来的自己安排精确唤醒。</p>
+              <label class="check-row"><span>开启自主唤醒</span><input id="wakeEnabled" type="checkbox"></label>
+              <div class="number-grid">
+                <div class="field"><label for="wakeMode">非精确模式</label><select id="wakeMode"><option value="low-frequency">低频</option><option value="normal">正常</option><option value="silent">静默</option><option value="custom">自定义</option></select></div>
+                <div class="field"><label for="wakeRate">自定义机会/小时</label><input id="wakeRate" type="number" min="0" max="24" step="0.05"></div>
+                <div class="field"><label for="wakeMinGap">自定义最小间隔（分钟）</label><input id="wakeMinGap" type="number" min="5" max="1440"></div>
+              </div>
+              <div class="settings-actions"><button class="primary-button" id="saveWake" type="button">保存唤醒设置</button><button class="soft-button" id="testWake" type="button">给一次测试机会</button><button class="soft-button" id="refreshWake" type="button">刷新状态</button></div>
+              <div class="settings-hint" id="wakeHint">正在读取 Wake 状态…</div>
+            </article>
+            <article class="settings-card">
               <h3>自动备份</h3>
               <p>定时备份聊天数据库、API 配置和系统提示词，备份只保存在你的 VPS 私有目录。</p>
               <label class="check-row"><span>开启自动备份</span><input id="backupEnabled" type="checkbox"></label>
@@ -1693,6 +1705,24 @@
         if (hint) hint.textContent = `当前编辑 ${apiChain.length} 个接口；第一行是当前接口，其余仅在失败时备用。`;
       }
 
+      function renderWakeStatus(wake) {
+        const hint = document.querySelector('#wakeHint');
+        if (!wake || !wake.control) {
+          hint.textContent = 'Wake 状态暂不可用。';
+          return;
+        }
+        const control = wake.control;
+        document.querySelector('#wakeEnabled').checked = control.enabled !== false;
+        document.querySelector('#wakeMode').value = control.mode || 'low-frequency';
+        document.querySelector('#wakeRate').value = control.rate_per_hour ?? 0.25;
+        document.querySelector('#wakeMinGap').value = control.min_gap_minutes ?? 90;
+        const nextRaw = wake.state?.next_nonprecise_at;
+        const next = nextRaw ? new Date(nextRaw).toLocaleString('zh-CN', { hour12: false }) : '暂无（静默或关闭）';
+        const pending = Array.isArray(wake.pending) ? wake.pending.length : 0;
+        const missed = Array.isArray(wake.missed) ? wake.missed.filter(item => !item.informed).length : 0;
+        hint.textContent = `模式：${control.mode} · 下次非精确机会：${next} · 精确待办 ${pending} 个${missed ? ` · 未告知错过 ${missed} 个` : ''}`;
+      }
+
       function applySettings(config) {
         apiChain = Array.isArray(config.main_chain)
           ? config.main_chain.map((row, index) => ({ ...row, index: row.index ?? index, key: '' }))
@@ -1718,6 +1748,7 @@
         document.querySelector('#backupInterval').value = config.backup_interval_hours ?? 24;
         document.querySelector('#backupKeep').value = config.backup_keep ?? 14;
         document.querySelector('#backupHint').textContent = `备份目录：${config.backup_dir || 'VPS 私有目录'}`;
+        renderWakeStatus(config.wake);
         document.querySelector('#apiHint').textContent = apiChain.length
           ? `已保存 ${apiChain.length} 个接口；第一行“当前使用”，其余只在失败时备用。`
           : '还没有配置模型。';
@@ -1990,6 +2021,50 @@
           hint.textContent = '✓ 已保存并立即生效';
         } catch (error) {
           hint.textContent = `保存失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      document.querySelector('#saveWake').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        const hint = document.querySelector('#wakeHint');
+        button.disabled = true;
+        hint.textContent = '正在保存 Wake 控制…';
+        try {
+          const wake = await loopApi('wake/config', 'POST', {
+            enabled: document.querySelector('#wakeEnabled').checked,
+            mode: document.querySelector('#wakeMode').value,
+            rate_per_hour: Number(document.querySelector('#wakeRate').value),
+            min_gap_minutes: Number(document.querySelector('#wakeMinGap').value),
+            make_default: true,
+            reason: '用户从 Imprint 设置修改'
+          });
+          renderWakeStatus(wake);
+          showToast('自主唤醒设置已保存');
+        } catch (error) {
+          hint.textContent = `保存失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      document.querySelector('#refreshWake').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try { renderWakeStatus(await loopApi('wake')); }
+        catch (error) { document.querySelector('#wakeHint').textContent = `刷新失败：${error.message}`; }
+        finally { button.disabled = false; }
+      });
+      document.querySelector('#testWake').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        const hint = document.querySelector('#wakeHint');
+        button.disabled = true;
+        hint.textContent = '正在给 AI 一次测试唤醒机会；它可以选择沉默…';
+        try {
+          const result = await loopApi('wake/test', 'POST');
+          renderWakeStatus(result.wake);
+          showToast(result.result === 'message' ? 'AI 选择了主动联系你' : result.result === 'silent' ? 'AI 这次选择保持沉默' : '测试唤醒失败');
+        } catch (error) {
+          hint.textContent = `测试失败：${error.message}`;
         } finally {
           button.disabled = false;
         }

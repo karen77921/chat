@@ -36,6 +36,7 @@ import datetime as dt
 import json
 import mimetypes
 import os
+import random
 import re
 import shutil
 import sqlite3
@@ -126,6 +127,17 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "backup_enabled": True,
     "backup_interval_hours": 24,
     "backup_keep": 14,
+    "wake_enabled": True,       # low-frequency autonomous Wake 2.0 opportunities
+    "wake_default_mode": "low-frequency",
+    "wake_mode": "low-frequency",  # normal | low-frequency | silent | custom
+    "wake_mode_expires_at": "",
+    "wake_mode_reason": "用户启用低频自动唤醒",
+    "wake_normal_rate_per_hour": 1.5,
+    "wake_normal_min_gap_minutes": 20,
+    "wake_low_rate_per_hour": 0.25,
+    "wake_low_min_gap_minutes": 90,
+    "wake_custom_rate_per_hour": 0.25,
+    "wake_custom_min_gap_minutes": 90,
     "persona_file": "",         # path; empty = PERSONA_FILE env, then PERSONA env, then default
     "attach_roots": [],         # optional allow-list of directories attach_file may read from
     "mcp_servers": [],          # [{name, transport: stdio|http, command, args, env, url, headers, enabled}]
@@ -342,6 +354,31 @@ def context_injection_text(session_id: str = "", before_id: int | None = None) -
             + notes
             + "\n这些是用户明确要求长期保留的背景事实；如与用户最新说法冲突，以最新说法为准。"
         )
+    with contextlib.suppress(Exception):
+        wake = wake_public()
+        control = wake["control"]
+        pending = wake.get("pending") or []
+        missed = [item for item in (wake.get("missed") or []) if not item.get("informed")]
+        wake_lines = [
+            "【你的 Wake 2.0 控制】",
+            f"非精确唤醒：{'开启' if control['enabled'] else '关闭'}；模式：{control['mode']}；"
+            f"平均率：{control['rate_per_hour']}/小时；最小间隔：{control['min_gap_minutes']} 分钟。",
+        ]
+        if control.get("expires_at"):
+            wake_lines.append(f"本次临时控制到期时间：{control['expires_at']}；原因：{control.get('reason') or '未填写'}。")
+        if pending:
+            wake_lines.append("你安排的 Pending Self Wake：" + "；".join(
+                f"{item['wake_id']} @ {item['wake_at']}（{item.get('note') or '无备注'}）" for item in pending[:10]
+            ))
+        if missed:
+            wake_lines.append("需要一次性知晓的 missed self wake：" + "；".join(
+                f"{item['wake_id']} 原定 {item['wake_at']}（{item.get('note') or '无备注'}）" for item in missed[:10]
+            ))
+        wake_lines.append(
+            "你可以使用 Wake 控制工具查询或改变自己的唤醒节律，也可以为未来的自己安排精确唤醒。"
+            "非精确 silent 不会取消精确唤醒。不要根据机器概率反向解释自己的情绪。"
+        )
+        blocks.append("\n".join(wake_lines))
     return "\n\n".join(blocks)
 
 
@@ -518,6 +555,217 @@ def delete_session(session_id: str) -> dict[str, Any]:
         active = kept[-1]["id"] if kept else ""
     result = save_sessions(kept, active)
     return {**result, "ok": True, "deleted": session_id, "deleted_messages": deleted_messages}
+
+
+# ---------------------------------------------------------------------------
+# Wake 2.0 durable control + precise wake state
+# ---------------------------------------------------------------------------
+
+WAKE_MODES = {"normal", "low-frequency", "silent", "custom"}
+
+
+def _wake_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS api_wake_state (
+               singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+               next_nonprecise_at TEXT NOT NULL DEFAULT '',
+               last_opportunity_at TEXT NOT NULL DEFAULT '',
+               last_result TEXT NOT NULL DEFAULT '',
+               updated_at TEXT NOT NULL DEFAULT ''
+           )"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO api_wake_state(singleton, updated_at) VALUES(1, ?)""",
+        (now_iso(),),
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS api_precise_wakes (
+               wake_id TEXT PRIMARY KEY,
+               session_id TEXT NOT NULL DEFAULT '',
+               wake_at TEXT NOT NULL,
+               note TEXT NOT NULL DEFAULT '',
+               status TEXT NOT NULL DEFAULT 'pending',
+               created_at TEXT NOT NULL,
+               finished_at TEXT NOT NULL DEFAULT '',
+               informed INTEGER NOT NULL DEFAULT 0
+           )"""
+    )
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS idx_api_precise_wakes_due
+           ON api_precise_wakes(status, wake_at)"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS api_wake_audit (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               occurred_at TEXT NOT NULL,
+               kind TEXT NOT NULL,
+               result TEXT NOT NULL,
+               detail TEXT NOT NULL DEFAULT ''
+           )"""
+    )
+
+
+def _wake_conn() -> sqlite3.Connection:
+    path = Path(RELAY_DB)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), timeout=10)
+    _wake_tables(conn)
+    return conn
+
+
+def wake_control() -> dict[str, Any]:
+    cfg = load_config()
+    mode = str(cfg.get("wake_mode") or cfg.get("wake_default_mode") or "low-frequency")
+    expires = parse_message_time(cfg.get("wake_mode_expires_at"))
+    if expires and expires <= dt.datetime.now(dt.timezone.utc):
+        mode = str(cfg.get("wake_default_mode") or "low-frequency")
+        cfg.update(wake_mode=mode, wake_mode_expires_at="", wake_mode_reason="临时控制已到期，恢复默认模式")
+        save_config(cfg)
+    if mode not in WAKE_MODES:
+        mode = "low-frequency"
+    if mode == "normal":
+        rate = cfg_float("wake_normal_rate_per_hour", 0.0, 24.0)
+        gap = cfg_int("wake_normal_min_gap_minutes", 5, 1440)
+    elif mode == "low-frequency":
+        rate = cfg_float("wake_low_rate_per_hour", 0.0, 24.0)
+        gap = cfg_int("wake_low_min_gap_minutes", 5, 1440)
+    elif mode == "custom":
+        rate = cfg_float("wake_custom_rate_per_hour", 0.0, 24.0)
+        gap = cfg_int("wake_custom_min_gap_minutes", 5, 1440)
+    else:
+        rate, gap = 0.0, cfg_int("wake_low_min_gap_minutes", 5, 1440)
+    return {
+        "enabled": cfg_bool("wake_enabled"),
+        "mode": mode,
+        "default_mode": str(cfg.get("wake_default_mode") or "low-frequency"),
+        "rate_per_hour": rate,
+        "min_gap_minutes": gap,
+        "expires_at": str(cfg.get("wake_mode_expires_at") or ""),
+        "reason": str(cfg.get("wake_mode_reason") or ""),
+    }
+
+
+def set_wake_control(
+    mode: str,
+    *,
+    enabled: bool | None = None,
+    duration_minutes: int = 0,
+    reason: str = "",
+    rate_per_hour: float | None = None,
+    min_gap_minutes: int | None = None,
+    make_default: bool = False,
+) -> dict[str, Any]:
+    mode = str(mode or "").strip().lower()
+    if mode not in WAKE_MODES:
+        raise ValueError("mode must be normal, low-frequency, silent or custom")
+    cfg = load_config()
+    cfg["wake_mode"] = mode
+    if enabled is not None:
+        cfg["wake_enabled"] = bool(enabled)
+    if make_default:
+        cfg["wake_default_mode"] = mode
+    if mode == "custom":
+        if rate_per_hour is not None:
+            cfg["wake_custom_rate_per_hour"] = max(0.0, min(float(rate_per_hour), 24.0))
+        if min_gap_minutes is not None:
+            cfg["wake_custom_min_gap_minutes"] = max(5, min(int(min_gap_minutes), 1440))
+    cfg["wake_mode_expires_at"] = (
+        (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=max(1, min(int(duration_minutes), 525_600)))).isoformat()
+        if duration_minutes else ""
+    )
+    cfg["wake_mode_reason"] = str(reason or "").strip()[:500]
+    save_config(cfg)
+    schedule_next_nonprecise(reset=True)
+    wake_audit("control", "updated", json.dumps(wake_control(), ensure_ascii=False))
+    return wake_public()
+
+
+def wake_audit(kind: str, result: str, detail: str = "") -> None:
+    with _wake_conn() as conn:
+        conn.execute(
+            "INSERT INTO api_wake_audit(occurred_at, kind, result, detail) VALUES(?,?,?,?)",
+            (now_iso(), str(kind)[:40], str(result)[:40], str(detail)[:2000]),
+        )
+        conn.execute("DELETE FROM api_wake_audit WHERE id NOT IN (SELECT id FROM api_wake_audit ORDER BY id DESC LIMIT 500)")
+
+
+def schedule_next_nonprecise(*, reset: bool = False, not_before: dt.datetime | None = None) -> str:
+    control = wake_control()
+    now = dt.datetime.now(dt.timezone.utc)
+    with _wake_conn() as conn:
+        row = conn.execute("SELECT next_nonprecise_at FROM api_wake_state WHERE singleton = 1").fetchone()
+        existing = parse_message_time(row[0]) if row else None
+        if not reset and existing and existing > now:
+            return existing.isoformat()
+        if not control["enabled"] or control["mode"] == "silent" or control["rate_per_hour"] <= 0:
+            target = None
+        else:
+            random_delay = random.expovariate(control["rate_per_hour"] / 3600.0)
+            delay = max(control["min_gap_minutes"] * 60.0, random_delay)
+            target = max(now + dt.timedelta(seconds=delay), not_before or now)
+        value = target.isoformat() if target else ""
+        conn.execute(
+            "UPDATE api_wake_state SET next_nonprecise_at = ?, updated_at = ? WHERE singleton = 1",
+            (value, now_iso()),
+        )
+    return value
+
+
+def create_precise_wake(session_id: str, wake_at: dt.datetime, note: str) -> dict[str, Any]:
+    when = wake_at.astimezone(dt.timezone.utc) if wake_at.tzinfo else wake_at.replace(tzinfo=dt.timezone.utc)
+    if when <= dt.datetime.now(dt.timezone.utc):
+        raise ValueError("wake_at must be in the future")
+    wake_id = "wake-" + uuid.uuid4().hex[:12]
+    with _wake_conn() as conn:
+        conn.execute(
+            "INSERT INTO api_precise_wakes(wake_id,session_id,wake_at,note,status,created_at) VALUES(?,?,?,?,?,?)",
+            (wake_id, session_id, when.isoformat(), str(note or "").strip()[:1000], "pending", now_iso()),
+        )
+    wake_audit("precise", "scheduled", f"{wake_id} {when.isoformat()} {note}"[:2000])
+    return {"wake_id": wake_id, "session_id": session_id, "wake_at": when.isoformat(), "note": str(note or "").strip(), "status": "pending"}
+
+
+def precise_wakes(status: str = "pending", limit: int = 50) -> list[dict[str, Any]]:
+    with _wake_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM api_precise_wakes WHERE status = ? ORDER BY wake_at ASC LIMIT ?",
+                (status, max(1, min(limit, 200))),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM api_precise_wakes ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 200)),)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def cancel_precise_wake(wake_id: str) -> bool:
+    with _wake_conn() as conn:
+        cur = conn.execute(
+            "UPDATE api_precise_wakes SET status = 'cancelled', finished_at = ? WHERE wake_id = ? AND status = 'pending'",
+            (now_iso(), str(wake_id)),
+        )
+    if cur.rowcount:
+        wake_audit("precise", "cancelled", str(wake_id))
+    return bool(cur.rowcount)
+
+
+def mark_missed_wakes_informed() -> None:
+    with _wake_conn() as conn:
+        conn.execute("UPDATE api_precise_wakes SET informed = 1 WHERE status = 'missed' AND informed = 0")
+
+
+def wake_public() -> dict[str, Any]:
+    with _wake_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        state = conn.execute("SELECT * FROM api_wake_state WHERE singleton = 1").fetchone()
+        audit = conn.execute("SELECT occurred_at,kind,result,detail FROM api_wake_audit ORDER BY id DESC LIMIT 12").fetchall()
+    return {
+        "control": wake_control(),
+        "state": dict(state) if state else {},
+        "pending": precise_wakes("pending", 50),
+        "missed": precise_wakes("missed", 20),
+        "audit": [dict(row) for row in audit],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1440,6 +1688,56 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
             "required": ["path"],
         },
     },
+}, {
+    "type": "function",
+    "function": {
+        "name": "inspect_wake_control",
+        "description": "Inspect your autonomous Wake 2.0 mode, next non-precise opportunity, pending self wakes and recent wake audit.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "set_wake_mode",
+        "description": "Change your own non-precise wake mode. This does not cancel precise self wakes. Use duration_minutes for a temporary control.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["normal", "low-frequency", "silent", "custom"]},
+                "duration_minutes": {"type": "integer", "description": "Optional duration; 0 means no expiry."},
+                "reason": {"type": "string", "description": "Why you chose this control."},
+                "rate_per_hour": {"type": "number", "description": "Custom mode only, 0 to 24."},
+                "min_gap_minutes": {"type": "integer", "description": "Custom mode only, 5 to 1440."},
+            },
+            "required": ["mode"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "schedule_self_wake",
+        "description": "Schedule one precise future wake for yourself. Use after_minutes or an ISO-8601 wake_at time, and leave a note for your future self.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "after_minutes": {"type": "integer", "description": "Minutes from now; must be positive."},
+                "wake_at": {"type": "string", "description": "Absolute ISO-8601 date/time with timezone."},
+                "note": {"type": "string", "description": "Why you want to wake and what your future self should know."},
+            },
+            "required": ["note"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "cancel_self_wake",
+        "description": "Cancel one pending precise self wake by wake_id.",
+        "parameters": {
+            "type": "object",
+            "properties": {"wake_id": {"type": "string"}},
+            "required": ["wake_id"],
+        },
+    },
 }]
 
 
@@ -1486,6 +1784,40 @@ class Turn:
                 args = {}
         except json.JSONDecodeError as exc:
             return f"ERROR: arguments are not valid JSON ({exc})"
+        if public_name == "inspect_wake_control":
+            return json.dumps(wake_public(), ensure_ascii=False)[:20_000]
+        if public_name == "set_wake_mode":
+            try:
+                result = set_wake_control(
+                    str(args.get("mode") or ""),
+                    duration_minutes=int(args.get("duration_minutes") or 0),
+                    reason=str(args.get("reason") or ""),
+                    rate_per_hour=float(args["rate_per_hour"]) if args.get("rate_per_hour") is not None else None,
+                    min_gap_minutes=int(args["min_gap_minutes"]) if args.get("min_gap_minutes") is not None else None,
+                )
+                return json.dumps(result, ensure_ascii=False)[:20_000]
+            except (TypeError, ValueError) as exc:
+                return f"ERROR: {exc}"
+        if public_name == "schedule_self_wake":
+            try:
+                if args.get("after_minutes") is not None:
+                    minutes = max(1, min(int(args["after_minutes"]), 525_600))
+                    when = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=minutes)
+                else:
+                    raw_when = str(args.get("wake_at") or "").strip()
+                    if not raw_when:
+                        return "ERROR: after_minutes or wake_at required"
+                    when = dt.datetime.fromisoformat(raw_when.replace("Z", "+00:00"))
+                    if when.tzinfo is None:
+                        timezone_name = str(load_config().get("context_timezone") or CONFIG_DEFAULTS["context_timezone"])
+                        when = when.replace(tzinfo=ZoneInfo(timezone_name))
+                result = create_precise_wake(self.session_id or active_session_id(), when, str(args.get("note") or ""))
+                return json.dumps(result, ensure_ascii=False)
+            except (TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+                return f"ERROR: {exc}"
+        if public_name == "cancel_self_wake":
+            wake_id = str(args.get("wake_id") or "").strip()
+            return json.dumps({"ok": cancel_precise_wake(wake_id), "wake_id": wake_id}, ensure_ascii=False)
         if public_name == "attach_file":
             raw = str(args.get("path") or "").strip()
             if not raw:
@@ -1899,6 +2231,9 @@ async def handle_turn(
     }
     if error:
         meta["error"] = error
+    elif not dry:
+        with contextlib.suppress(Exception):
+            mark_missed_wakes_informed()
     if dry:
         return {"ok": not error, "reply": reply, "api": meta, "acts": turn.acts, "attachments": turn.attachments}
     payload: dict[str, Any] = {"api": meta, "api_session": session_id}
@@ -1938,6 +2273,7 @@ def public_config() -> dict[str, Any]:
         "backup_interval_hours": cfg_int("backup_interval_hours", 1, 168),
         "backup_keep": cfg_int("backup_keep", 1, 90),
         "backup_dir": str(LOOP_BACKUP_DIR),
+        "wake": wake_public(),
         "persona": {k: v for k, v in persona_public().items() if k != "text"},
         "active_session": active_session_id(),
         "sessions": session_rows(),
@@ -1964,6 +2300,7 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
         ("max_tool_steps", 0, 50),
         ("backup_interval_hours", 1, 168),
         ("backup_keep", 1, 90),
+        ("wake_custom_min_gap_minutes", 5, 1440),
     ):
         if name in body:
             try:
@@ -1975,7 +2312,12 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
             cfg["temperature"] = max(0.0, min(float(body.get("temperature")), 2.0))
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="temperature must be a number")
-    for name in ("context_compaction", "compact_to_ombre", "ombre_auto_recall", "mcp_memory_write", "context_injection", "context_time", "backup_enabled"):
+    if "wake_custom_rate_per_hour" in body:
+        try:
+            cfg["wake_custom_rate_per_hour"] = max(0.0, min(float(body.get("wake_custom_rate_per_hour")), 24.0))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="wake_custom_rate_per_hour must be a number")
+    for name in ("context_compaction", "compact_to_ombre", "ombre_auto_recall", "mcp_memory_write", "context_injection", "context_time", "backup_enabled", "wake_enabled"):
         if name in body:
             value = body.get(name)
             if isinstance(value, bool):
@@ -2007,6 +2349,14 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
         if v not in {"auto", "on", "off"}:
             raise HTTPException(status_code=400, detail="vision must be auto|on|off")
         cfg["vision"] = v
+    if "wake_mode" in body:
+        mode = str(body.get("wake_mode") or "").strip().lower()
+        if mode not in WAKE_MODES:
+            raise HTTPException(status_code=400, detail="wake_mode must be normal|low-frequency|silent|custom")
+        cfg["wake_mode"] = mode
+        cfg["wake_default_mode"] = mode
+        cfg["wake_mode_expires_at"] = ""
+        cfg["wake_mode_reason"] = "用户从 Imprint 设置修改"
     if "persona_file" in body:
         cfg["persona_file"] = str(body.get("persona_file") or "").strip()
         _persona_cache["mtime"] = None
@@ -2030,6 +2380,8 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
             new_chain.append(entry)
         cfg["main_chain"] = new_chain  # an empty list falls back to LLM_* env routes
     save_config(cfg)
+    if any(name in body for name in ("wake_enabled", "wake_mode", "wake_custom_rate_per_hour", "wake_custom_min_gap_minutes")):
+        schedule_next_nonprecise(reset=True)
     return public_config()
 
 
@@ -2077,6 +2429,162 @@ async def backup_worker() -> None:
         await asyncio.sleep(cfg_int("backup_interval_hours", 1, 168) * 3600)
 
 
+def initialize_wake_runtime() -> None:
+    """Recover durable Wake state without replaying opportunities missed while offline."""
+    now = dt.datetime.now(dt.timezone.utc)
+    with _wake_conn() as conn:
+        conn.execute(
+            "UPDATE api_precise_wakes SET status = 'missed', finished_at = ? "
+            "WHERE status IN ('pending','running') AND wake_at <= ?",
+            (now.isoformat(), now.isoformat()),
+        )
+        row = conn.execute("SELECT next_nonprecise_at FROM api_wake_state WHERE singleton = 1").fetchone()
+        next_at = parse_message_time(row[0]) if row else None
+    if not next_at or next_at <= now:
+        schedule_next_nonprecise(reset=True)
+
+
+def claim_due_precise_wakes(now: dt.datetime) -> list[dict[str, Any]]:
+    claimed: list[dict[str, Any]] = []
+    with _wake_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM api_precise_wakes WHERE status = 'pending' AND wake_at <= ? ORDER BY wake_at ASC LIMIT 20",
+            (now.isoformat(),),
+        ).fetchall()
+        for row in rows:
+            cur = conn.execute(
+                "UPDATE api_precise_wakes SET status = 'running' WHERE wake_id = ? AND status = 'pending'",
+                (row["wake_id"],),
+            )
+            if cur.rowcount:
+                claimed.append(dict(row))
+    return claimed
+
+
+def finish_precise_wake(wake_id: str, result: str) -> None:
+    final = "consumed" if result in {"message", "silent"} else "missed"
+    with _wake_conn() as conn:
+        conn.execute(
+            "UPDATE api_precise_wakes SET status = ?, finished_at = ? WHERE wake_id = ? AND status = 'running'",
+            (final, now_iso(), wake_id),
+        )
+
+
+async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_id: str = "") -> str:
+    """Give the companion one run opportunity; it alone chooses silent or message."""
+    if not session_id or not main_chain() or not RELAY_SECRET:
+        wake_audit(kind, "skipped", "missing session, model route or relay secret")
+        return "error"
+    prompt = (
+        "【Wake 2.0 内部运行机会，不是用户发来的消息】\n"
+        f"类型：{'Self Precise Wake' if kind == 'precise' else 'Non-Precise Wake'}。\n"
+        + (f"你过去的自己留下的 note：{note}\n" if note else "")
+        + "请根据当前现实时间、聊天间隔、近期上下文、长期记忆和你自己的意愿，决定这次是保持沉默还是主动联系用户。"
+          "不要因为获得机会就被迫说话，也不要暴露概率、调度器或这段内部提示。"
+          "如果沉默，最终只输出 ⟦SILENT⟧；如果要联系，最终以 ⟦MESSAGE⟧ 开头，后面直接写要发送的自然消息。"
+    )
+    messages, _ = await build_messages(prompt, [], before_id=None, session_id=session_id, use_context=True, with_images=False)
+    turn = Turn(session_id, dry=False)
+    tools: list[dict[str, Any]] | None = all_tools()
+    max_steps = cfg_int("max_tool_steps", 0, 50)
+    try:
+        for step in range(max_steps + 2):
+            out = await run_model(messages, tools if max_steps > 0 else None, stream=False)
+            calls = out.get("tool_calls") or []
+            if not calls:
+                answer = str(out.get("text") or out.get("thinking") or "").strip()
+                break
+            messages.append({"role": "assistant", "content": out.get("text") or None, "tool_calls": [
+                {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["arguments"]}}
+                for call in calls
+            ]})
+            for call in calls:
+                result = await turn.run_tool(call["name"], call["arguments"])
+                messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+            if step >= max_steps:
+                tools, max_steps = None, 0
+        else:
+            answer = "⟦SILENT⟧"
+    except Exception as exc:
+        wake_audit(kind, "error", f"{type(exc).__name__}: {exc}")
+        return "error"
+    with contextlib.suppress(Exception):
+        mark_missed_wakes_informed()
+    if answer.startswith("⟦SILENT⟧") or not answer:
+        wake_audit(kind, "silent", f"{wake_id} {note}".strip())
+        return "silent"
+    text = answer.removeprefix("⟦MESSAGE⟧").strip()
+    if not text:
+        wake_audit(kind, "silent", f"{wake_id} empty message")
+        return "silent"
+    payload: dict[str, Any] = {
+        "type": "reply",
+        "text": text,
+        "api_session": session_id,
+        "api": {"runtime": "wake-2.0", "wake_kind": kind, "wake_id": wake_id, "proactive": True},
+    }
+    if turn.attachments:
+        payload["attachments"] = turn.attachments
+    ok, detail = await relay_out(payload)
+    if ok:
+        touch_session(session_id)
+        wake_audit(kind, "message", f"{wake_id} {text}"[:2000])
+        return "message"
+    wake_audit(kind, "error", f"relay: {detail}"[:2000])
+    return "error"
+
+
+async def wake_worker() -> None:
+    initialize_wake_runtime()
+    while True:
+        try:
+            now = dt.datetime.now(dt.timezone.utc)
+            for item in claim_due_precise_wakes(now):
+                result = await run_wake_opportunity(
+                    "precise",
+                    str(item.get("session_id") or active_session_id()),
+                    str(item.get("note") or ""),
+                    str(item.get("wake_id") or ""),
+                )
+                finish_precise_wake(str(item["wake_id"]), result)
+
+            control = wake_control()
+            with _wake_conn() as conn:
+                row = conn.execute("SELECT next_nonprecise_at FROM api_wake_state WHERE singleton = 1").fetchone()
+            next_at = parse_message_time(row[0]) if row else None
+            if not control["enabled"] or control["mode"] == "silent" or control["rate_per_hour"] <= 0:
+                if next_at:
+                    schedule_next_nonprecise(reset=True)
+            elif not next_at:
+                schedule_next_nonprecise(reset=True)
+            elif next_at <= now:
+                _, last_user = previous_user_times("", None)
+                earliest = last_user + dt.timedelta(minutes=control["min_gap_minutes"]) if last_user else now
+                if earliest > now:
+                    schedule_next_nonprecise(reset=True, not_before=earliest)
+                else:
+                    with _wake_conn() as conn:
+                        conn.execute(
+                            "UPDATE api_wake_state SET last_opportunity_at = ?, updated_at = ? WHERE singleton = 1",
+                            (now.isoformat(), now_iso()),
+                        )
+                    schedule_next_nonprecise(reset=True)
+                    result = await run_wake_opportunity("non-precise", active_session_id())
+                    with _wake_conn() as conn:
+                        conn.execute(
+                            "UPDATE api_wake_state SET last_result = ?, updated_at = ? WHERE singleton = 1",
+                            (result, now_iso()),
+                        )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"[wake] worker error: {type(exc).__name__}: {exc}", flush=True)
+            with contextlib.suppress(Exception):
+                wake_audit("worker", "error", f"{type(exc).__name__}: {exc}")
+        await asyncio.sleep(20)
+
+
 # ---------------------------------------------------------------------------
 # HTTP surface
 # ---------------------------------------------------------------------------
@@ -2086,10 +2594,14 @@ async def lifespan(_: FastAPI):
     LOOP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     await mcp_manager.start_all()
     backup_task = asyncio.create_task(backup_worker())
+    wake_task = asyncio.create_task(wake_worker(), name="wake-2.0")
     try:
         yield
     finally:
+        wake_task.cancel()
         backup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await wake_task
         with contextlib.suppress(asyncio.CancelledError):
             await backup_task
         await mcp_manager.stop_all()
@@ -2115,6 +2627,7 @@ async def healthz():
         "compact_keep_recent": cfg_int("compact_keep_recent", 2, 1000),
         "backup_enabled": cfg_bool("backup_enabled"),
         "backup_dir": str(LOOP_BACKUP_DIR),
+        "wake": wake_public(),
         "relay_db": RELAY_DB,
         "relay_secret_loaded": bool(RELAY_SECRET),
         "persona_source": persona_public()["source"],
@@ -2131,6 +2644,56 @@ async def loop_config():
 @app.post("/loop/config")
 async def loop_config_update(request: Request):
     return update_config(await request.json())
+
+
+@app.get("/loop/wake")
+async def loop_wake_status():
+    return wake_public()
+
+
+@app.post("/loop/wake/config")
+async def loop_wake_config(request: Request):
+    body = await request.json()
+    try:
+        return set_wake_control(
+            str(body.get("mode") or wake_control()["mode"]),
+            enabled=bool(body["enabled"]) if "enabled" in body else None,
+            duration_minutes=int(body.get("duration_minutes") or 0),
+            reason=str(body.get("reason") or "用户从 Imprint 设置修改"),
+            rate_per_hour=float(body["rate_per_hour"]) if body.get("rate_per_hour") is not None else None,
+            min_gap_minutes=int(body["min_gap_minutes"]) if body.get("min_gap_minutes") is not None else None,
+            make_default=bool(body.get("make_default", True)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/loop/wake/precise")
+async def loop_wake_precise(request: Request):
+    body = await request.json()
+    session_id = str(body.get("session_id") or active_session_id())
+    try:
+        if body.get("after_minutes") is not None:
+            when = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=max(1, int(body["after_minutes"])))
+        else:
+            raw = str(body.get("wake_at") or "").strip()
+            when = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=ZoneInfo(str(load_config().get("context_timezone") or "Asia/Shanghai")))
+        return {"ok": True, "wake": create_precise_wake(session_id, when, str(body.get("note") or ""))}
+    except (TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/loop/wake/precise/{wake_id}")
+async def loop_wake_precise_cancel(wake_id: str):
+    return {"ok": cancel_precise_wake(wake_id), "wake_id": wake_id}
+
+
+@app.post("/loop/wake/test")
+async def loop_wake_test():
+    result = await run_wake_opportunity("non-precise", active_session_id(), "用户手动测试了一次 Wake 机会")
+    return {"ok": result in {"message", "silent"}, "result": result, "wake": wake_public()}
 
 
 @app.post("/loop/backup")

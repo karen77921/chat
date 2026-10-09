@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="e98a4649864ef1a8d0b1694db87f0eb5b599ccff"
-BACKEND_HASH="cba9ca96d0662fa2cee1c8242e42c3375d417c4126d5d197ba1a2e19f2236825"
-FRONTEND_HASH="692f0af34006cdfc1d6c124c775186ef74ea6d22a1d8aa2e1875e0a017308d55"
+REV="38b9a52a61530a7172dcaedfa9b40e747a5873fe"
+BACKEND_HASH="3be4f5f99707e3b859bc039ea6f1cc5b87bde6b8c89e4228ddd4b753c4b9fe86"
+FRONTEND_HASH="2cf8c6feca93fb291fa912ae95853aa169de0749b80ef292f3f52cb9fb90d11e"
 BACKEND_TARGET="/root/companion-loop/api_loop.py"
 FRONTEND_TARGET="/var/www/imprint/index.html"
-BACKEND_BACKUP="${BACKEND_TARGET}.bak-e98a464"
-FRONTEND_BACKUP="${FRONTEND_TARGET}.bak-e98a464"
+BACKEND_BACKUP="${BACKEND_TARGET}.bak-38b9a52"
+FRONTEND_BACKUP="${FRONTEND_TARGET}.bak-38b9a52"
 BACKEND_TEMP="$(mktemp /tmp/imprint-mcp-backend.XXXXXX)"
 FRONTEND_TEMP="$(mktemp /tmp/imprint-mcp-frontend.XXXXXX)"
 trap 'rm -f "${BACKEND_TEMP}" "${FRONTEND_TEMP}"' EXIT
@@ -48,6 +48,7 @@ sudo systemctl is-active companion-api-loop
 curl -fsS 127.0.0.1:3020/healthz | jq -e '.ok == true' >/dev/null
 curl -fsS 127.0.0.1:3020/loop/config | jq -e '.mcp_available == true and (.mcp_memory_write | type == "boolean")' >/dev/null
 curl -fsS 127.0.0.1:3020/loop/mcp | jq -e '.servers | type == "array"' >/dev/null
+curl -fsS 127.0.0.1:3020/openapi.json | jq -e '.paths["/loop/models"].post' >/dev/null
 printf '%s  %s\n%s  %s\n' \
   "${BACKEND_HASH}" "${BACKEND_TARGET}" \
   "${FRONTEND_HASH}" "${FRONTEND_TARGET}" | sudo sha256sum -c -

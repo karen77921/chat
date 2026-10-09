@@ -216,6 +216,8 @@
       .day-divider::before, .day-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
       .message-row { position: relative; display: flex; align-items: flex-end; gap: 7px; max-width: 82%; margin-bottom: 20px; }
       .message-row.user { margin-left: auto; flex-direction: row-reverse; }
+      .message-stack { min-width: 0; max-width: 100%; display: flex; flex-direction: column; align-items: flex-start; }
+      .message-row.user .message-stack { align-items: flex-end; }
       .message-row.reply-part { margin-bottom: 7px; }
       .message-row.reply-part.reply-last { margin-bottom: 20px; }
       .message { position: relative; max-width: 100%; min-width: 58px; padding: 15px 18px; border-radius: 20px; font-size: 1rem; line-height: 1.72; overflow-wrap: anywhere; }
@@ -234,7 +236,7 @@
       .attachment-viewer { position: fixed; z-index: 75; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(19,29,47,.88); cursor: zoom-out; }
       .attachment-viewer img { max-width: 100%; max-height: 90%; object-fit: contain; }
       .message-quote { display: block; margin: 0 0 10px; padding: 8px 10px; border-left: 3px solid rgba(69,112,163,.38); border-radius: 0 9px 9px 0; background: rgba(255,255,255,.38); color: #63758d; font-size: .82rem; line-height: 1.5; }
-      .message-time { display: block; margin-top: 7px; opacity: .55; font-size: .7rem; }
+      .message-time { display: block; margin: 6px 6px 0; color: #74869c; opacity: .72; font-size: .7rem; line-height: 1.25; }
       .message-state { display: inline-block; margin-left: 8px; color: #617895; font-size: .68rem; }
       .message-menu-button { width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: 10px; background: transparent; color: #8495a9; cursor: pointer; opacity: 0; transition: opacity .18s ease, background .18s ease; }
       .message-row:hover .message-menu-button, .message-row:focus-within .message-menu-button { opacity: 1; }
@@ -1208,19 +1210,24 @@
         }
       }
 
-      async function deleteOwnMessage(message) {
+      async function deleteMessage(message) {
         if (generationActive || sending || triggering) {
           showToast('请先停止当前回复，再删除消息');
           return;
         }
-        if (!window.confirm('删除这条消息？它会从聊天记录和之后发送给 AI 的原文中移除。若 AI 已回复或已写入 Ombre 长期记忆，相关内容不会自动抹除。')) return;
+        const isAi = message.from !== 'human';
+        const wholeReply = isAi && Number(message.bubbleCount || 0) > 1;
+        const prompt = isAi
+          ? `删除${wholeReply ? '这整次 AI 回复' : '这条 AI 消息'}？它会从聊天记录和之后发送给模型的上下文中移除。`
+          : '删除这条消息？它会从聊天记录和之后发送给 AI 的原文中移除。若 AI 已回复或已写入 Ombre 长期记忆，相关内容不会自动抹除。';
+        if (!window.confirm(prompt)) return;
         try {
           const sessionId = activeSession === LEGACY_SESSION ? '' : activeSession;
           await loopApi(`messages/${encodeURIComponent(message.id)}/delete`, 'POST', { session_id: sessionId });
           messageMap.delete(String(message.id));
           if (replyTarget?.id === message.id) clearReplyTarget();
           renderMessages();
-          showToast('已删除这条消息；已形成的回复和长期记忆需另行处理');
+          showToast(isAi ? 'AI 消息已删除，之后不会再作为聊天上下文发送' : '已删除这条消息；已形成的回复和长期记忆需另行处理');
         } catch (error) {
           showToast(`删除失败：${error.message}`);
         }
@@ -1298,6 +1305,8 @@
         const failed = Boolean(message.failed || message?.meta?.api?.error);
         const row = document.createElement('div');
         row.className = `message-row ${side}${message.bubbleCount > 1 ? ` reply-part${message.bubblePart === message.bubbleCount - 1 ? ' reply-last' : ''}` : ''}`;
+        const stack = document.createElement('div');
+        stack.className = 'message-stack';
         const bubble = document.createElement('div');
         bubble.className = `message ${side}${message.kind === 'act' ? ' act' : ''}${message.streaming ? ' streaming' : ''}${failed ? ' failed' : ''}${message.queued ? ' queued' : ''}`;
         bubble.dataset.messageId = String(message.id || '');
@@ -1327,8 +1336,8 @@
             message?.meta?.deferred && !message?.meta?.reply_requested ? '待回复' : '已编辑';
           time.appendChild(state);
         }
-        bubble.appendChild(time);
-        row.appendChild(bubble);
+        stack.append(bubble, time);
+        row.appendChild(stack);
         if (side === 'ai' && !message.streaming && message.kind !== 'act') enableLongPressQuote(bubble, message);
 
         const persisted = Number.isFinite(Number(message.id));
@@ -1355,10 +1364,10 @@
             addMessageAction(actions, '引用', () => setReplyTarget(message));
             if (side === 'user') {
               addMessageAction(actions, '编辑', () => editMessage(message));
-              addMessageAction(actions, '删除消息', () => deleteOwnMessage(message), true);
+              addMessageAction(actions, '删除消息', () => deleteMessage(message), true);
             }
             if (side === 'ai' && message.kind === 'reply') addMessageAction(actions, failed ? '重试整次回复' : '重新生成整次回复', () => regenerateMessage(message));
-            if (side === 'ai') addMessageAction(actions, message.bubbleCount > 1 ? '隐藏整次回复' : '隐藏', () => hideMessage(message), true);
+            if (side === 'ai') addMessageAction(actions, message.bubbleCount > 1 ? '删除整次回复' : '删除消息', () => deleteMessage(message), true);
           }
           row.append(menuButton, actions);
           if (side === 'user' && persisted) {

@@ -245,8 +245,10 @@ def context_injection_text() -> str:
         period = "凌晨" if hour < 6 else "上午" if hour < 12 else "下午" if hour < 18 else "晚上"
         blocks.append(
             "【当前环境】\n"
-            f"当前时间：{current:%Y-%m-%d %H:%M}（星期{weekdays[current.weekday()]}，{period}，{timezone_name}）。\n"
-            "这是系统提供的实时环境信息；不要声称看不到时间，也不要无故复述给用户。"
+            f"当前时间：{current:%Y-%m-%d %H:%M:%S}（星期{weekdays[current.weekday()]}，{period}，"
+            f"{timezone_name}，UTC{current:%z}）。\n"
+            "这是每轮请求时更新的可靠时间。需要判断今天、昨天、星期、时段、经过多久或未来日期时，"
+            "以它为基准计算；不要声称看不到时间，也不要无故复述给用户。"
         )
     notes = str(cfg.get("context_notes") or "").strip()[:12_000]
     if notes:
@@ -676,8 +678,8 @@ def _invalidate_compacted_context(conn: sqlite3.Connection, session_id: str, mes
     return True
 
 
-def delete_user_message(message_id: int, session_id: str) -> dict[str, Any]:
-    """Remove one human message from the relay and future raw/compacted context."""
+def delete_chat_message(message_id: int, session_id: str) -> dict[str, Any]:
+    """Remove one user or assistant chat message from raw and compacted context."""
     if message_id <= 0:
         raise HTTPException(status_code=400, detail="invalid message id")
     path = Path(RELAY_DB)
@@ -689,8 +691,9 @@ def delete_user_message(message_id: int, session_id: str) -> dict[str, Any]:
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="message not found")
-        if str(row[0]) != "in" or str(row[1]) not in {"user", "voice"}:
-            raise HTTPException(status_code=400, detail="only user messages can be deleted here")
+        direction, kind = str(row[0]), str(row[1])
+        if (direction, kind) not in {("in", "user"), ("in", "voice"), ("out", "reply")}:
+            raise HTTPException(status_code=400, detail="only user messages and AI replies can be deleted here")
         try:
             meta = json.loads(row[2] or "{}")
         except Exception:
@@ -704,7 +707,7 @@ def delete_user_message(message_id: int, session_id: str) -> dict[str, Any]:
         summary_reset = _invalidate_compacted_context(conn, session_id, message_id)
         conn.commit()
     return {
-        "ok": True, "id": message_id, "summary_reset": summary_reset,
+        "ok": True, "id": message_id, "direction": direction, "kind": kind, "summary_reset": summary_reset,
         "long_term_memory_may_contain": True,
     }
 
@@ -2147,7 +2150,7 @@ async def loop_message_delete(message_id: int, request: Request):
         raise HTTPException(status_code=400, detail="session_id required") from exc
     if not isinstance(body, dict) or "session_id" not in body:
         raise HTTPException(status_code=400, detail="session_id required")
-    return delete_user_message(message_id, str(body.get("session_id") or "").strip())
+    return delete_chat_message(message_id, str(body.get("session_id") or "").strip())
 
 
 @app.post("/loop/messages/{message_id}/delete")

@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Install a verified, immutable release. Existing chat/memory databases are not
 # replaced or migrated; the new scrapbook database starts empty on first use.
-REV="b17452f111770261e8de0300b1b9edbe2fc6d3b9"
-TAG="wake-v7-b17452f"
+REV="6c2237e02ac672f2d94af87e1c3d2836dcb63f11"
+TAG="imprint-autonomy-6c2237e"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -29,8 +29,8 @@ test -n "${ROOT}"
 test -f "${ROOT}/imprint-app/dist/index.html"
 test -f "${ROOT}/imprint_store.py"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
-  '2d96b7c66ce482ef2661442706c45517a264393137c75b21f13ea9f7f1c78711' "${ROOT}/api_loop.py" \
-  '86060548b18bf624827c61fd1a2eb1bae2f0da968e48a16fdf80fda9f865f479' "${ROOT}/imprint_store.py" \
+  '754bbc5360306e76752e6010e68d2e041ac718950d0c1bc21cd4181bc914ebf6' "${ROOT}/api_loop.py" \
+  '4197ebad1f577cd2009611562b3174cd5ced1345dec6eb8c087c51630fcfe207' "${ROOT}/imprint_store.py" \
   '6993e55b38a58486a066e42152b93615040aca4302516a8a0194486c0fc276d4' "${ROOT}/imprint-app/dist/index.html" \
   '8bf9a2b2eca7ecfae5480ffa3acabfcb718a1e324c033716cc2e0bb0197b0f25' "${ROOT}/imprint-app/dist/assets/index-Byt9Qhy4.js" \
   '428a6c81e0e9356a9e0ae0dc13807790bddd18074fa46a3a197635596d3b1f30' "${ROOT}/imprint-app/dist/assets/index-rDHatYtc.css" | sha256sum -c -
@@ -89,6 +89,7 @@ fi
 curl -fsS http://127.0.0.1:3020/loop/imprint/usage | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and "tokens" in x["today"]'
 curl -fsS http://127.0.0.1:3020/loop/imprint/notes | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
 curl -fsS http://127.0.0.1:3020/loop/imprint/activity | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
+curl -fsS http://127.0.0.1:3020/loop/tools | python3 -c 'import json,sys; n={x["function"]["name"] for x in json.load(sys.stdin)["tools"]}; assert {"imprint_leave_note","imprint_set_room_status","imprint_record_solo","imprint_comment_photo","imprint_add_watch"} <= n'
 curl -fsS http://127.0.0.1:3020/openapi.json | python3 -c 'import json,sys; p=json.load(sys.stdin)["paths"]; assert p["/loop/tide/pulse"]["get"] and p["/loop/sessions/{session_id}/delete"]["post"] and p["/loop/imprint/settings/contact"]["post"] and p["/loop/imprint/settings/avatar"]["post"] and p["/loop/imprint/settings/beauty"]["post"] and p["/loop/imprint/activity"]["get"] and p["/loop/imprint/activity/read"]["post"]'
 
 echo '[4/5] 切换前端…'

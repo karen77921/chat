@@ -317,6 +317,28 @@ class ImprintStoreTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 api_loop._public_https_url(unsafe)
 
+    def test_normal_turn_only_exposes_core_mcp_tools(self):
+        specs, index = [], {}
+        for server, real in (("ombre", "hold"), ("ombre", "breath_advanced"),
+                             ("galatea", "send_drift_bottle"), ("other", "special_lookup")):
+            public = f"{server}__{real}"
+            specs.append({"type": "function", "function": {"name": public, "parameters": {"type": "object"}}})
+            index[public] = (server, real)
+        fake = types.SimpleNamespace(openai_tools=lambda: specs, index=index)
+        with mock.patch.object(api_loop, "mcp_manager", fake):
+            names = {x["function"]["name"] for x in api_loop.turn_tools("普通聊天")}
+            self.assertIn("ombre__hold", names)
+            self.assertIn("galatea__send_drift_bottle", names)
+            self.assertNotIn("ombre__breath_advanced", names)
+            self.assertNotIn("other__special_lookup", names)
+            named = {x["function"]["name"] for x in api_loop.turn_tools("请用 special_lookup 查一下")}
+            self.assertIn("other__special_lookup", named)
+
+    def test_model_and_tool_waits_are_bounded_by_default(self):
+        self.assertLessEqual(api_loop.CONFIG_DEFAULTS["model_idle_timeout_seconds"], 40)
+        self.assertLessEqual(api_loop.CONFIG_DEFAULTS["model_chain_timeout_seconds"], 90)
+        self.assertLessEqual(api_loop.CONFIG_DEFAULTS["mcp_tool_timeout_seconds"], 45)
+
 
 if __name__ == "__main__":
     unittest.main()

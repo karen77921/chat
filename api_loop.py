@@ -129,6 +129,10 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "context_timezone": "Asia/Shanghai",
     "context_notes": "",       # bounded facts that must survive context compaction
     "max_tool_steps": 8,        # tool_calls rounds per turn before the model must answer
+    "model_idle_timeout_seconds": 40,    # no bytes from an API route for this long -> fallback/error
+    "model_request_timeout_seconds": 60, # hard ceiling for one model route, including long reasoning
+    "model_chain_timeout_seconds": 90,   # all configured fallbacks together
+    "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
     "vision": "auto",           # auto | on | off — send images as image_url parts
     "backup_enabled": True,
     "backup_interval_hours": 24,
@@ -1878,7 +1882,10 @@ class McpServer:
             await self.start()
         if self.session is None:
             raise RuntimeError(f"MCP server '{self.name}' is {self.status}: {self.error or 'not connected'}")
-        return await asyncio.wait_for(self.session.call_tool(tool, args or {}), timeout=120)
+        return await asyncio.wait_for(
+            self.session.call_tool(tool, args or {}),
+            timeout=cfg_int("mcp_tool_timeout_seconds", 10, 180),
+        )
 
     def public(self) -> dict[str, Any]:
         cfg = dict(self.cfg)
@@ -2202,6 +2209,31 @@ def all_tools() -> list[dict[str, Any]]:
     return BUILTIN_TOOLS + mcp_manager.openai_tools()
 
 
+def turn_tools(text: str = "") -> list[dict[str, Any]]:
+    """Keep ordinary chat light while retaining autonomous core tools.
+
+    Some MCPs expose dozens of large JSON schemas. Sending every schema on every
+    casual message makes gateways slower, costs context tokens and has caused
+    vendor-side schema errors. Built-in Imprint/research actions remain available;
+    durable memory writes and the configured drift-bottle action remain available.
+    Other MCP tools are exposed when their server/tool is named explicitly.
+    """
+    query = str(text or "").casefold()
+    selected = list(BUILTIN_TOOLS)
+    always_real = {"hold", "grow", "send_drift_bottle"}
+    for spec in mcp_manager.openai_tools():
+        public_name = str(spec.get("function", {}).get("name") or "")
+        server_name, real_name = mcp_manager.index.get(public_name, ("", public_name))
+        named = any(
+            token and str(token).casefold() in query
+            for token in (server_name, real_name, public_name)
+            if len(str(token)) >= 4
+        )
+        if real_name in always_real or named:
+            selected.append(spec)
+    return selected
+
+
 def attach_allowed(path: Path) -> bool:
     if SECRET_NAME_RE.search(path.name):
         return False
@@ -2438,10 +2470,14 @@ async def stream_chat(route: dict[str, str], messages: list[dict[str, Any]], too
     think_parts: list[str] = []
     usage: dict[str, Any] = {}
     acc: dict[int, dict[str, Any]] = {}
-    # Long-thinking models and some gateways can stay silent for several minutes before the
-    # first SSE frame. Do not turn that silence into ReadTimeout; the UI stop button cancels
-    # the tracked task when the user no longer wants to wait.
-    timeout = httpx.Timeout(connect=30, read=None, write=60, pool=30)
+    # Never leave the PWA in an endless typing state. A healthy compatible gateway
+    # either emits SSE activity or fails within this bounded idle window.
+    timeout = httpx.Timeout(
+        connect=15,
+        read=cfg_int("model_idle_timeout_seconds", 15, 180),
+        write=30,
+        pool=15,
+    )
     async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
         # OpenAI-compatible gateways may omit usage for streams unless asked.
         # Older gateways reject stream_options; retry without it before any
@@ -2499,7 +2535,13 @@ async def complete_chat(route: dict[str, str], messages: list[dict[str, Any]], t
     }
     if tools:
         body["tools"] = tools
-    async with httpx.AsyncClient(timeout=300, trust_env=True) as client:
+    timeout = httpx.Timeout(
+        connect=15,
+        read=cfg_int("model_idle_timeout_seconds", 15, 180),
+        write=30,
+        pool=15,
+    )
+    async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
         resp = await client.post(
             route["url"].rstrip("/") + "/chat/completions",
             headers={"Authorization": f"Bearer {route['key']}", "Content-Type": "application/json"},
@@ -2569,6 +2611,8 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
     """Walk the model chain. Falls back to the next route only if nothing was streamed yet."""
     tried: list[str] = []
     errors: list[str] = []
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + cfg_int("model_chain_timeout_seconds", 30, 600)
     for route in main_chain():
         tried.append(route.get("model", ""))
         started = {"v": False}
@@ -2584,10 +2628,12 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
                 await think_sink(chunk)
 
         try:
-            if stream and STREAM_OUTPUT:
-                out = await stream_chat(route, messages, tools, _sink, _think)
-            else:
-                out = await complete_chat(route, messages, tools)
+            request = stream_chat(route, messages, tools, _sink, _think) if stream and STREAM_OUTPUT else complete_chat(route, messages, tools)
+            remaining = max(1.0, deadline - loop.time())
+            out = await asyncio.wait_for(
+                request,
+                timeout=min(cfg_int("model_request_timeout_seconds", 30, 300), remaining),
+            )
             out["model"] = route.get("model")
             out["tried"] = tried[:-1]
             return out
@@ -2601,6 +2647,8 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
             errors.append(err)
             if started["v"]:
                 raise ModelError(0, "; ".join(errors), route) from exc
+        if loop.time() >= deadline:
+            break
     raise ModelError(0, "; ".join(errors) or "no model configured (fill main_chain in settings or LLM_* in .env)")
 
 
@@ -2651,7 +2699,7 @@ async def handle_turn(
 
     with_images = vision_enabled()
     messages, had_images = await build_messages(text, atts, before_id=msg_id, session_id=session_id, use_context=use_context, with_images=with_images)
-    tools = all_tools()
+    tools = turn_tools(text)
     max_steps = cfg_int("max_tool_steps", 0, 50)
     texts: list[str] = []
     model_used = ""
@@ -2778,6 +2826,10 @@ def public_config() -> dict[str, Any]:
         "context_timezone": str(cfg.get("context_timezone", CONFIG_DEFAULTS["context_timezone"])),
         "context_notes": str(cfg.get("context_notes", CONFIG_DEFAULTS["context_notes"])),
         "max_tool_steps": cfg_int("max_tool_steps", 0, 50),
+        "model_idle_timeout_seconds": cfg_int("model_idle_timeout_seconds", 15, 180),
+        "model_request_timeout_seconds": cfg_int("model_request_timeout_seconds", 30, 300),
+        "model_chain_timeout_seconds": cfg_int("model_chain_timeout_seconds", 30, 600),
+        "mcp_tool_timeout_seconds": cfg_int("mcp_tool_timeout_seconds", 10, 180),
         "vision": str(cfg.get("vision", CONFIG_DEFAULTS["vision"])),
         "backup_enabled": cfg_bool("backup_enabled"),
         "backup_interval_hours": cfg_int("backup_interval_hours", 1, 168),
@@ -2808,6 +2860,10 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
         ("compact_threshold", 20, 2000),
         ("compact_keep_recent", 2, 1000),
         ("max_tool_steps", 0, 50),
+        ("model_idle_timeout_seconds", 15, 180),
+        ("model_request_timeout_seconds", 30, 300),
+        ("model_chain_timeout_seconds", 30, 600),
+        ("mcp_tool_timeout_seconds", 10, 180),
         ("backup_interval_hours", 1, 168),
         ("backup_keep", 1, 90),
         ("wake_custom_min_gap_minutes", 5, 1440),
@@ -3006,7 +3062,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     )
     messages, _ = await build_messages(prompt, [], before_id=None, session_id=session_id, use_context=True, with_images=False)
     turn = Turn(session_id, dry=False)
-    tools: list[dict[str, Any]] | None = all_tools()
+    tools: list[dict[str, Any]] | None = turn_tools(prompt)
     max_steps = cfg_int("max_tool_steps", 0, 50)
     try:
         for step in range(max_steps + 2):

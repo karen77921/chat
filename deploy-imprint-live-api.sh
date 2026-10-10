@@ -39,6 +39,13 @@ sudo /root/companion-loop/venv/bin/python -m py_compile "${ROOT}/api_loop.py" "$
 echo '[2/5] 准备站点并备份当前程序…'
 sudo mkdir "${SITE_STAGE}"
 sudo cp -a "${ROOT}/imprint-app/dist/." "${SITE_STAGE}/"
+# A standalone iPhone/PWA may still have the previous index.html cached while a
+# deployment is switching hashed bundles. Retain old immutable assets so that
+# such a tab never turns into a blank screen between refreshes.
+if sudo test -d "${SITE}/assets"; then
+  sudo mkdir -p "${SITE_STAGE}/assets"
+  sudo cp -an "${SITE}/assets/." "${SITE_STAGE}/assets/"
+fi
 sudo find "${SITE_STAGE}" -type d -exec chmod 755 {} +
 sudo find "${SITE_STAGE}" -type f -exec chmod 644 {} +
 sudo cp -a "${API}" "${API_BACKUP}"

@@ -37,7 +37,11 @@ export default function Chat({ query }) {
 
   const ok = data && data.available !== false;
   const items = ok ? data.items : [];
-  const shown = searching && q.trim() ? items.filter((m) => m.type === 'text' && m.text?.toLowerCase().includes(q.trim().toLowerCase())) : items;
+  // iOS Safari becomes unstable when hundreds of translucent message trees are
+  // mounted at once. Keep all history in memory/search, but only paint the recent
+  // conversation during normal chatting.
+  const visibleItems = items.length > 180 ? items.slice(-180) : items;
+  const shown = searching && q.trim() ? items.filter((m) => m.type === 'text' && m.text?.toLowerCase().includes(q.trim().toLowerCase())) : visibleItems;
   const queued = items.filter((m) => m.from === 'me' && m.status === 'queued').length;
   const st = ok ? replyState(data.replying, now) : null;
   const lastMine = useMemo(() => [...items].reverse().find((m) => m.from === 'me'), [items]);
@@ -107,6 +111,7 @@ export default function Chat({ query }) {
       <section ref={listRef} className="ch-list" aria-live="polite">
         {!data && <div className="ch-tip">正在翻聊天记录…</div>}
         {data?.available === false && <div className="ch-tip">暂时连不上他那边，过一会儿再来。</div>}
+        {!searching && items.length > shown.length && <div className="ch-tip">较早的 {items.length - shown.length} 条已收起，可用右上角搜索查找</div>}
         {searching && q.trim() && <div className="ch-tip">找到 {shown.length} 条</div>}
         {shown.map((m, i) => {
           const prev = shown[i - 1];
@@ -261,7 +266,7 @@ function StatusLine({ st, onPause, onRetry }) {
     return (
       <div className="ch-status">
         <Icon name="alert" size={13} stroke={1.5} />好像卡住了 · {Math.floor(st.quiet / 60000)} 分钟没有动静
-        <button type="button" onClick={onRetry}>重试</button><button type="button" onClick={() => {}}>再等等</button>
+        <button type="button" onClick={onRetry}>重试</button><button type="button" onClick={() => window.location.reload()}>刷新页面</button>
       </div>
     );
   }

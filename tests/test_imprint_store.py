@@ -367,6 +367,15 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(len(empty["state"]["emotions"]), 16)
         self.assertEqual(len(empty["drives"]), 12)
         self.assertTrue(all(item["value"] is None for item in empty["state"]["emotions"]))
+        with sqlite3.connect(self.store) as conn:
+            legacy = {"available": True, "state": {"mood": "旧状态", "emotions": [{"key": "calm", "name": "平静", "value": 0.8}]},
+                      "drives": [{"key": "crave", "name": "想你", "value": 0.7, "series": [0.7]}]}
+            conn.execute("INSERT OR REPLACE INTO records VALUES(?,?,?,?)",
+                         ("setting_tide_current", "setting", dt.datetime.now(dt.timezone.utc).isoformat(), json.dumps(legacy)))
+        upgraded = self.call("GET", "/tide/state")
+        self.assertEqual(len(upgraded["state"]["emotions"]), 16)
+        self.assertEqual(upgraded["state"]["emotions"][0]["value"], 0.8)
+        self.assertIsNone(upgraded["state"]["emotions"][1]["value"])
         tide = imprint_action(self.store, "set_tide", {
             "awake": "awake", "slept_h": 7.5, "mood": "安静地想念", "body_temp": 36.5,
             "breath": "慢", "chord": "Fmaj7",

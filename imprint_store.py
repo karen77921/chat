@@ -44,6 +44,35 @@ def empty_tide_state() -> dict:
     }
 
 
+def complete_tide_state(value: dict | None) -> dict:
+    """Upgrade legacy/partial state to the fixed 16-emotion and 12-drive shape."""
+    base = empty_tide_state()
+    if not isinstance(value, dict) or not value:
+        return base
+    state = value.get("state") if isinstance(value.get("state"), dict) else {}
+    old_emotions = state.get("emotions") if isinstance(state.get("emotions"), list) else []
+    old_drives = value.get("drives") if isinstance(value.get("drives"), list) else []
+    emotion_map = {str(item.get("key") or ""): item for item in old_emotions if isinstance(item, dict)}
+    drive_map = {str(item.get("key") or ""): item for item in old_drives if isinstance(item, dict)}
+    base["available"] = True
+    base["measured"] = bool(value.get("measured", True))
+    base["now"] = value.get("now") or base["now"]
+    base["awake"] = value.get("awake")
+    base["state"].update({key: state[key] for key in ("mood", "bodyTemp", "breath", "chord") if key in state})
+    for item in base["state"]["emotions"]:
+        old = emotion_map.get(item["key"])
+        if old and isinstance(old.get("value"), (int, float)):
+            item["value"] = max(0.0, min(1.0, float(old["value"])))
+    for item in base["drives"]:
+        old = drive_map.get(item["key"])
+        if not old:
+            continue
+        if isinstance(old.get("value"), (int, float)):
+            item["value"] = max(0.0, min(1.0, float(old["value"])))
+        item["series"] = old.get("series") if isinstance(old.get("series"), list) else []
+    return base
+
+
 def iso_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
@@ -92,7 +121,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
             ).fetchone()
             return {
                 "current": json.loads(current["payload"]) if current else None,
-                "tide": json.loads(tide["payload"]) if tide else None,
+                "tide": complete_tide_state(json.loads(tide["payload"])) if tide else None,
                 "notes": recent("note"),
                 "photos": recent("photo"),
                 "solo": recent("solo"),
@@ -396,7 +425,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.get("/tide/state")
     def tide_state():
         value = setting("tide_current")
-        return value if value else empty_tide_state()
+        return complete_tide_state(value)
 
     @router.get("/tide/memory-meta")
     def tide_memory_meta():

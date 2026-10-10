@@ -540,6 +540,8 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                 continue
             try:
                 prompt = int(stat.get("prompt_tokens") or stat.get("input_tokens") or 0)
+                if not stat.get("prompt_tokens") and (stat.get("cache_read_input_tokens") or stat.get("cache_creation_input_tokens")):
+                    prompt += int(stat.get("cache_read_input_tokens") or 0) + int(stat.get("cache_creation_input_tokens") or 0)
                 output = int(stat.get("completion_tokens") or stat.get("output_tokens") or 0)
                 total = int(stat.get("total_tokens") or prompt + output)
             except (TypeError, ValueError):
@@ -549,7 +551,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
             observed += 1
             details = stat.get("prompt_tokens_details") or stat.get("input_tokens_details") or {}
             try:
-                cached = int(details.get("cached_tokens") or stat.get("cached_tokens") or 0) if isinstance(details, dict) else 0
+                cached = int(details.get("cached_tokens") or stat.get("cached_tokens") or stat.get("cache_read_input_tokens") or 0) if isinstance(details, dict) else int(stat.get("cache_read_input_tokens") or 0)
             except (TypeError, ValueError):
                 cached = 0
             day = local_day(row["ts"])
@@ -604,20 +606,26 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                 continue
             try:
                 prompt = int(stat.get("prompt_tokens") or stat.get("input_tokens") or 0)
+                if not stat.get("prompt_tokens") and (stat.get("cache_read_input_tokens") or stat.get("cache_creation_input_tokens")):
+                    prompt += int(stat.get("cache_read_input_tokens") or 0) + int(stat.get("cache_creation_input_tokens") or 0)
             except (TypeError, ValueError):
                 continue
             details = stat.get("prompt_tokens_details") or stat.get("input_tokens_details") or {}
             try:
-                cached = int(details.get("cached_tokens") or stat.get("cached_tokens") or 0) if isinstance(details, dict) else 0
+                cached = int(details.get("cached_tokens") or stat.get("cached_tokens") or stat.get("cache_read_input_tokens") or 0) if isinstance(details, dict) else int(stat.get("cache_read_input_tokens") or 0)
             except (TypeError, ValueError):
                 cached = 0
             if not prompt:
                 continue
             sid = str(meta.get("api_session") or api.get("session") or "main")
-            group = groups.setdefault(sid, {"chatId": sid, "name": f"窗口 {sid[:8]}", "sub": "真实 API 用量",
-                                            "inputTokens": 0, "hitTokens": 0, "saved": None, "trend": []})
+            group = groups.setdefault(sid, {"chatId": sid, "name": f"窗口 {sid[:8]}", "sub": "真实 Prompt Cache 用量",
+                                            "inputTokens": 0, "hitTokens": 0, "writeTokens": 0, "saved": None, "trend": []})
             group["inputTokens"] += prompt
             group["hitTokens"] += min(prompt, cached)
+            try:
+                group["writeTokens"] += int((details.get("cache_write_tokens") if isinstance(details, dict) else 0) or stat.get("cache_creation_input_tokens") or 0)
+            except (TypeError, ValueError):
+                pass
         return {"available": True, "items": list(groups.values()), "currency": ""}
 
     app.include_router(router)

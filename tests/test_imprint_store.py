@@ -152,6 +152,46 @@ class ImprintStoreTest(unittest.TestCase):
         items = self.call("GET", "/usage/cache")["items"]
         self.assertEqual((items[0]["inputTokens"], items[0]["hitTokens"]), (100, 40))
 
+    def test_cache_uses_anthropic_read_and_write_tokens(self):
+        from imprint_store import iso_now
+        meta = {"api_session": "anthropic-window", "api": {"usage": {
+            "input_tokens": 20, "cache_creation_input_tokens": 80,
+            "cache_read_input_tokens": 60, "output_tokens": 10,
+        }}}
+        with sqlite3.connect(self.relay) as conn:
+            conn.execute("INSERT INTO messages(ts,direction,kind,meta) VALUES(?,?,?,?)",
+                         (iso_now(), "out", "reply", json.dumps(meta)))
+        item = self.call("GET", "/usage/cache")["items"][0]
+        self.assertEqual((item["inputTokens"], item["hitTokens"], item["writeTokens"]), (160, 60, 80))
+
+    def test_explicit_prompt_cache_marks_only_stable_prefix(self):
+        messages = [
+            {"role": "system", "content": "stable persona"},
+            {"role": "user", "content": "older question"},
+            {"role": "assistant", "content": "older reply"},
+            {"role": "user", "content": "【本轮动态背景】\nvolatile current time"},
+            {"role": "user", "content": "new question"},
+        ]
+        route = {"url": "https://openrouter.ai/api/v1", "cache_mode": "explicit", "cache_ttl": "1h"}
+        prepared, extras, mode = api_loop.cached_request(route, messages, "private-session")
+        self.assertEqual(mode, "explicit")
+        self.assertTrue(extras["session_id"].startswith("imprint-"))
+        self.assertEqual(prepared[0]["content"][0]["cache_control"]["ttl"], "1h")
+        self.assertEqual(prepared[1]["content"][0]["cache_control"]["type"], "ephemeral")
+        self.assertEqual(prepared[-1]["content"], "new question")
+        self.assertEqual(messages[0]["content"], "stable persona")
+
+    def test_cache_auto_only_touches_known_compatible_gateway(self):
+        self.assertEqual(api_loop.route_cache_mode({"url": "https://openrouter.ai/api/v1"}), "explicit")
+        self.assertEqual(api_loop.route_cache_mode({"url": "https://api.ekanw.com/v1"}), "off")
+
+    def test_anthropic_usage_is_normalized_for_dashboard(self):
+        usage = api_loop.normalize_usage({"input_tokens": 20, "cache_creation_input_tokens": 80,
+                                          "cache_read_input_tokens": 60, "output_tokens": 10})
+        self.assertEqual(usage["prompt_tokens"], 160)
+        self.assertEqual(usage["prompt_tokens_details"]["cached_tokens"], 60)
+        self.assertEqual(usage["prompt_tokens_details"]["cache_write_tokens"], 80)
+
     def test_beauty_and_avatar_persist(self):
         self.call("POST", "/settings/beauty", Request({"bubble": "paper", "alpha": 0.7}))
         self.call("POST", "/settings/avatar", Request({"who": "him", "url": "/uploads/real.png"}))

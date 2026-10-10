@@ -195,11 +195,15 @@ function ModelAccess() {
           <label>API 地址<input type="url" value={row.url || ''} onChange={(e) => update(i, 'url', e.target.value)} placeholder="https://example.com/v1" /></label>
           <label>API Key<input type="password" value={row.key || ''} onChange={(e) => update(i, 'key', e.target.value)} placeholder={row.key_masked ? `已保存 ${row.key_masked}，留空不修改` : '粘贴 Key'} /></label>
           <label>模型<select value={row.model || ''} onChange={(e) => update(i, 'model', e.target.value)}><option value="">先拉取模型</option>{[...new Set([row.model, ...(row.models || [])].filter(Boolean))].map((m) => <option key={m}>{m}</option>)}</select></label>
+          <label>Prompt Cache<select value={row.cache_mode || 'auto'} onChange={(e) => update(i, 'cache_mode', e.target.value)}><option value="auto">自动识别（OpenRouter 自动开启）</option><option value="explicit">兼容 cache_control 的中转</option><option value="off">关闭</option></select></label>
+          {(row.cache_mode || 'auto') !== 'off' && <label>缓存时长<select value={row.cache_ttl || '5m'} onChange={(e) => update(i, 'cache_ttl', e.target.value)}><option value="5m">5 分钟（推荐）</option><option value="1h">1 小时</option></select></label>}
+          <p className="ma-cache-note">当前判定：{row.cache_effective === 'explicit' || row.cache_mode === 'explicit' ? '发送缓存断点；不兼容会自动退回普通请求' : row.cache_mode === 'off' ? '不发送缓存字段' : '普通中转不加字段，避免影响回复'}</p>
           <div className="ma-actions"><button type="button" className="mini-btn" onClick={() => pull(i)}>拉取模型</button><button type="button" className="mini-btn" onClick={() => test(i)}>测试此接口</button></div>
         </div>
       ))}
       <div className="ma-actions"><button type="button" className="cl-link" onClick={() => setRows((all) => [...all, { index: -1, url: '', key: '', model: '', models: [] }])}><Icon name="plus" size={15} />添加 API</button><button type="button" className="btn-main" disabled={busy || !rows.length} onClick={save}>保存 API 顺序</button></div>
       <p className="st-tip" role="status">{busy ? '正在处理…' : note}</p>
+      <p className="st-tip">这是提示词缓存，不会缓存或复用整段回复。首次请求是写入，前缀足够长且再次命中后才会显示缓存 Token。</p>
     </div>
   );
 }

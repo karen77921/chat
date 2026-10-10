@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Complete Heart Tide deployment. Existing chat, Ombre memory and Imprint data
 # stay in place; only application code and versioned frontend assets change.
-REV="bcd02cf9c071e74f4cf35b8c0b4e312d11edbe92"
-TAG="heart-tide-16d-bcd02cf"
+REV="0013365a7f17090b8de5545ba177b521c97d01bd"
+TAG="heart-tide-16d-0013365"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -29,7 +29,7 @@ ROOT="$(find "${WORK}" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 test -n "${ROOT}"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
   'e05a4107c24af8cc7dd5ce46e7f720025c397291bb6195a53787d3770059021e' "${ROOT}/api_loop.py" \
-  'd70a2e237e0bf896b18c6f3ee84882b33a02120526406738819c7e31b142242a' "${ROOT}/imprint_store.py" \
+  'f7e073f8ca862bea5e99397e819a2cc240dae9c7641cc8c48663c87a5078a1f1' "${ROOT}/imprint_store.py" \
   'b81a13d1ee8aca615f900b402679974b2b42a40dbc94ab55985c4aaf56fe9d4b' "${ROOT}/imprint-app/dist/index.html" \
   'bd1b91dc8405519f8234e89cee911de73947f8f829403e234e5d8199a7fa6175' "${ROOT}/imprint-app/dist/assets/index-BJkFPvMV.js" \
   'b691fee94b6cbb6f0d6f343d19ee73f7fde73427090c7636e0d755a5c6213b57' "${ROOT}/imprint-app/dist/assets/index-u0L6twch.css" | sha256sum -c -

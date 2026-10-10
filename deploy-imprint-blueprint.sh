@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="tide-v2"
-FULL_REV="bffd719148c5c8eab5a4ef05da13c24779f8a06a"
+REV="bubbles-v1"
+FULL_REV="abc237b52b6e354a324f8eb9ac4da15af22d5da3"
 TARGET="/var/www/imprint"
 BACKUP="/var/www/imprint.backup-${REV}"
 STAGE="/var/www/imprint.new-${REV}"
@@ -25,9 +25,9 @@ fi
 
 echo '[2/7] 校验构建产物…'
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
-  'acc5694665efd7a76ecbb1ef36960c26854af8e2ce317d6bf14a586f0c852216' "${SOURCE}/index.html" \
-  '4312cd2b7c9f9e13f15aa85ffc281daa3ebab5a8abde7bf2bb97e6d24ab6ec26' "${SOURCE}/assets/index-BUTc9Udu.css" \
-  'cad97d7f2b56dbaec9c2b66899f27a335cfe156ea2f095333beb846ecfe38bc6' "${SOURCE}/assets/index-B9YHjz-O.js" \
+  '22cacee9d7c17fd474019bafa0ad683e87ea5c7bda69eaf37ae9a175811df230' "${SOURCE}/index.html" \
+  'a14402aceca807edf8713c459297f88f7cba1a7767bb6bff279fb84d1631b8a7' "${SOURCE}/assets/index-C3Q8uV8Z.css" \
+  '0838686d42bc5f0f67506986f1f55d56095684cb8c7d71db5b70b6930aeefc62' "${SOURCE}/assets/index-C6EVEIFf.js" \
   'a46e19132b8c1258a40d2b506dab0c841e8638cc8a17150258ef6282be46203b' "${BACKEND_SOURCE}" | sha256sum -c -
 sudo /root/companion-loop/venv/bin/python -m py_compile "${BACKEND_SOURCE}"
 
@@ -69,8 +69,8 @@ sudo systemctl restart companion-api-loop
 
 echo '[6/7] 验证静态文件、私人后端和心潮记忆…'
 sudo test -f "${TARGET}/index.html"
-sudo test -f "${TARGET}/assets/index-BUTc9Udu.css"
-sudo test -f "${TARGET}/assets/index-B9YHjz-O.js"
+sudo test -f "${TARGET}/assets/index-C3Q8uV8Z.css"
+sudo test -f "${TARGET}/assets/index-C6EVEIFf.js"
 ready=0
 for attempt in {1..30}; do
   if curl -fsS 127.0.0.1:3020/healthz 2>/dev/null | jq -e '.ok == true' >/dev/null; then

@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Install a verified, immutable release. Existing chat/memory databases are not
 # replaced or migrated; the new scrapbook database starts empty on first use.
-REV="77f0a1dc85cb53081486d9c80e135cef298c42de"
-TAG="chat-performance-77f0a1d"
+REV="38eb1741901f648dbf2d339e293e3011800f2b20"
+TAG="reply-reliability-38eb174"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -29,7 +29,7 @@ test -n "${ROOT}"
 test -f "${ROOT}/imprint-app/dist/index.html"
 test -f "${ROOT}/imprint_store.py"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
-  'ea3fc632f1d722cd30e660c0826ff6bee3254af3fd61ec4fe53938e724ac9c8a' "${ROOT}/api_loop.py" \
+  'c5c8f28ead6e1ad212196d13a8976ada0e0d9d4ef192f47c65d912a6da3735c8' "${ROOT}/api_loop.py" \
   '4197ebad1f577cd2009611562b3174cd5ced1345dec6eb8c087c51630fcfe207' "${ROOT}/imprint_store.py" \
   'fee2b0383a42a1fc2a2b9e5ba3b0716fd60ae1eed2de79e143a6051b17ba4f57' "${ROOT}/imprint-app/dist/index.html" \
   '42f673bed274c780271d37eb43c93f82e71d712a9032b225092fb12e946b2a6e' "${ROOT}/imprint-app/dist/assets/index-j6awaTbv.js" \

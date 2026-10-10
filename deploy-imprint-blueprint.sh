@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="bffd719"
+REV="tide-v2"
 FULL_REV="bffd719148c5c8eab5a4ef05da13c24779f8a06a"
 TARGET="/var/www/imprint"
 BACKUP="/var/www/imprint.backup-${REV}"
@@ -71,7 +71,20 @@ echo '[6/7] 验证静态文件、私人后端和心潮记忆…'
 sudo test -f "${TARGET}/index.html"
 sudo test -f "${TARGET}/assets/index-BUTc9Udu.css"
 sudo test -f "${TARGET}/assets/index-B9YHjz-O.js"
-curl -fsS 127.0.0.1:3020/healthz | jq -e '.ok == true' >/dev/null
+ready=0
+for attempt in {1..30}; do
+  if curl -fsS 127.0.0.1:3020/healthz 2>/dev/null | jq -e '.ok == true' >/dev/null; then
+    ready=1
+    break
+  fi
+  echo "等待私人后端启动（${attempt}/30）…"
+  sleep 1
+done
+if [[ "${ready}" != 1 ]]; then
+  echo '私人后端在 30 秒内没有启动，准备自动恢复旧版本。' >&2
+  sudo systemctl status companion-api-loop --no-pager -l >&2 || true
+  exit 1
+fi
 curl -fsS 127.0.0.1:3020/loop/config | jq -e '(.main_chain | type == "array") and (.wake.control.enabled | type == "boolean")' >/dev/null
 
 echo '[7/7] 完成。'

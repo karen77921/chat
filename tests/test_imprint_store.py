@@ -248,6 +248,19 @@ class ImprintStoreTest(unittest.TestCase):
             self.assertGreaterEqual(delay, 89.9)
             self.assertLessEqual(delay, 90.1)
 
+            with api_loop._wake_conn() as conn:
+                conn.execute(
+                    "UPDATE api_wake_state SET next_nonprecise_at=? WHERE singleton=1",
+                    ((before + dt.timedelta(hours=8)).isoformat(),),
+                )
+            with mock.patch.object(api_loop.random, "expovariate", return_value=10 * 3600):
+                api_loop.initialize_wake_runtime()
+            with api_loop._wake_conn() as conn:
+                reset_at = api_loop.parse_message_time(conn.execute(
+                    "SELECT next_nonprecise_at FROM api_wake_state WHERE singleton=1"
+                ).fetchone()[0])
+            self.assertLessEqual((reset_at - before).total_seconds() / 60, 90.1)
+
             wake = api_loop.create_precise_wake("our-window", before + dt.timedelta(hours=1), "未来纸条")
             with sqlite3.connect(self.relay) as conn:
                 conn.execute("UPDATE api_precise_wakes SET status='running' WHERE wake_id=?", (wake["wake_id"],))

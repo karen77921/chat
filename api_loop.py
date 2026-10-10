@@ -2632,7 +2632,9 @@ def initialize_wake_runtime() -> None:
         )
         row = conn.execute("SELECT next_nonprecise_at FROM api_wake_state WHERE singleton = 1").fetchone()
         next_at = parse_message_time(row[0]) if row else None
-    if not next_at or next_at <= now:
+    max_gap = wake_control()["max_gap_minutes"]
+    inherited_long_wait = bool(max_gap and next_at and next_at > now + dt.timedelta(minutes=max_gap))
+    if not next_at or next_at <= now or inherited_long_wait:
         schedule_next_nonprecise(reset=True)
 
 

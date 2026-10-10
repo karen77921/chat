@@ -132,12 +132,16 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "wake_mode": "low-frequency",  # normal | low-frequency | silent | custom
     "wake_mode_expires_at": "",
     "wake_mode_reason": "用户启用低频自动唤醒",
-    "wake_normal_rate_per_hour": 1.5,
-    "wake_normal_min_gap_minutes": 20,
-    "wake_low_rate_per_hour": 0.25,
-    "wake_low_min_gap_minutes": 90,
+    "wake_normal_rate_per_hour": 2.0,
+    "wake_normal_min_gap_minutes": 15,
+    "wake_normal_max_gap_minutes": 45,
+    "wake_low_rate_per_hour": 1.0,
+    "wake_low_min_gap_minutes": 30,
+    "wake_low_max_gap_minutes": 90,
     "wake_custom_rate_per_hour": 0.25,
     "wake_custom_min_gap_minutes": 90,
+    "wake_custom_max_gap_minutes": 0,  # 0 keeps custom mode uncapped
+    "wake_precise_silence_minutes": 30,  # discard a due note when the user just returned
     "persona_file": "",         # path; empty = PERSONA_FILE env, then PERSONA env, then default
     "attach_roots": [],         # optional allow-list of directories attach_file may read from
     "mcp_servers": [],          # [{name, transport: stdio|http, command, args, env, url, headers, enabled}]
@@ -628,23 +632,45 @@ def wake_control() -> dict[str, Any]:
     if mode == "normal":
         rate = cfg_float("wake_normal_rate_per_hour", 0.0, 24.0)
         gap = cfg_int("wake_normal_min_gap_minutes", 5, 1440)
+        max_gap = cfg_int("wake_normal_max_gap_minutes", 0, 1440)
     elif mode == "low-frequency":
         rate = cfg_float("wake_low_rate_per_hour", 0.0, 24.0)
         gap = cfg_int("wake_low_min_gap_minutes", 5, 1440)
+        max_gap = cfg_int("wake_low_max_gap_minutes", 0, 1440)
     elif mode == "custom":
         rate = cfg_float("wake_custom_rate_per_hour", 0.0, 24.0)
         gap = cfg_int("wake_custom_min_gap_minutes", 5, 1440)
+        max_gap = cfg_int("wake_custom_max_gap_minutes", 0, 1440)
     else:
-        rate, gap = 0.0, cfg_int("wake_low_min_gap_minutes", 5, 1440)
+        rate, gap, max_gap = 0.0, cfg_int("wake_low_min_gap_minutes", 5, 1440), 0
     return {
         "enabled": cfg_bool("wake_enabled"),
         "mode": mode,
         "default_mode": str(cfg.get("wake_default_mode") or "low-frequency"),
         "rate_per_hour": rate,
         "min_gap_minutes": gap,
+        "max_gap_minutes": max_gap,
         "expires_at": str(cfg.get("wake_mode_expires_at") or ""),
         "reason": str(cfg.get("wake_mode_reason") or ""),
     }
+
+
+def migrate_legacy_wake_defaults() -> None:
+    """Move untouched pre-v7 defaults forward without overwriting custom choices."""
+    cfg = load_config()
+    replacements = {
+        "wake_normal_rate_per_hour": (1.5, CONFIG_DEFAULTS["wake_normal_rate_per_hour"]),
+        "wake_normal_min_gap_minutes": (20, CONFIG_DEFAULTS["wake_normal_min_gap_minutes"]),
+        "wake_low_rate_per_hour": (0.25, CONFIG_DEFAULTS["wake_low_rate_per_hour"]),
+        "wake_low_min_gap_minutes": (90, CONFIG_DEFAULTS["wake_low_min_gap_minutes"]),
+    }
+    changed = False
+    for key, (old, new) in replacements.items():
+        if key in cfg and cfg[key] == old:
+            cfg[key] = new
+            changed = True
+    if changed:
+        save_config(cfg)
 
 
 def set_wake_control(
@@ -704,6 +730,8 @@ def schedule_next_nonprecise(*, reset: bool = False, not_before: dt.datetime | N
         else:
             random_delay = random.expovariate(control["rate_per_hour"] / 3600.0)
             delay = max(control["min_gap_minutes"] * 60.0, random_delay)
+            if control["max_gap_minutes"] > 0:
+                delay = min(delay, control["max_gap_minutes"] * 60.0)
             target = max(now + dt.timedelta(seconds=delay), not_before or now)
         value = target.isoformat() if target else ""
         conn.execute(
@@ -2594,6 +2622,7 @@ async def backup_worker() -> None:
 
 def initialize_wake_runtime() -> None:
     """Recover durable Wake state without replaying opportunities missed while offline."""
+    migrate_legacy_wake_defaults()
     now = dt.datetime.now(dt.timezone.utc)
     with _wake_conn() as conn:
         conn.execute(
@@ -2626,7 +2655,7 @@ def claim_due_precise_wakes(now: dt.datetime) -> list[dict[str, Any]]:
 
 
 def finish_precise_wake(wake_id: str, result: str) -> None:
-    final = "consumed" if result in {"message", "silent"} else "missed"
+    final = "consumed" if result in {"message", "silent", "user-active"} else "missed"
     with _wake_conn() as conn:
         conn.execute(
             "UPDATE api_precise_wakes SET status = ?, finished_at = ? WHERE wake_id = ? AND status = 'running'",
@@ -2644,6 +2673,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
         f"类型：{'Self Precise Wake' if kind == 'precise' else 'Non-Precise Wake'}。\n"
         + (f"你过去的自己留下的 note：{note}\n" if note else "")
         + "请根据当前现实时间、聊天间隔、近期上下文、长期记忆和你自己的意愿，决定这次是保持沉默还是主动联系用户。"
+          "如果你希望自己在某个具体时间再次醒来，可以调用 schedule_self_wake，留下时间和给未来自己的 note；这就是下一次唤醒纸条。"
           "不要因为获得机会就被迫说话，也不要暴露概率、调度器或这段内部提示。"
           "如果沉默，最终只输出 ⟦SILENT⟧；如果要联系，最终以 ⟦MESSAGE⟧ 开头，后面直接写要发送的自然消息。"
     )
@@ -2704,9 +2734,17 @@ async def wake_worker() -> None:
         try:
             now = dt.datetime.now(dt.timezone.utc)
             for item in claim_due_precise_wakes(now):
+                session_id = str(item.get("session_id") or active_session_id())
+                _, last_user = previous_user_times(session_id, None)
+                silence_minutes = cfg_int("wake_precise_silence_minutes", 0, 1440)
+                if last_user and silence_minutes and now - last_user < dt.timedelta(minutes=silence_minutes):
+                    detail = f"{item.get('wake_id', '')} user returned at {last_user.isoformat()}"
+                    wake_audit("precise", "user-active", detail)
+                    finish_precise_wake(str(item["wake_id"]), "user-active")
+                    continue
                 result = await run_wake_opportunity(
                     "precise",
-                    str(item.get("session_id") or active_session_id()),
+                    session_id,
                     str(item.get("note") or ""),
                     str(item.get("wake_id") or ""),
                 )

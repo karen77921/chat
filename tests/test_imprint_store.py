@@ -11,6 +11,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from pathlib import Path
 
 fastapi = types.ModuleType("fastapi")
@@ -84,6 +85,7 @@ class ImprintStoreTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
+        self.root = root
         self.relay = root / "relay.db"
         with sqlite3.connect(self.relay) as conn:
             conn.execute("CREATE TABLE messages(id INTEGER PRIMARY KEY,ts TEXT,direction TEXT,kind TEXT,text TEXT,meta TEXT)")
@@ -221,6 +223,42 @@ class ImprintStoreTest(unittest.TestCase):
             self.assertIsNone(conn.execute(
                 "SELECT id FROM api_ombre_archive_queue WHERE id=?", (pending_id,)
             ).fetchone())
+
+    def test_wake_v7_shorter_bounds_and_note_consumption(self):
+        old_relay, old_config = api_loop.RELAY_DB, api_loop.LOOP_CONFIG
+        api_loop.RELAY_DB = str(self.relay)
+        api_loop.LOOP_CONFIG = self.root / "wake-config.json"
+        try:
+            api_loop.save_config({
+                "wake_enabled": True,
+                "wake_mode": "low-frequency",
+                "wake_low_rate_per_hour": 0.25,
+                "wake_low_min_gap_minutes": 90,
+            })
+            api_loop.migrate_legacy_wake_defaults()
+            control = api_loop.wake_control()
+            self.assertEqual(control["rate_per_hour"], 1.0)
+            self.assertEqual(control["min_gap_minutes"], 30)
+            self.assertEqual(control["max_gap_minutes"], 90)
+
+            before = dt.datetime.now(dt.timezone.utc)
+            with mock.patch.object(api_loop.random, "expovariate", return_value=10 * 3600):
+                scheduled = api_loop.parse_message_time(api_loop.schedule_next_nonprecise(reset=True))
+            delay = (scheduled - before).total_seconds() / 60
+            self.assertGreaterEqual(delay, 89.9)
+            self.assertLessEqual(delay, 90.1)
+
+            wake = api_loop.create_precise_wake("our-window", before + dt.timedelta(hours=1), "未来纸条")
+            with sqlite3.connect(self.relay) as conn:
+                conn.execute("UPDATE api_precise_wakes SET status='running' WHERE wake_id=?", (wake["wake_id"],))
+            api_loop.finish_precise_wake(wake["wake_id"], "user-active")
+            with sqlite3.connect(self.relay) as conn:
+                status = conn.execute(
+                    "SELECT status FROM api_precise_wakes WHERE wake_id=?", (wake["wake_id"],)
+                ).fetchone()[0]
+            self.assertEqual(status, "consumed")
+        finally:
+            api_loop.RELAY_DB, api_loop.LOOP_CONFIG = old_relay, old_config
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ async function request(path, { method = 'GET', body, form, timeout = 30000, raw 
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = text ? { text } : null; }
+    if (res.status === 401) window.dispatchEvent(new Event('imprint-auth-required'));
     if (!res.ok) throw new ApiError(res.status, data?.detail || data?.error || res.statusText);
     return data;
   } catch (e) {

@@ -72,7 +72,7 @@ uvicorn = types.ModuleType("uvicorn")
 uvicorn.run = lambda *args, **kwargs: None
 sys.modules.setdefault("uvicorn", uvicorn)
 
-from imprint_store import register_imprint_routes  # noqa: E402
+from imprint_store import imprint_action, register_imprint_routes  # noqa: E402
 import api_loop  # noqa: E402
 
 
@@ -90,7 +90,8 @@ class ImprintStoreTest(unittest.TestCase):
         with sqlite3.connect(self.relay) as conn:
             conn.execute("CREATE TABLE messages(id INTEGER PRIMARY KEY,ts TEXT,direction TEXT,kind TEXT,text TEXT,meta TEXT)")
         self.app = App()
-        register_imprint_routes(self.app, root / "imprint.db", self.relay)
+        self.store = root / "imprint.db"
+        register_imprint_routes(self.app, self.store, self.relay)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -272,6 +273,24 @@ class ImprintStoreTest(unittest.TestCase):
             self.assertEqual(status, "consumed")
         finally:
             api_loop.RELAY_DB, api_loop.LOOP_CONFIG = old_relay, old_config
+
+    def test_companion_can_act_inside_imprint_not_only_chat(self):
+        photo = self.call("POST", "/room/photos", Request({"url": "/uploads/real.jpg", "caption": "真实照片"}))
+        note = imprint_action(self.store, "leave_note", {"text": "我自己来留言。", "paper": "cyan"})
+        current = imprint_action(self.store, "set_current", {"activity": "在窗边看书", "line": "看到第三章"})
+        solo = imprint_action(self.store, "record_solo", {"title": "听了一会儿雨", "thought": "想起你了"})
+        comment = imprint_action(self.store, "comment_photo", {"photo_id": photo["id"], "text": "我记得这一天。"})
+        watch = imprint_action(self.store, "add_watch", {"title": "海边的星期天", "at": "2026-10-11T20:00:00+08:00"})
+
+        self.assertEqual(note["from"], "him")
+        self.assertEqual(self.call("GET", "/notes")["items"][0]["from"], "him")
+        self.assertEqual(self.call("GET", "/room")["current"]["activity"], current["activity"])
+        self.assertEqual(self.call("GET", "/room")["watch"]["id"], watch["id"])
+        self.assertEqual(self.call("GET", "/room/solo")["items"][0]["id"], solo["id"])
+        self.assertEqual(self.call("GET", "/room/photos")["items"][0]["notes"][0]["text"], comment["text"])
+        tool_names = {tool["function"]["name"] for tool in api_loop.all_tools()}
+        self.assertTrue({"imprint_leave_note", "imprint_set_room_status", "imprint_record_solo",
+                         "imprint_comment_photo", "imprint_add_watch"}.issubset(tool_names))
 
 
 if __name__ == "__main__":

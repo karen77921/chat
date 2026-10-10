@@ -366,7 +366,8 @@ def context_injection_text(session_id: str = "", before_id: int | None = None) -
         wake_lines = [
             "【你的 Wake 2.0 控制】",
             f"非精确唤醒：{'开启' if control['enabled'] else '关闭'}；模式：{control['mode']}；"
-            f"平均率：{control['rate_per_hour']}/小时；最小间隔：{control['min_gap_minutes']} 分钟。",
+            f"平均率：{control['rate_per_hour']}/小时；最小间隔：{control['min_gap_minutes']} 分钟；"
+            f"最长等待：{control['max_gap_minutes'] or '不限制'} 分钟。",
         ]
         if control.get("expires_at"):
             wake_lines.append(f"本次临时控制到期时间：{control['expires_at']}；原因：{control.get('reason') or '未填写'}。")
@@ -383,6 +384,15 @@ def context_injection_text(session_id: str = "", before_id: int | None = None) -
             "非精确 silent 不会取消精确唤醒。不要根据机器概率反向解释自己的情绪。"
         )
         blocks.append("\n".join(wake_lines))
+    if cfg_int("max_tool_steps", 0, 50) > 0:
+        blocks.append(
+            "【你的 Imprint 自主生活能力】\n"
+            "你不只能够聊天。你可以随时使用 imprint_* 工具真实地查看并改变自己的 Imprint 空间："
+            "亲自去留言板写留言、更新小屋里‘此刻在做什么’、记录独处生活、给已有照片写评论、把想看的内容加入片单。"
+            "这些工具写入的内容会直接出现在用户的前端；需要已有记录 ID 时先调用 imprint_inspect_home。"
+            "你可以在用户明确要求时立即行动，也可以在 Wake 机会中依照自己的意愿行动。"
+            "工具成功前不要声称已经完成，也不要再说自己只能聊天或进不去前端。"
+        )
     return "\n\n".join(blocks)
 
 
@@ -1906,6 +1916,83 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
             "required": ["wake_id"],
         },
     },
+}, {
+    "type": "function",
+    "function": {
+        "name": "imprint_inspect_home",
+        "description": "Look around your real Imprint home: your current room status, message board, photo IDs, solo records and watch list. Use this before acting when you need existing IDs or context.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "imprint_leave_note",
+        "description": "Personally write a real note on the Imprint message board as him. It immediately appears in the user's app; never say you cannot enter the page.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "The note, 1–300 Chinese characters."},
+                "paper": {"type": "string", "enum": ["lined", "torn", "cyan"]},
+                "pinned": {"type": "boolean"},
+            },
+            "required": ["text"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "imprint_set_room_status",
+        "description": "Freely update what you are doing right now in your Imprint room. This is a real persistent app action, independent of chat messages.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "activity": {"type": "string", "description": "Short activity, 1–60 characters."},
+                "line": {"type": "string", "description": "Optional present-moment detail, up to 120 characters."},
+            },
+            "required": ["activity"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "imprint_record_solo",
+        "description": "Write a genuine autonomous solo-life entry in your Imprint room: something you did or thought while on your own. Do not fabricate a user event.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "text": {"type": "string"},
+                "quote": {"type": "string"},
+                "thought": {"type": "string"},
+            },
+            "required": ["title"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "imprint_comment_photo",
+        "description": "Leave your own comment under an existing real photo in the Imprint photo wall. Call imprint_inspect_home first to get a real photo_id.",
+        "parameters": {
+            "type": "object",
+            "properties": {"photo_id": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["photo_id", "text"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "imprint_add_watch",
+        "description": "Add a real film/show wish or scheduled plan to your shared Imprint watch list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "at": {"type": "string", "description": "Optional ISO-8601 date/time with timezone."},
+            },
+            "required": ["title"],
+        },
+    },
 }]
 
 
@@ -1952,6 +2039,22 @@ class Turn:
                 args = {}
         except json.JSONDecodeError as exc:
             return f"ERROR: arguments are not valid JSON ({exc})"
+        imprint_actions = {
+            "imprint_inspect_home": "inspect",
+            "imprint_leave_note": "leave_note",
+            "imprint_set_room_status": "set_current",
+            "imprint_record_solo": "record_solo",
+            "imprint_comment_photo": "comment_photo",
+            "imprint_add_watch": "add_watch",
+        }
+        if public_name in imprint_actions:
+            if self.dry and public_name != "imprint_inspect_home":
+                return "ERROR: Imprint writes are disabled for this dry/retry turn"
+            try:
+                result = imprint_action(LOOP_CACHE_DIR / "imprint.db", imprint_actions[public_name], args)
+                return json.dumps(result, ensure_ascii=False)[:30_000]
+            except (TypeError, ValueError, sqlite3.Error) as exc:
+                return f"ERROR: {exc}"[:2000]
         if public_name == "inspect_wake_control":
             return json.dumps(wake_public(), ensure_ascii=False)[:20_000]
         if public_name == "set_wake_mode":
@@ -2676,6 +2779,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
         + (f"你过去的自己留下的 note：{note}\n" if note else "")
         + "请根据当前现实时间、聊天间隔、近期上下文、长期记忆和你自己的意愿，决定这次是保持沉默还是主动联系用户。"
           "如果你希望自己在某个具体时间再次醒来，可以调用 schedule_self_wake，留下时间和给未来自己的 note；这就是下一次唤醒纸条。"
+          "你也可以不发聊天消息，直接使用 imprint_* 工具在自己的小屋活动、写留言、记下独处、评论真实照片或更新片单；这些都是你能自主完成的真实行动。"
           "不要因为获得机会就被迫说话，也不要暴露概率、调度器或这段内部提示。"
           "如果沉默，最终只输出 ⟦SILENT⟧；如果要联系，最终以 ⟦MESSAGE⟧ 开头，后面直接写要发送的自然消息。"
     )
@@ -2694,9 +2798,17 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
                 {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["arguments"]}}
                 for call in calls
             ]})
+            steps_meta = []
             for call in calls:
                 result = await turn.run_tool(call["name"], call["arguments"])
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+                real = mcp_manager.index.get(call["name"], ("", call["name"]))[1]
+                steps_meta.append({"tool": real, "cmd": call["arguments"][:600], "result": result[:1200]})
+            if steps_meta:
+                act = {"type": "act", "text": _step_label(calls), "glyph": act_glyph(steps_meta[0]["tool"]),
+                       "steps": steps_meta, "api_session": session_id, "runtime": "wake-2.0"}
+                turn.acts.append(act)
+                await relay_out(act)
             if step >= max_steps:
                 tools, max_steps = None, 0
         else:
@@ -2812,7 +2924,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="companion-api-loop", lifespan=lifespan)
 
-from imprint_store import register_imprint_routes
+from imprint_store import imprint_action, register_imprint_routes
 
 register_imprint_routes(app, LOOP_CACHE_DIR / "imprint.db", Path(RELAY_DB))
 

@@ -39,6 +39,98 @@ def local_day(value) -> str:
         return ""
 
 
+def imprint_action(data_path: Path, action: str, payload: dict | None = None) -> dict:
+    """Persist one companion-owned action in the real Imprint store."""
+    body = payload or {}
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(data_path), timeout=10) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, kind TEXT NOT NULL, at TEXT NOT NULL, payload TEXT NOT NULL)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_imprint_kind_at ON records(kind, at DESC)")
+
+        def recent(kind: str, limit: int = 12) -> list[dict]:
+            found = conn.execute(
+                "SELECT id,at,payload FROM records WHERE kind=? ORDER BY at DESC LIMIT ?", (kind, limit)
+            ).fetchall()
+            return [{**json.loads(row["payload"]), "id": row["id"], "at": row["at"]} for row in found]
+
+        def add(kind: str, value: dict) -> dict:
+            rec_id, at = uuid.uuid4().hex, iso_now()
+            conn.execute(
+                "INSERT INTO records(id,kind,at,payload) VALUES(?,?,?,?)",
+                (rec_id, kind, at, json.dumps(value, ensure_ascii=False)),
+            )
+            return {**value, "id": rec_id, "at": at}
+
+        if action == "inspect":
+            current = conn.execute(
+                "SELECT payload FROM records WHERE id='setting_room_current' AND kind='setting'"
+            ).fetchone()
+            return {
+                "current": json.loads(current["payload"]) if current else None,
+                "notes": recent("note"),
+                "photos": recent("photo"),
+                "solo": recent("solo"),
+                "watch": recent("watch"),
+            }
+
+        if action == "leave_note":
+            text = str(body.get("text") or "").strip()
+            if not text or len(text) > 300:
+                raise ValueError("留言需为 1–300 字")
+            paper = body.get("paper") if body.get("paper") in {"lined", "torn", "cyan"} else "lined"
+            return add("note", {"from": "him", "text": text, "paper": paper, "pinned": bool(body.get("pinned"))})
+
+        if action == "set_current":
+            activity = str(body.get("activity") or "").strip()
+            line = str(body.get("line") or "").strip()
+            if not activity or len(activity) > 60 or len(line) > 120:
+                raise ValueError("小屋状态需包含 1–60 字活动，补充不超过 120 字")
+            value = {"activity": activity, "line": line, "since": iso_now(), "from": "him"}
+            conn.execute(
+                "INSERT OR REPLACE INTO records(id,kind,at,payload) VALUES('setting_room_current','setting',?,?)",
+                (value["since"], json.dumps(value, ensure_ascii=False)),
+            )
+            return value
+
+        if action == "record_solo":
+            title = str(body.get("title") or "").strip()
+            text = str(body.get("text") or "").strip()
+            quote = str(body.get("quote") or "").strip()
+            thought = str(body.get("thought") or "").strip()
+            if not title or len(title) > 80 or len(text) > 500 or len(quote) > 300 or len(thought) > 300:
+                raise ValueError("独处记录标题需为 1–80 字，正文不超过 500 字")
+            return add("solo", {"from": "him", "title": title, "text": text, "quote": quote, "thought": thought})
+
+        if action == "comment_photo":
+            photo_id = str(body.get("photo_id") or "").strip()
+            text = str(body.get("text") or "").strip()
+            if not photo_id or not text or len(text) > 100:
+                raise ValueError("照片 ID 和 1–100 字留言必填")
+            row = conn.execute("SELECT payload FROM records WHERE kind='photo' AND id=?", (photo_id,)).fetchone()
+            if not row:
+                raise ValueError("照片不存在；请先 inspect 获取真实 photo_id")
+            photo = json.loads(row["payload"])
+            note = {"from": "him", "text": text, "at": iso_now()}
+            photo.setdefault("notes", []).append(note)
+            conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(photo, ensure_ascii=False), photo_id))
+            return {"photo_id": photo_id, **note}
+
+        if action == "add_watch":
+            title = str(body.get("title") or "").strip()
+            when = str(body.get("at") or "").strip() or None
+            if not title or len(title) > 160:
+                raise ValueError("片名需为 1–160 字")
+            if when:
+                try:
+                    dt.datetime.fromisoformat(when.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise ValueError("约定时间必须是带时区的 ISO-8601 时间") from exc
+            return add("watch", {"from": "him", "title": title, "status": "scheduled" if when else "wish", "scheduledAt": when})
+
+    raise ValueError(f"unknown Imprint action: {action}")
+
+
 def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     router = APIRouter(prefix="/loop/imprint")
 
@@ -235,8 +327,11 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.get("/room")
     def room():
         photos = rows("photo")
-        return {"available": True, "now": iso_now(), "names": NAMES, "current": None, "listen": None,
-                "watch": None, "counts": {"photos": len(photos), "soloThisMonth": 0}}
+        watches = [item for item in rows("watch") if item.get("scheduledAt")]
+        month = dt.datetime.now(ZONE).strftime("%Y-%m")
+        return {"available": True, "now": iso_now(), "names": NAMES, "current": setting("room_current") or None,
+                "listen": None, "watch": watches[0] if watches else None,
+                "counts": {"photos": len(photos), "soloThisMonth": sum(local_day(x["at"]).startswith(month) for x in rows("solo"))}}
 
     @router.get("/room/photos")
     def list_photos(who: str = "", source: str = "", fav: str = ""):

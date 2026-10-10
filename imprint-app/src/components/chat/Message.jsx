@@ -11,9 +11,30 @@ import { splitByQuery } from '../../lib/notes.js';
 
 function useLongPress(onLong) {
   const t = useRef(null);
-  const start = (e) => { if (e.button > 0) return; clear(); t.current = setTimeout(() => onLong(e), 480); };
+  const origin = useRef(null);
+  const openedAt = useRef(0);
   const clear = () => clearTimeout(t.current);
-  return { onPointerDown: start, onPointerUp: clear, onPointerLeave: clear, onPointerCancel: clear, onContextMenu: (e) => { e.preventDefault(); clear(); onLong(e); } };
+  const open = (rect) => {
+    if (Date.now() - openedAt.current < 700) return;
+    openedAt.current = Date.now();
+    window.getSelection()?.removeAllRanges();
+    onLong(rect);
+  };
+  const start = (e) => {
+    if (e.button > 0) return;
+    clear();
+    origin.current = { x: e.clientX, y: e.clientY };
+    // Capture the element now; React's currentTarget is unavailable once the timer fires.
+    const rect = e.currentTarget.getBoundingClientRect();
+    t.current = setTimeout(() => open(rect), 480);
+  };
+  return {
+    onPointerDown: start,
+    onPointerMove: (e) => { if (origin.current && Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) > 12) clear(); },
+    onPointerUp: clear, onPointerLeave: clear, onPointerCancel: clear,
+    onContextMenu: (e) => { e.preventDefault(); clear(); open(e.currentTarget.getBoundingClientRect()); },
+    onSelectStart: (e) => e.preventDefault(),
+  };
 }
 
 function Text({ text, q }) {
@@ -99,7 +120,7 @@ function Command({ command }) {
 export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImage, onRegenerate, onEditFailed, onResend }) {
   const mine = m.from === 'me';
   const [thinkOpen, setThinkOpen] = useState(false);
-  const press = useLongPress((e) => onMenu?.(m, e.currentTarget?.getBoundingClientRect?.()));
+  const press = useLongPress((rect) => onMenu?.(m, rect));
 
   if (m.status === 'failed') {
     return (

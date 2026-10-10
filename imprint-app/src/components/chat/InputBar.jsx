@@ -18,16 +18,20 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
   const ta = useRef(null);
   const imgIn = useRef(null), camIn = useRef(null), fileIn = useRef(null);
   const recorder = useRef(null);
+  const sendingText = useRef(false);
+  const sendingAttachment = useRef(false);
   const { data: mineStk } = useLoad(panel === 'sticker' ? '/api/stickers' : null);
 
   useEffect(() => { if (editing) { setText(editing.text || ''); ta.current?.focus(); } }, [editing]);
   useEffect(() => { if (quote) ta.current?.focus(); }, [quote]);
   // 输入框跟着字数长高
   useEffect(() => { const el = ta.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 120)}px`; }, [text]);
+  useEffect(() => { if (!text) sendingText.current = false; }, [text]);
 
   const sendText = () => {
     const t = text.trim();
-    if (!t) return;
+    if (!t || sendingText.current) return;
+    sendingText.current = true;
     onSend({ type: 'text', text: t, ...(quote ? { quote: { id: quote.id, from: quote.from, text: quote.text } } : {}) });
     setText('');
   };
@@ -37,20 +41,22 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
 
   const pickImages = async (files) => {
     const list = [...files].slice(0, MAX_IMAGES);
-    if (!list.length) return;
+    if (!list.length || sendingAttachment.current) return;
+    sendingAttachment.current = true;
     setBusy(`正在传 ${list.length} 张图…`); setPanel(null);
     try {
       const ups = await Promise.all(list.map((f) => onUpload(f, 'image')));
-      onSend({ type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) });
-    } finally { setBusy(''); }
+      await onSend({ type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) });
+    } finally { sendingAttachment.current = false; setBusy(''); }
   };
   const pickFile = async (f) => {
-    if (!f) return;
+    if (!f || sendingAttachment.current) return;
+    sendingAttachment.current = true;
     setBusy('正在传文件…'); setPanel(null);
     try {
       const u = await onUpload(f, 'file');
-      onSend({ type: 'file', file: { name: f.name, size: f.size, url: u.url } });
-    } finally { setBusy(''); }
+      await onSend({ type: 'file', file: { name: f.name, size: f.size, url: u.url } });
+    } finally { sendingAttachment.current = false; setBusy(''); }
   };
 
   // 按住说话：松开发送，滑出按钮取消
@@ -112,7 +118,7 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
           <button type="button" className="cin-ico" aria-label="表情" aria-expanded={panel === 'sticker'} onClick={() => setPanel((p) => (p === 'sticker' ? null : 'sticker'))}><Icon name="smile" size={19} /></button>
         </label>
         {text.trim() ? (
-          <button type="button" className="cin-send" aria-label="发送" onClick={editing ? () => { onSend({ type: 'text', text: text.trim() }); setText(''); } : sendText}><Icon name="send" size={19} stroke={1.5} /></button>
+          <button type="button" className="cin-send" aria-label="发送" onClick={sendText}><Icon name="send" size={19} stroke={1.5} /></button>
         ) : replying ? (
           <button type="button" className="cin-pause glass" onClick={onPause}><Icon name="stop" size={16} />暂停</button>
         ) : (

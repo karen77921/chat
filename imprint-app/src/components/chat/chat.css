@@ -49,7 +49,8 @@
 
 .cm-row { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 10px; max-width: 100%; }
 .cm-row.me { align-items: flex-end; }
-.cm-press { position: relative; max-width: 100%; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.cm-press, .cm-press * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.cm-press { position: relative; max-width: 100%; }
 .cm-bubble-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .cm-row.me .cm-bubble-stack { align-items: flex-end; }
 .cm-time { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; margin: 5px 10px 6px; }

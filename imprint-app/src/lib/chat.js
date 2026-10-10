@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, MOCK, streamUrl, adaptStreamEvent } from './api.js';
+import { upsertMessage, settleSentMessage } from './chatItems.js';
 
 /** 他那边的状态：回复中 → 超过 30 秒没新动静「仍在等待」→ 超过 2 分钟「卡住了」 */
 export const WAIT_MS = 30000;
@@ -22,19 +23,12 @@ export function replyState(replying, now) {
   return { kind: 'replying' };
 }
 
-function upsert(items, m) {
-  const i = items.findIndex((x) => x.id === m.id);
-  if (i < 0) return [...items, m];
-  const next = items.slice();
-  next[i] = { ...next[i], ...m };
-  return next;
-}
-
 export function useChat(chatId, demo) {
   const base = `/api/chats/${encodeURIComponent(chatId)}`;
   const [data, setData] = useState(null);
   const [now, setNow] = useState(Date.now());
   const tick = useRef(null);
+  const temporarySequence = useRef(0);
 
   const load = useCallback(() => api(`${base}${demo ? `?demo=${demo}` : ''}`)
     .then(setData)
@@ -51,7 +45,7 @@ export function useChat(chatId, demo) {
       setNow(Date.now());
       setData((d) => {
         if (!d || d.available === false) return d;
-        if (ev.type === 'message') return { ...d, items: upsert(d.items, ev.message) };
+        if (ev.type === 'message') return { ...d, items: upsertMessage(d.items, ev.message) };
         if (ev.type === 'status') {
           const items = ev.read ? d.items.map((m) => (m.status === 'queued' ? { ...m, status: 'sent' } : m)) : d.items;
           return { ...d, items, replying: ev.replying };
@@ -81,11 +75,11 @@ export function useChat(chatId, demo) {
 
   /** 发一条（不会让他开始回）。body：{ type, text?, images?, voice?, file?, sticker?, quote? } */
   const send = async (body) => {
-    const temp = { id: `tmp-${Date.now()}`, from: 'me', status: 'sending', at: new Date().toISOString(), ...body };
+    const temp = { id: `tmp-${Date.now()}-${++temporarySequence.current}`, from: 'me', status: 'sending', at: new Date().toISOString(), ...body };
     patch((d) => ({ ...d, items: [...d.items, temp] }));
     try {
       const m = await api(`${base}/messages`, { method: 'POST', body });
-      patch((d) => ({ ...d, items: d.items.map((x) => (x.id === temp.id ? m : x)) }));
+      patch((d) => ({ ...d, items: settleSentMessage(d.items, temp.id, m) }));
       return m;
     } catch (e) {
       patch((d) => ({ ...d, items: d.items.map((x) => (x.id === temp.id ? { ...x, status: 'unsent' } : x)) }));

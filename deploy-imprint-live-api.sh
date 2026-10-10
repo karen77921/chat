@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Install a verified, immutable release. Existing chat/memory databases are not
 # replaced or migrated; the new scrapbook database starts empty on first use.
-REV="bae19e854d1c8e406aa95bca7684cfb9a587c0be"
-TAG="context-recovery-bae19e8"
+REV="d197e09122865f3f524a5308c4ff224a2753910e"
+TAG="pingfang-tc-light-d197e09"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -31,9 +31,9 @@ test -f "${ROOT}/imprint_store.py"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
   'f2e517daf6c2af555029bc01c92714eb79f406519282af1fa221b4df4ec64819' "${ROOT}/api_loop.py" \
   '86060548b18bf624827c61fd1a2eb1bae2f0da968e48a16fdf80fda9f865f479' "${ROOT}/imprint_store.py" \
-  '6f68cf0133014cc8b6ee8b12d44bc131a24d9878b5e83cb3bbf767ab8521de72' "${ROOT}/imprint-app/dist/index.html" \
-  '8bf9a2b2eca7ecfae5480ffa3acabfcb718a1e324c033716cc2e0bb0197b0f25' "${ROOT}/imprint-app/dist/assets/index-BtaCa2-L.js" \
-  '2afbff06ede61ccb143ebc12292d407a6d9a98641c42b9ea6f4bfae3a6da0179' "${ROOT}/imprint-app/dist/assets/index-DuD1ZKAr.css" | sha256sum -c -
+  '6993e55b38a58486a066e42152b93615040aca4302516a8a0194486c0fc276d4' "${ROOT}/imprint-app/dist/index.html" \
+  '8bf9a2b2eca7ecfae5480ffa3acabfcb718a1e324c033716cc2e0bb0197b0f25' "${ROOT}/imprint-app/dist/assets/index-Byt9Qhy4.js" \
+  '428a6c81e0e9356a9e0ae0dc13807790bddd18074fa46a3a197635596d3b1f30' "${ROOT}/imprint-app/dist/assets/index-rDHatYtc.css" | sha256sum -c -
 sudo /root/companion-loop/venv/bin/python -m py_compile "${ROOT}/api_loop.py" "${ROOT}/imprint_store.py"
 
 echo '[2/5] 准备站点并备份当前程序…'
@@ -94,8 +94,8 @@ curl -fsS http://127.0.0.1:3020/openapi.json | python3 -c 'import json,sys; p=js
 echo '[4/5] 切换前端…'
 if sudo test -d "${SITE}"; then sudo mv "${SITE}" "${SITE_BACKUP}"; fi
 sudo mv "${SITE_STAGE}" "${SITE}"
-sudo test -f "${SITE}/assets/index-BtaCa2-L.js"
-sudo test -f "${SITE}/assets/index-DuD1ZKAr.css"
+sudo test -f "${SITE}/assets/index-Byt9Qhy4.js"
+sudo test -f "${SITE}/assets/index-rDHatYtc.css"
 
 echo '[5/5] 完成。'
 rollback=0

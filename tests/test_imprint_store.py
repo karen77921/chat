@@ -4,6 +4,7 @@ Uses tiny FastAPI stand-ins so the storage rules can be tested with Python's
 standard library on development machines that do not have the server venv.
 """
 import asyncio
+import datetime as dt
 import json
 import sqlite3
 import sys
@@ -135,6 +136,37 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(settings["contact"]["himName"], "小年糕")
         self.call("PUT", "/settings/contact", Request({"himName": "哥哥"}))
         self.assertEqual(self.call("GET", "/settings")["contact"]["himName"], "哥哥")
+
+    def test_activity_uses_real_visible_events_and_persists_read_state(self):
+        base = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
+
+        def add(minutes, direction, kind, text, meta):
+            at = (base + dt.timedelta(minutes=minutes)).isoformat()
+            with sqlite3.connect(self.relay) as conn:
+                conn.execute("INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                             (at, direction, kind, text, json.dumps(meta)))
+
+        add(0, "in", "user", "你好", {})
+        add(1, "out", "reply", "真实回复⟦气泡⟧第二段", {"api_session": "our-window", "api": {}})
+        add(2, "out", "act", "工具行动", {"steps": [{"tool": "hold", "result": "OK"}]})
+        add(3, "out", "reply", "主动消息", {"api_session": "our-window", "api": {"proactive": True}})
+        add(4, "out", "reply", "已隐藏", {"visible": False})
+        add(5, "out", "reply", "API 失败", {"api": {"error": "bad"}})
+        add(6, "out", "act", "工具失败", {"steps": [{"tool": "hold", "result": "ERROR: bad"}]})
+        activity = self.call("GET", "/activity")
+        self.assertTrue(activity["available"])
+        self.assertEqual([x["title"] for x in activity["items"]],
+                         ["他主动来找你", "写入心潮记忆", "他回复了你"])
+        self.assertEqual(activity["items"][0]["sessionId"], "our-window")
+        self.assertTrue(all(x["unread"] == 0 for x in activity["items"]))
+        self.call("POST", "/activity/read")
+        future = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=2)).isoformat()
+        with sqlite3.connect(self.relay) as conn:
+            conn.execute("INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                         (future, "out", "reply", "新回复", '{}'))
+        items = self.call("GET", "/activity")["items"]
+        self.assertEqual(items[0]["text"], "新回复")
+        self.assertEqual(sum(x["unread"] for x in items), 1)
 
 
 if __name__ == "__main__":

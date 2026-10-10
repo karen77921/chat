@@ -219,11 +219,12 @@ async function compat(path, opts) {
   if (method === 'PUT' && p === '/api/settings/beauty') return loop('imprint/settings/beauty', { ...opts, method: 'POST' });
   if (method === 'PUT' && p === '/api/settings/avatar') return loop('imprint/settings/avatar', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/home') {
-    const notes = await loop('imprint/notes');
+    const [notes, activity] = await Promise.all([loop('imprint/notes'), loop('imprint/activity')]);
     return { available: true, now: new Date().toISOString(), names: { me: '小年糕', him: '季宁' },
       together: { since: '2026-09-18' }, greeting: '',
-      note: notes.items[0] ? { ...notes.items[0], total: notes.total } : null, activity: [] };
+      note: notes.items[0] ? { ...notes.items[0], total: notes.total } : null, activity: activity.items || [] };
   }
+  if (method === 'POST' && p === '/api/activity/read') return loop('imprint/activity/read', { method: 'POST' });
   if (method === 'GET' && p === '/api/notes') return loop(`imprint/notes${query}`);
   if (method === 'GET' && p === '/api/notes/calendar') return loop(`imprint/notes/calendar${query}`);
   if (method === 'POST' && p === '/api/notes') return loop('imprint/notes', opts);

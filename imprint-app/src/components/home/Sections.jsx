@@ -146,16 +146,18 @@ function Barcode() {
 
 /* ---------- 他的动态 ---------- */
 const KIND = {
+  reply: { icon: 'chat', href: '#/chat' },
+  tool: { icon: 'terminal', href: '#/settings?tab=logs' },
   solo: { icon: 'moon', href: '#/room?tab=solo' },
   memory: { icon: 'leaf', href: '#/tide?tab=memory' },
   photo: { icon: 'photo', href: '#/room?tab=photos' },
 };
 export function Lately({ items, now }) {
-  if (!items?.length) return <div className="card lately-empty muted">他今天还没留下什么</div>;
+  if (!items?.length) return <div className="card lately-empty muted">还没有可记录的动态</div>;
   return (
     <div className="card lately">
       {items.map((a) => (
-        <a key={a.id} href={KIND[a.kind]?.href || '#/room'} className="act">
+        <a key={a.id} href={a.kind === 'reply' && a.sessionId ? `#/chat/t?id=${encodeURIComponent(a.sessionId)}` : KIND[a.kind]?.href || '#/room'} className="act">
           <span className="act-i"><Icon name={KIND[a.kind]?.icon || 'leaf'} size={19} /></span>
           <span className="act-t"><b>{a.title}</b><em>{a.text}</em></span>
           <span className="act-m">{ago(a.at, now)}{a.unread > 0 && <span className="badge">{a.unread}</span>}</span>

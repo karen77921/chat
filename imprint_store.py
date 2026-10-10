@@ -93,6 +93,57 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                          (f"setting_{name}", "setting", iso_now(), json.dumps(value, ensure_ascii=False)))
         return value
 
+    def activity_items() -> list[dict]:
+        events = []
+        if not relay_path.exists():
+            return []
+        with sqlite3.connect(str(relay_path), timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            recent = conn.execute("SELECT id,ts,direction,kind,text,meta FROM messages "
+                                  "WHERE direction='out' AND kind IN ('reply','act') "
+                                  "ORDER BY id DESC LIMIT 200").fetchall()
+        for row in recent:
+            meta = visible(row)
+            if meta is None or not row["text"]:
+                continue
+            if row["kind"] == "act":
+                steps = meta.get("steps") or []
+                first = steps[0] if steps else {}
+                if not isinstance(first, dict) or not steps or str(first.get("result") or "").startswith("ERROR:"):
+                    continue
+                tool_name = str(first.get("tool") or "工具")[:60]
+                memory = tool_name in {"hold", "grow", "trace", "anchor", "plan", "I"}
+                events.append({"id": f"act-{row['id']}", "kind": "memory" if memory else "tool",
+                               "title": "写入心潮记忆" if memory else "使用了工具",
+                               "text": tool_name, "at": row["ts"]})
+                continue
+            api_meta = meta.get("api") or {}
+            if not isinstance(api_meta, dict):
+                continue
+            if api_meta.get("error"):
+                continue
+            proactive = bool(api_meta.get("proactive"))
+            session_id = str(meta.get("api_session") or api_meta.get("session") or "")
+            events.append({"id": f"reply-{row['id']}", "kind": "reply",
+                           "title": "他主动来找你" if proactive else "他回复了你",
+                           "text": str(row["text"]).replace("⟦气泡⟧", " ").strip()[:120],
+                           "at": row["ts"], "sessionId": session_id})
+        events.sort(key=lambda item: item["at"], reverse=True)
+        read_at = setting("activity_read").get("at", "")
+        if not read_at:
+            read_at = iso_now()
+            save_setting("activity_read", {"at": read_at})
+        return [{**item, "unread": int(bool(read_at and item["at"] > read_at))} for item in events[:20]]
+
+    @router.get("/activity")
+    def activity():
+        return {"available": True, "items": activity_items()}
+
+    @router.post("/activity/read")
+    def activity_read():
+        save_setting("activity_read", {"at": iso_now()})
+        return {"ok": True}
+
     @router.get("/settings")
     def get_settings():
         return {"available": True, "beauty": setting("beauty"), "avatars": setting("avatars"),

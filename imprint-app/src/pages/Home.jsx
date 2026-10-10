@@ -18,12 +18,18 @@ function Reveal({ children }) {
 }
 
 export default function Home() {
-  const { data, setData } = useLoad('/api/home');
+  const { data, setData, reload } = useLoad('/api/home');
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 60000);
     return () => clearInterval(timer);
   }, []);
+  useEffect(() => {
+    const timer = setInterval(reload, 30000);
+    const onVisible = () => { if (document.visibilityState === 'visible') reload(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [reload]);
   const latelyRef = useRef(null);
   const ok = data && data.available !== false;
   const d = ok ? data : null;
@@ -31,8 +37,9 @@ export default function Home() {
   const unread = d?.activity?.reduce((n, a) => n + (a.unread || 0), 0) || 0;
 
   const readAll = () => {
-    setData((x) => ({ ...x, activity: x.activity.map((a) => ({ ...a, unread: 0 })) }));
-    api('/api/activity/read', { method: 'POST' }).catch(() => {});
+    api('/api/activity/read', { method: 'POST' })
+      .then(() => setData((x) => ({ ...x, activity: x.activity.map((a) => ({ ...a, unread: 0 })) })))
+      .catch(() => {});
   };
 
   return (

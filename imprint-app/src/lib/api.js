@@ -4,11 +4,11 @@
  * exposes `/relay/app/*` and `/relay/app/loop/*`. This file translates the
  * important chat/session/config/MCP operations without changing the design.
  */
-import { mockFetch } from './mock.js';
-
 const BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 const RELAY = `${BASE}/relay`;
-export const MOCK = import.meta.env.VITE_MOCK === '1';
+// Demo fixtures are available only in the development server and are never
+// shipped in the production bundle.
+export const MOCK = import.meta.env.DEV && import.meta.env.VITE_MOCK === '1';
 
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -209,6 +209,18 @@ async function compat(path, opts) {
   if (method === 'GET' && (p === '/api/logs/tools' || p === '/api/logs/backend')) return { available: true, items: [] };
   if (method === 'PUT' && (p === '/api/settings/beauty' || p === '/api/settings/avatar')) return { ok: true };
   if (method === 'GET' && p === '/api/home') return { available: true, now: new Date().toISOString(), names: { me: '你', him: 'Ombre' }, together: {}, greeting: '', activity: [] };
+  // These modules do not have live persistence yet. Never expose the design
+  // fixture's invented notes, photos, activities, streaks, or gifts in production.
+  if (method === 'GET' && p === '/api/notes') return { available: true, recording: false, now: new Date().toISOString(), names: { me: '我', him: 'Ombre' }, total: 0, items: [] };
+  if (method === 'GET' && p === '/api/notes/calendar') return { available: true, days: {} };
+  if (method === 'GET' && p === '/api/room') return { available: true, recording: false, now: new Date().toISOString(), names: { me: '我', him: 'Ombre' }, current: null, listen: null, watch: null };
+  if (method === 'GET' && p === '/api/room/photos') return { available: true, total: 0, items: [] };
+  if (method === 'GET' && p === '/api/room/solo') return { available: true, now: new Date().toISOString(), monthCount: 0, items: [], nextCursor: null };
+  if (method === 'GET' && p === '/api/spark') return { available: true, recording: false };
+  if (method === 'GET' && p === '/api/spark/shop') return { available: true, recording: false };
+  if (method === 'GET' && p === '/api/spark/kept') return { available: true, recording: false };
+  if (method === 'GET' && p === '/api/together/watch') return { available: true, recording: false, names: { me: '我', him: 'Ombre' }, current: null, reactions: [], list: [] };
+  if (method === 'GET' && p === '/api/music/search') return { available: true, items: [] };
   if (method === 'GET' && p === '/api/together/listen') return { available: false };
   if (method === 'GET' && p === '/api/tide') return { available: false };
   if (method === 'GET' && p === '/api/tide/dreams') return { available: false };
@@ -232,12 +244,14 @@ async function compat(path, opts) {
     await loop('memories/write', { method: 'POST', body: { text, tag, mode: text.length > 500 ? 'grow' : 'hold', tell_him: Boolean(opts.body?.tellHim) }, timeout: 60000 });
     return { id: `tide-${Date.now()}`, no: Date.now(), at: new Date().toISOString(), text, tag, by: 'me' };
   }
-  return mockFetch(path, opts);
+  // A missing live route must fail visibly instead of claiming a demo write
+  // succeeded or silently inserting somebody else's reference material.
+  throw new ApiError(501, '此功能尚未接入真实保存，示例数据不会写入。');
 }
 
 export async function api(path, opts = {}) {
   const options = { method: 'GET', ...opts };
-  if (MOCK) return mockFetch(path, options);
+  if (MOCK) return (await import('./mock.js')).mockFetch(path, options);
   if (path.startsWith('/api/')) return compat(path, options);
   return request(path, options);
 }

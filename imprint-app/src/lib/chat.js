@@ -10,7 +10,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, MOCK, streamUrl, adaptStreamEvent } from './api.js';
-import { mockStream } from './mock.js';
 
 /** 他那边的状态：回复中 → 超过 30 秒没新动静「仍在等待」→ 超过 2 分钟「卡住了」 */
 export const WAIT_MS = 30000;
@@ -60,7 +59,14 @@ export function useChat(chatId, demo) {
         return d;
       });
     };
-    if (MOCK) return mockStream.subscribe(on);
+    if (MOCK) {
+      let cancelled = false;
+      let unsubscribe;
+      import('./mock.js').then(({ mockStream }) => {
+        if (!cancelled) unsubscribe = mockStream.subscribe(on);
+      });
+      return () => { cancelled = true; unsubscribe?.(); };
+    }
     const es = new EventSource(streamUrl());
     es.onmessage = (e) => {
       try {

@@ -56,6 +56,7 @@ function SparkTab() {
   const [tip, setTip] = useState('');
   if (!data) return <div className="card cl-empty sp-pad">正在翻…</div>;
   if (data.available === false) return <div className="card cl-empty sp-pad">暂时连不上，过一会儿再来看看。</div>;
+  if (data.recording === false) return <div className="card cl-empty sp-pad">还没有你们的火花记录。不会用参考天数代替；真实统计接入后再从你们的聊天开始计算。</div>;
   const names = data.names;
   const him = { ...HIM, name: names?.him };
   const missed = data.week.find((d) => !d.done);
@@ -128,6 +129,7 @@ function ShopTab() {
   const names = data?.names || { me: '我', him: '他' };
   if (!data) return <div className="card cl-empty sp-pad">正在翻…</div>;
   if (data.available === false) return <div className="card cl-empty sp-pad">暂时连不上，过一会儿再来看看。</div>;
+  if (data.recording === false) return <div className="card cl-empty sp-pad">礼物铺尚未接入真实积分与兑换，参考商品已清空。</div>;
   const him = { ...HIM, name: names.him };
   return (
     <div className="sp-body">
@@ -171,6 +173,7 @@ function KeptTab() {
   const { data, setData } = useLoad('/api/spark/kept');
   if (!data) return <div className="card cl-empty sp-pad">正在翻…</div>;
   if (data.available === false) return <div className="card cl-empty sp-pad">暂时连不上，过一会儿再来看看。</div>;
+  if (data.recording === false) return <div className="card cl-empty sp-pad">这里还没有你们收藏或兑换的小礼物。</div>;
   const toggle = (k) => {
     const active = !k.active;
     setData((d) => ({ ...d, kept: d.kept.map((x) => (x.cat === k.cat ? { ...x, active: x.id === k.id ? active : active ? false : x.active } : x)) }));

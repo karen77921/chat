@@ -71,7 +71,7 @@ export default function Notes({ query }) {
       <header className="nt-head">
         <button type="button" className="rbtn" aria-label="返回" onClick={back}><Icon name="back" size={18} stroke={1.5} /></button>
         <h1><span className="hand">notes</span><span>留言板</span></h1>
-        {!searching ? <button type="button" className="rbtn" aria-label="写一条" onClick={openWrite}><Icon name="plus" size={18} stroke={1.5} /></button> : <span style={{ width: 42 }} />}
+        {!searching ? <button type="button" className="rbtn" aria-label="写一条" disabled={data?.recording === false} onClick={openWrite}><Icon name="plus" size={18} stroke={1.5} /></button> : <span style={{ width: 42 }} />}
       </header>
 
       <div className="nt-tools">
@@ -115,10 +115,10 @@ export default function Notes({ query }) {
             {g.items.map((n, i) => <NoteCard key={n.id} note={n} names={data.names} now={now} index={i} fresh={n.id === fresh} />)}
           </section>
         ))}
-        {ok && !searching && !data.items.length && <div className="card nt-empty">这里还没有留言，写第一条吧。</div>}
+        {ok && !searching && !data.items.length && <div className="card nt-empty">这里还没有你们的留言。{data.recording === false && <small style={{ display: 'block', marginTop: 12 }}>真实保存尚未接入，暂不开放写入；不会显示参考数据。</small>}</div>}
       </Band>
 
-      {!searching && <button type="button" className="btn-main nt-write" onClick={openWrite}><Icon name="pen" size={17} stroke={1.5} />写一条</button>}
+      {!searching && data?.recording !== false && <button type="button" className="btn-main nt-write" onClick={openWrite}><Icon name="pen" size={17} stroke={1.5} />写一条</button>}
 
       {calOpen && <CalendarSheet open onClose={closeSheets} today={now} names={data?.names}
         onPick={(k) => { setDay(k); setSearching(false); setQ(''); closeSheets(); }} />}

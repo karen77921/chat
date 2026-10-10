@@ -51,11 +51,12 @@ export default function Room({ query }) {
     <main className="room">
       <header className="rm-head">
         <h1><span className="hand">the room</span><span>小屋</span></h1>
-        <button type="button" className="rbtn" aria-label="贴一张照片" onClick={() => fileIn.current.click()}><Icon name="plus" size={18} stroke={1.5} /></button>
+        <button type="button" className="rbtn" aria-label="贴一张照片" disabled={home?.recording === false} onClick={() => fileIn.current.click()}><Icon name="plus" size={18} stroke={1.5} /></button>
         <p>他住的地方：照片、独处的时候、画的表情</p>
       </header>
 
       {data_offline(home)}
+      {home?.recording === false && <div className="card rm-empty" style={{ margin: '16px 24px 0' }}>小屋还没有你们自己的记录。照片、独处和表情的真实保存尚未接入，参考内容已清空。</div>}
       {ok && <NowCard current={home.current} now={now} />}
       {ok && <TogetherRow listen={home.listen} watch={home.watch} />}
 
@@ -68,7 +69,7 @@ export default function Room({ query }) {
       <Band tone="l1" seed={21 + TABS.findIndex(([k]) => k === tab)} className="rm-band">
         {tab === 'photos' && <PhotoWall data={photos.data} filter={filter} setFilter={setFilter} onOpen={setOpen} names={home?.names} />}
         {tab === 'solo' && <Solo data={solo.data} now={now} />}
-        {tab === 'stickers' && <Stickers data={stickers.data} setData={stickers.setData} onUpload={upload} />}
+        {tab === 'stickers' && (home?.recording === false ? <div className="card rm-empty">这里还没有你们的表情。</div> : <Stickers data={stickers.data} setData={stickers.setData} onUpload={upload} />)}
       </Band>
 
       {open && <PhotoView photo={open} names={home?.names} onClose={() => setOpen(null)} onChange={changePhoto}

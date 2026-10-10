@@ -170,6 +170,7 @@ function Watch() {
   const [adding, setAdding] = useState(null); // { title, at }
   if (!data) return <div className="card cl-empty tp-pad">正在翻片单…</div>;
   if (data.available === false) return <div className="card cl-empty tp-pad">暂时连不上，过一会儿再来看看。</div>;
+  if (data.recording === false) return <div className="card cl-empty tp-pad">片单还没有你们自己的记录。真实保存接入前，不会展示参考影片。</div>;
   const cur = data.current;
   const him = { id: 'him', name: data.names?.him };
   const react = cur ? [...(data.reactions || [])].sort((a, b) => b.atS - a.atS).find((r) => r.atS <= cur.positionS) : null;

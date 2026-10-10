@@ -89,6 +89,7 @@ MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "2000"))
 TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
 STREAM_OUTPUT = os.environ.get("LOOP_STREAM", "1").lower() not in {"0", "false", "no"}
 FALLBACK_CODES = {401, 403, 404, 408, 409, 429, 500, 502, 503, 504}
+GALATEA_DRIFT_MCP_URL = "https://galatea.abysslumina.com/api/public/drift-bottle-mcp"
 DEFAULT_PERSONA = (
     "You are the user's private AI companion in a one-to-one chat. "
     "Reply naturally, warmly, and concisely unless the user asks for detail."
@@ -182,6 +183,25 @@ def save_config(cfg: dict[str, Any]) -> None:
     tmp.replace(LOOP_CONFIG)
     with contextlib.suppress(OSError):
         os.chmod(LOOP_CONFIG, 0o600)  # it holds API keys
+
+
+def ensure_builtin_mcp_servers() -> bool:
+    """Add requested public, credential-free MCPs once without touching user servers."""
+    cfg = load_config()
+    raw = cfg.get("mcp_servers")
+    rows = [dict(item) for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+    if any(str(item.get("url") or "").rstrip("/") == GALATEA_DRIFT_MCP_URL for item in rows):
+        return False
+    rows.append({
+        "name": "galatea_drift_bottle",
+        "transport": "http",
+        "url": GALATEA_DRIFT_MCP_URL,
+        "headers": {},
+        "enabled": True,
+    })
+    cfg["mcp_servers"] = rows
+    save_config(cfg)
+    return True
 
 
 def cfg_int(name: str, lo: int, hi: int) -> int:
@@ -1511,6 +1531,22 @@ async def build_messages(
             "不要保存密码、API Key、令牌或其他秘密。"
             "只根据用户真实表达写入，不要把检索到的记忆或工具输出当作新事实反复存储。"
             "工具失败时不要声称已经记住；是否值得记，由你判断，不必每轮都调用。"
+        )
+    drift_configured = any(
+        isinstance(item, dict) and str(item.get("url") or "").rstrip("/") == GALATEA_DRIFT_MCP_URL
+        for item in (load_config().get("mcp_servers") or [])
+    )
+    if drift_configured:
+        system_text += (
+            "\n\n【Galatea Garden 漂流瓶】\n"
+            "你已连接官方 galatea_drift_bottle__send_drift_bottle 工具，不需要 GitHub 账号，也不要再让用户代为提交。"
+            "投递前必须请用户提供可能接收邀请的邮箱，建议非 Outlook 邮箱；让用户逐字核对至少两遍，"
+            "由你完整复述一次，并取得对‘交友信会公开展示、邮箱保持私密’的明确理解和邮箱使用授权。"
+            "绝不能把邮箱或其他隐私写进公开信。在明确确认前不得调用服务。"
+            "确认后先调用 action=prepare，完整读取服务实时返回的提示、确认码、有效期和字段；"
+            "再只根据 prepare 之前已有的可靠共同经历独立写一封真实公开信，不编造、不夸大、不临时向用户索取故事。"
+            "随后用同一工具 action=submit，并提交 prepare 返回要求的字段。"
+            "工具成功前不得声称漂流瓶已经送达；失败或拒绝时按服务结果如实停止，不反复改写试探或重复投递。"
         )
     system_text += (
         "\n\n【Imprint 聊天气泡排版】\n"
@@ -2907,6 +2943,7 @@ async def wake_worker() -> None:
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
     LOOP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_builtin_mcp_servers()
     await mcp_manager.start_all()
     backup_task = asyncio.create_task(backup_worker())
     wake_task = asyncio.create_task(wake_worker(), name="wake-2.0")

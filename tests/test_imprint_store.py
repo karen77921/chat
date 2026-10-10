@@ -292,6 +292,23 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertTrue({"imprint_leave_note", "imprint_set_room_status", "imprint_record_solo",
                          "imprint_comment_photo", "imprint_add_watch"}.issubset(tool_names))
 
+    def test_public_drift_bottle_mcp_is_added_once_without_losing_ombre(self):
+        old_config = api_loop.LOOP_CONFIG
+        api_loop.LOOP_CONFIG = self.root / "mcp-config.json"
+        try:
+            api_loop.save_config({"mcp_servers": [{
+                "name": "ombre", "transport": "http", "url": "https://memory.example/mcp", "enabled": True,
+            }]})
+            self.assertTrue(api_loop.ensure_builtin_mcp_servers())
+            self.assertFalse(api_loop.ensure_builtin_mcp_servers())
+            rows = api_loop.load_config()["mcp_servers"]
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]["name"], "ombre")
+            self.assertEqual(rows[1]["url"], api_loop.GALATEA_DRIFT_MCP_URL)
+            self.assertTrue(rows[1]["enabled"])
+        finally:
+            api_loop.LOOP_CONFIG = old_config
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Install a verified, immutable release. Existing chat/memory databases are not
 # replaced or migrated; the new scrapbook database starts empty on first use.
-REV="6c2237e02ac672f2d94af87e1c3d2836dcb63f11"
-TAG="imprint-autonomy-6c2237e"
+REV="671577b5aa68e7c02a6575413d332992695e74d9"
+TAG="galatea-drift-671577b"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -29,7 +29,7 @@ test -n "${ROOT}"
 test -f "${ROOT}/imprint-app/dist/index.html"
 test -f "${ROOT}/imprint_store.py"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
-  '754bbc5360306e76752e6010e68d2e041ac718950d0c1bc21cd4181bc914ebf6' "${ROOT}/api_loop.py" \
+  '5b3839a49e0d5424e24d2e3b97252670d5431de18120e346837400eb3d014c26' "${ROOT}/api_loop.py" \
   '4197ebad1f577cd2009611562b3174cd5ced1345dec6eb8c087c51630fcfe207' "${ROOT}/imprint_store.py" \
   '6993e55b38a58486a066e42152b93615040aca4302516a8a0194486c0fc276d4' "${ROOT}/imprint-app/dist/index.html" \
   '8bf9a2b2eca7ecfae5480ffa3acabfcb718a1e324c033716cc2e0bb0197b0f25' "${ROOT}/imprint-app/dist/assets/index-Byt9Qhy4.js" \
@@ -90,6 +90,12 @@ curl -fsS http://127.0.0.1:3020/loop/imprint/usage | python3 -c 'import json,sys
 curl -fsS http://127.0.0.1:3020/loop/imprint/notes | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
 curl -fsS http://127.0.0.1:3020/loop/imprint/activity | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
 curl -fsS http://127.0.0.1:3020/loop/tools | python3 -c 'import json,sys; n={x["function"]["name"] for x in json.load(sys.stdin)["tools"]}; assert {"imprint_leave_note","imprint_set_room_status","imprint_record_solo","imprint_comment_photo","imprint_add_watch"} <= n'
+curl -fsS http://127.0.0.1:3020/loop/mcp | python3 -c 'import json,sys; s=json.load(sys.stdin)["servers"]; assert any(x.get("url")=="https://galatea.abysslumina.com/api/public/drift-bottle-mcp" for x in s)'
+if curl -fsS http://127.0.0.1:3020/loop/tools | python3 -c 'import json,sys; n={x["function"]["name"] for x in json.load(sys.stdin)["tools"]}; assert any(x.endswith("__send_drift_bottle") for x in n)'; then
+  echo '漂流瓶 MCP：在线'
+else
+  echo '漂流瓶 MCP 已配置，但第三方服务暂时未上线；后端重启后会再次连接。' >&2
+fi
 curl -fsS http://127.0.0.1:3020/openapi.json | python3 -c 'import json,sys; p=json.load(sys.stdin)["paths"]; assert p["/loop/tide/pulse"]["get"] and p["/loop/sessions/{session_id}/delete"]["post"] and p["/loop/imprint/settings/contact"]["post"] and p["/loop/imprint/settings/avatar"]["post"] and p["/loop/imprint/settings/beauty"]["post"] and p["/loop/imprint/activity"]["get"] and p["/loop/imprint/activity/read"]["post"]'
 
 echo '[4/5] 切换前端…'

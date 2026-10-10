@@ -1,0 +1,117 @@
+.home { max-width: 430px; margin: 0 auto; overflow-x: hidden; }
+
+/* ---------- 顶部拼贴（坐标按 390 宽的效果图） ---------- */
+.hero { position: relative; height: calc(492px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); }
+.hero > * { position: absolute; }
+.hero .brand { left: 25px; top: calc(env(safe-area-inset-top, 0px) + 24px); display: flex; align-items: center; gap: 7px; color: var(--accent); font-family: var(--serif); font-size: 12px; letter-spacing: 0.46em; font-weight: 500; }
+.hero .names { left: 24px; top: calc(env(safe-area-inset-top, 0px) + 52px); margin: 0; display: flex; align-items: baseline; gap: 6px; font-size: 44px; font-weight: 500; line-height: 1.2; letter-spacing: -0.01em; }
+.hero .amp { font-size: 46px; color: var(--accent); margin: 0 2px; }
+.hero .greet { left: 26px; top: calc(env(safe-area-inset-top, 0px) + 116px); margin: 0; font-size: 13px; letter-spacing: 0.08em; color: var(--muted); }
+.hero .bell { position: absolute; right: 22px; top: calc(env(safe-area-inset-top, 0px) + 58px); }
+
+.collage { inset: 0; top: env(safe-area-inset-top, 0px); pointer-events: none; }
+.collage > * { position: absolute; }
+.c-sheet { right: 14px; top: 150px; }
+.c-print { right: 18px; top: 166px; }
+.c-tape { right: 82px; top: 152px; }
+.c-stamp { right: 20px; top: 388px; }
+.c-postmark { right: 68px; top: 404px; opacity: 0.5; }
+
+.hero .since-k { left: 25px; top: calc(env(safe-area-inset-top, 0px) + 180px); font-size: 10px; letter-spacing: 0.28em; }
+.hero .days { left: 18px; top: calc(env(safe-area-inset-top, 0px) + 198px); font-size: 98px; font-weight: 300; line-height: 1; letter-spacing: -0.02em; }
+.hero .days-unit { left: 92px; top: calc(env(safe-area-inset-top, 0px) + 292px); font-size: 40px; color: var(--accent); }
+.hero .every { left: 24px; top: calc(env(safe-area-inset-top, 0px) + 350px); font-size: 24px; opacity: 0.8; }
+.hero .since { left: 26px; top: calc(env(safe-area-inset-top, 0px) + 392px); font-size: 11px; letter-spacing: 0.12em; color: var(--muted); }
+.hero .squiggle { left: 24px; top: calc(env(safe-area-inset-top, 0px) + 418px); }
+
+/* ---------- 层一 ---------- */
+.offline, .skeleton { padding: 18px; font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+.skeleton { height: 108px; }
+
+.weather { padding: 16px 18px; margin-bottom: 30px; }
+.w-top { display: flex; align-items: center; gap: 12px; }
+.w-ico { color: var(--accent); display: flex; }
+.w-city { font-size: 14.5px; letter-spacing: 0.06em; }
+.w-meta { font-size: 10.5px; color: var(--muted); margin-top: 3px; letter-spacing: 0.04em; }
+.w-temp { margin-left: auto; font-size: 38px; font-weight: 400; line-height: 1; }
+.w-temp sup { font-size: 16px; }
+.w-note { border-top: 1px dashed var(--line); margin-top: 12px; padding-top: 10px; font-size: 16px; }
+
+.his { display: grid; grid-template-columns: 124px 1fr; gap: 6px; padding: 14px 18px 16px 12px; min-height: 236px; margin-bottom: 32px; }
+.his-spec { position: relative; }
+.his-spec .hand { position: absolute; left: 10px; bottom: -4px; font-size: 15px; color: var(--muted); }
+.his-rec { display: flex; flex-direction: column; gap: 11px; padding-top: 4px; min-width: 0; }
+.his-top { margin-top: auto; border-top: 1px dashed var(--line); padding-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.his-top span { color: var(--ink); }
+
+.note-wrap { position: relative; margin-top: 22px; }
+.note { display: block; padding: 24px 18px 16px 62px; min-height: 200px; border-radius: 3px; }
+.note::before { content: ''; position: absolute; left: 44px; top: 0; bottom: 0; width: 1px; background: var(--l3); }
+.note-k { position: absolute; left: 12px; top: 44px; writing-mode: vertical-rl; font-size: 10px; letter-spacing: 0.36em; color: var(--muted); }
+.note-text {
+  margin: 0; white-space: pre-line; font-size: 15px; line-height: 30px; letter-spacing: 0.04em;
+  background: repeating-linear-gradient(to bottom, transparent 0 29px, color-mix(in srgb, var(--print-b) 45%, transparent) 29px 30px);
+}
+.note-sign { display: flex; align-items: baseline; margin-top: 18px; }
+.note-sign .hand { font-size: 28px; }
+.note-sign .hand-cn { font-size: 17px; margin-left: 4px; }
+.note-date { margin-left: auto; font-size: 12px; letter-spacing: 0.3em; color: var(--muted); }
+.note-wax { position: absolute; left: 6px; top: -22px; filter: drop-shadow(1px 3px 3px rgba(var(--sh-rgb), 0.24)); }
+.note-clip { position: absolute; right: 12px; top: -16px; }
+.note-search { margin-top: 16px; padding: 0 6px 0 16px; }
+.ns-q { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); font-size: 12.5px; letter-spacing: 0.06em; }
+.ns-d { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 10px; color: var(--accent); font-size: 11.5px; }
+
+/* ---------- 层二：一起 ---------- */
+.tg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tg-listen { min-height: 216px; }
+.tg-link { display: block; padding: 12px 12px 34px 14px; }
+.tg-art { position: relative; height: 104px; margin: 0 -4px 6px -6px; }
+.tg-vinyl { position: absolute; left: 58px; top: 4px; }
+.tg-sleeve { position: absolute !important; left: 4px; top: 2px; box-shadow: 2px 4px 8px rgba(var(--sh-rgb), 0.14); }
+.tg-title { font-size: 18px; font-weight: 500; margin-top: 3px; }
+.tg-artist { font-size: 10.5px; color: var(--muted); }
+.tg-bar { height: 2px; background: var(--line); margin-top: 9px; position: relative; }
+.tg-bar i { position: absolute; left: 0; top: 0; height: 2px; background: var(--accent); }
+.tg-time { display: flex; justify-content: space-between; margin-top: 5px; font-size: 9.5px; color: var(--muted); }
+.tg-play { position: absolute; left: 50%; bottom: 8px; translate: -50% 0; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.7); }
+
+.ticket { position: relative; display: block; padding: 18px 16px; min-height: 216px; border-radius: 4px; background: rgba(255, 255, 255, 0.72); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9) inset, 2px 6px 16px rgba(var(--sh-rgb), 0.06); rotate: 1.5deg; }
+.tk-k { font-size: 10px; letter-spacing: 0.42em; color: var(--muted); }
+.tk-sub { font-size: 10px; letter-spacing: 0.3em; color: var(--muted); margin-top: 14px; }
+.tk-title { font-size: 15px; font-weight: 400; letter-spacing: 0.02em; margin: 6px -4px 0 -6px; line-height: 1.35; }
+.tk-when { font-size: 15px; color: var(--accent); margin-top: 6px; }
+.tk-note { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.65; letter-spacing: 0.03em; white-space: pre-line; }
+.tk-cut { position: absolute; left: 0; right: 0; top: 164px; border-top: 1.4px dashed rgba(47, 74, 102, 0.3); }
+.tk-notch { position: absolute; top: 155px; width: 18px; height: 18px; border-radius: 50%; background: var(--l2); }
+.tk-notch.l { left: -9px; }
+.tk-notch.r { right: -9px; }
+.tk-foot { position: absolute; left: 16px; right: 16px; bottom: 14px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; letter-spacing: 0.2em; }
+
+/* ---------- 层三：他的动态 ---------- */
+.anchor { position: relative; top: -40px; }
+.lately { padding: 6px 18px; }
+.lately-empty { padding: 18px; font-size: 12.5px; }
+.act { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.act:last-child { border-bottom: 0; }
+.act-i { width: 40px; height: 40px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); color: var(--accent); background: var(--paper); }
+.act-t { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.act-t b { font-weight: 400; font-size: 14px; letter-spacing: 0.08em; }
+.act-t em { font-style: normal; font-size: 11.5px; color: var(--muted); letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-m { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; font-size: 10px; color: var(--muted); flex: none; }
+
+/* ---------- 层四：目录 ---------- */
+.band.last { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 112px); }
+.toc-wrap { position: relative; margin: 0 -10px; }
+.toc-in { padding: 26px 28px 26px; min-height: 336px; }
+.toc-k { font-size: 13px; letter-spacing: 0.42em; padding-bottom: 12px; position: relative; }
+.toc-k::after { content: ''; position: absolute; left: 0; bottom: 0; width: 26px; border-top: 1px solid var(--ink); }
+.toc { display: flex; align-items: baseline; height: 38px; padding-top: 8px; border-bottom: 1px solid var(--line); width: 200px; }
+.toc-n { font-style: italic; width: 30px; color: var(--muted); }
+.toc-zh { font-size: 14.5px; letter-spacing: 0.12em; }
+.toc-en { font-size: 19px; color: var(--accent); margin-left: 10px; }
+.toc-print { position: absolute; right: 16px; bottom: 34px; }
+.toc-cap { position: absolute; right: 40px; bottom: 8px; font-size: 14px; color: var(--muted); rotate: 5deg; }
+.foot { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-top: 30px; color: var(--deep, var(--print-c)); }
+.foot .serif { font-size: 10px; letter-spacing: 0.46em; }
+.foot .hand { font-size: 22px; }

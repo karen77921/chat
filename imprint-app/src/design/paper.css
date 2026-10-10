@@ -1,0 +1,22 @@
+/* 纸张材质的样式（配 paper.jsx） */
+
+/* 纸带：上边撕开，往上盖住前一层 14px，接缝看不见 */
+.band { position: relative; margin-top: -14px; padding: 46px 0 34px; }
+.band-bg { position: absolute; inset: 0; background: var(--band); filter: drop-shadow(0 -2px 4px rgba(var(--sh-rgb), 0.05)); }
+.band-in { position: relative; padding: 0 var(--pad); }
+
+/* 蓝晒印相 */
+.cyano { position: relative; overflow: hidden; }
+.cyano > svg { display: block; }
+.cyano > img { width: 100%; height: 100%; object-fit: cover; display: block; filter: grayscale(1) contrast(1.15) brightness(1.08); }
+.cyano-tint { position: absolute; inset: 0; background: linear-gradient(135deg, var(--print-a), var(--print-b) 50%, var(--print-c)); mix-blend-mode: multiply; }
+.cyano .veil { position: absolute; inset: 0; background: var(--paper); opacity: 0; pointer-events: none; }
+
+.tape { position: absolute; display: block; background: color-mix(in srgb, var(--print-a) 55%, transparent); }
+.stamp { filter: drop-shadow(2px 4px 5px rgba(var(--sh-rgb), 0.1)); }
+.stamp svg { display: block; }
+
+.grain { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; mix-blend-mode: multiply; opacity: 0.28; z-index: 50; }
+
+.spin { animation: spin 6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

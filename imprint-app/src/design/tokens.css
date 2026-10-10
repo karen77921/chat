@@ -1,0 +1,192 @@
+/*
+ * 设计令牌。组件里一律用变量，不写死颜色；换主题 = 换这一组变量。
+ * 默认主题「蓝晒」写在 :root；其他主题写在 [data-theme='xxx'] 里，切换见 src/theme/theme.js。
+ * 色卡原色（她给的 8 色）：月白 #D4E5EF 星郎 #BCD4E7 碧落 #AED0EE 晴山 #A3BBD4
+ *                        东方既白 #8BA3C7 品月 #8AABCC 授蓝 #6E9BC5 孔雀蓝 #4994C4
+ * 纸带用的是原色和白混浅后的值，整体清透。
+ */
+:root {
+  --paper: #f6fafc;   /* 纸：页面底 */
+  --l1: #e5eff6;      /* 层一（月白混白）：天气 / 他此刻 / 留言板 */
+  --l2: #d7e5f1;      /* 层二（星郎）：一起 */
+  --l3: #d0e4f6;      /* 层三（碧落）：他的动态、纸胶带 */
+  --l4: #c8d7e6;      /* 层四（晴山）：目录、页脚 */
+  --print-a: #a9c9e8; /* 蓝晒印相 / 主按钮渐变：浅 → 深 */
+  --print-b: #8aabcc; /* 品月 */
+  --print-c: #6e9bc5; /* 授蓝 */
+  --accent: #6e9bc5;  /* 手写小标、图标、进度 */
+  --dot: #4994c4;     /* 孔雀蓝：只做未读点 */
+  --postmark: #8ba3c7;/* 东方既白：邮戳、回形针 */
+  --ink: #2c4258;     /* 正文 */
+  --muted: #6f8499;   /* 次要字 */
+  --line: rgba(47, 74, 102, 0.12);
+  --card: rgba(255, 255, 255, 0.66);
+  --sheet: #fcfdfe;   /* 不透明的纸：便签、电影票、撕边纸 */
+  --sh-rgb: 40, 70, 100; /* 阴影色 */
+
+  --serif: 'Cormorant Garamond', Georgia, serif;
+  --hand: 'Mrs Saint Delafield', cursive;
+  --hand-cn: 'Long Cang', cursive;
+  --sans: 'PingFang TC', 'PingFang SC', 'Noto Sans TC', 'Noto Sans SC', system-ui, sans-serif;
+  --pad: 24px;
+}
+
+/* 示例主题：雾紫。甲方要别的颜色就照这个再写一段 */
+[data-theme='lilac'] {
+  --paper: #f9f8fc; --l1: #eeeaf5; --l2: #e3ddf0; --l3: #dcd5ee; --l4: #d2cce2;
+  --print-a: #c9bee6; --print-b: #a99ccf; --print-c: #8c7ebd;
+  --accent: #8c7ebd; --dot: #7a68b8; --postmark: #a99ccf;
+  --ink: #3a3452; --muted: #7b7591; --sh-rgb: 70, 60, 110;
+}
+/* 示例主题：灰绿 */
+[data-theme='sage'] {
+  --paper: #f7faf8; --l1: #e7f0eb; --l2: #dae8e0; --l3: #d2e6da; --l4: #c9d9cf;
+  --print-a: #b5d3c2; --print-b: #93b8a3; --print-c: #739c86;
+  --accent: #739c86; --dot: #5e9277; --postmark: #93b8a3;
+  --ink: #2f4239; --muted: #6c8077; --sh-rgb: 50, 80, 64;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-weight: 300;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+input, textarea { font: inherit; color: inherit; }
+
+/* ---- 字 ---- */
+.serif { font-family: var(--serif); }
+.hand { font-family: var(--hand); font-weight: 400; letter-spacing: 0; }
+.hand-cn { font-family: var(--hand-cn); font-weight: 400; }
+.muted { color: var(--muted); }
+.kicker { font-family: var(--serif); font-size: 10px; letter-spacing: 0.3em; color: var(--muted); text-transform: uppercase; }
+
+/* ---- 纸 ---- */
+/* 半透明卡片：透出底下的纸带 */
+.card {
+  position: relative;
+  background: var(--card);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85) inset, 2px 6px 16px rgba(var(--sh-rgb), 0.05);
+}
+/* 不透明的纸 */
+.sheet { position: relative; background: var(--sheet); box-shadow: 2px 6px 14px rgba(var(--sh-rgb), 0.08); }
+.drop { filter: drop-shadow(2px 5px 7px rgba(var(--sh-rgb), 0.09)); }
+.drop2 { filter: drop-shadow(3px 8px 12px rgba(var(--sh-rgb), 0.15)); }
+
+.pill {
+  height: 44px; border-radius: 22px; display: flex; align-items: center; gap: 8px; padding: 0 16px;
+  background: rgba(255, 255, 255, 0.62); border: 1px solid var(--line);
+}
+.rbtn {
+  width: 42px; height: 42px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.6); position: relative; flex: none;
+}
+.rbtn .dot { position: absolute; right: 10px; top: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--dot); border: 1.5px solid var(--paper); }
+.btn-main {
+  height: 44px; padding: 0 22px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: linear-gradient(150deg, var(--print-a), var(--print-b) 45%, var(--print-c)); color: #fff;
+  font-size: 13.5px; letter-spacing: 0.14em; box-shadow: 0 6px 14px rgba(var(--sh-rgb), 0.18);
+}
+.badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--dot); color: #fff;
+  font-family: var(--serif); font-size: 10.5px; display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* 筛选签：.on = 选中 */
+.chip {
+  height: 32px; padding: 0 13px; border-radius: 16px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  font-size: 12px; letter-spacing: 0.08em; color: var(--muted); border: 1px solid var(--line); background: rgba(255, 255, 255, 0.4);
+}
+.chip.on { background: var(--l3); border-color: transparent; color: var(--ink); }
+/* 开关：<input type="checkbox" class="switch"> */
+.switch { appearance: none; -webkit-appearance: none; margin: 0; flex: none; width: 44px; height: 26px; border-radius: 13px; background: rgba(47, 74, 102, 0.12); position: relative; cursor: pointer; transition: background 0.2s; }
+.switch::after { content: ''; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 1px 2px 4px rgba(var(--sh-rgb), 0.2); transition: transform 0.2s var(--ease-settle, ease); }
+.switch:checked { background: var(--print-c); }
+.switch:checked::after { transform: translateX(18px); }
+.btn-main:disabled { opacity: 0.5; cursor: default; }
+/* 只给读屏看的字 */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+mark { background: linear-gradient(transparent 55%, color-mix(in srgb, var(--print-a) 85%, transparent) 55%); color: inherit; padding: 0 1px; }
+
+/* 区块标题：英文手写 + 中文 + 右边入口 */
+.sec-head { display: flex; align-items: flex-end; gap: 8px; margin: 0 0 12px; }
+.sec-head .en { font-family: var(--hand); font-size: 28px; color: var(--accent); line-height: 0.9; }
+.sec-head .zh { font-size: 16px; letter-spacing: 0.14em; font-weight: 400; }
+.sec-head .go { margin-left: auto; font-size: 11.5px; color: var(--muted); letter-spacing: 0.08em; display: inline-flex; align-items: center; gap: 3px; min-height: 32px; }
+
+/* 记录行：标签 …… 值 */
+.rec { display: flex; align-items: center; gap: 6px; font-size: 12px; letter-spacing: 0.06em; }
+.rec > span:first-child { color: var(--muted); flex: none; }
+.rec > i { flex: 1; border-bottom: 1px dotted rgba(47, 74, 102, 0.35); transform: translateY(3px); min-width: 12px; }
+.rec > b { font-weight: 400; flex: none; }
+
+/* ---- 纸张动效（八种，见 docs/00-设计系统.md） ---- */
+:root {
+  --ease-settle: cubic-bezier(0.2, 0.9, 0.3, 1.15);
+  --ease-turn: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --ease-seal: cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+/* 1 落桌：新纸片出现 */
+.m-settle { animation: m-settle 0.52s var(--ease-settle) both; }
+@keyframes m-settle {
+  0% { transform: translateY(-36px) rotate(-6deg); opacity: 0; }
+  60% { transform: translateY(3px) rotate(0.6deg); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+/* 2 撕开进场：.reveal 进入视口后加 .in（useReveal） */
+.reveal { transform: translateY(48px); opacity: 0; }
+.reveal.in { animation: m-tear 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.reveal.in .reveal-late { animation: m-fade-up 0.5s 0.12s ease-out both; }
+@keyframes m-tear { from { transform: translateY(48px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes m-fade-up { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* 3 显影：蓝晒图片加载 */
+.m-develop .veil { animation: m-veil 1.2s ease-out both; }
+.m-develop .ink { animation: m-ink 1.2s 0.3s ease-out both; }
+@keyframes m-veil { from { opacity: 1; } to { opacity: 0; } }
+@keyframes m-ink { from { opacity: 0; filter: blur(2px); } to { opacity: 1; filter: none; } }
+/* 4 盖章 */
+.m-seal { animation: m-seal 0.38s var(--ease-seal) both; }
+@keyframes m-seal {
+  0% { transform: translateY(-30px) scale(1.6); opacity: 0; }
+  70% { transform: scale(0.92); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+/* 5 掀角：按住卡片 */
+.press { transition: transform 0.24s ease-out, box-shadow 0.24s ease-out; transform-origin: 30% 100%; }
+.press::after {
+  content: ''; position: absolute; right: 0; bottom: 0; width: 0; height: 0; pointer-events: none;
+  background: linear-gradient(135deg, var(--l1) 50%, #e3ecf4 50%, var(--sheet));
+  box-shadow: -2px -2px 4px rgba(var(--sh-rgb), 0.12); transition: width 0.16s ease-out, height 0.16s ease-out;
+}
+.press:active { transform: translateY(-4px) rotate(-0.8deg) scale(1.015); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9) inset, 6px 16px 22px rgba(var(--sh-rgb), 0.14); transition-duration: 0.16s; }
+.press:active::after { width: 20px; height: 20px; }
+/* 6 风吹：待机小动作 */
+.m-breeze { animation: m-breeze 4.2s ease-in-out infinite; }
+.m-breeze-tape { animation: m-tape 4.2s ease-in-out infinite; transform-origin: 0 50%; }
+@keyframes m-breeze { 0%, 100% { rotate: -1.2deg; } 50% { rotate: 1deg; } }
+@keyframes m-tape { 0%, 100% { rotate: 0deg; } 50% { rotate: 2.5deg; } }
+/* 7 翻页：切换页面（App 给每页套 .m-turn） */
+.m-turn { animation: m-turn 0.42s var(--ease-turn) backwards; } /* 不用 both：留着 transform 会让里面的 position:fixed 跟着页面滚 */
+@keyframes m-turn { from { transform: translateX(36%) rotate(1.5deg); opacity: 0.4; } to { transform: none; opacity: 1; } }
+/* 8 收好：删除、归档 */
+.m-tuck { animation: m-tuck 0.45s ease-in both; transform-origin: 50% 100%; }
+@keyframes m-tuck {
+  0% { transform: none; opacity: 1; }
+  45% { transform: perspective(500px) rotateX(70deg) scaleY(0.7); }
+  100% { transform: perspective(500px) rotateX(80deg) translateY(80px) scale(0.6); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.2s !important; animation-iteration-count: 1 !important; transition-duration: 0.2s !important; }
+  .reveal { transform: none; }
+  .m-breeze, .m-breeze-tape { animation: none !important; }
+}

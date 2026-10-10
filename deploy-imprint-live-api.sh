@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Install a verified, immutable release. Existing chat/memory databases are not
 # replaced or migrated; the new scrapbook database starts empty on first use.
-REV="d2afa398ecd31bf8d7bf323f7d0fcba3e3fe85e3"
-TAG="wake-v7-d2afa39"
+REV="b17452f111770261e8de0300b1b9edbe2fc6d3b9"
+TAG="wake-v7-b17452f"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -29,7 +29,7 @@ test -n "${ROOT}"
 test -f "${ROOT}/imprint-app/dist/index.html"
 test -f "${ROOT}/imprint_store.py"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
-  'bdb90faafc6067c9d0c206d7f44435fa9cdc61b1c497eef1b43503bfe6281c24' "${ROOT}/api_loop.py" \
+  '2d96b7c66ce482ef2661442706c45517a264393137c75b21f13ea9f7f1c78711' "${ROOT}/api_loop.py" \
   '86060548b18bf624827c61fd1a2eb1bae2f0da968e48a16fdf80fda9f865f479' "${ROOT}/imprint_store.py" \
   '6993e55b38a58486a066e42152b93615040aca4302516a8a0194486c0fc276d4' "${ROOT}/imprint-app/dist/index.html" \
   '8bf9a2b2eca7ecfae5480ffa3acabfcb718a1e324c033716cc2e0bb0197b0f25' "${ROOT}/imprint-app/dist/assets/index-Byt9Qhy4.js" \

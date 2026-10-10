@@ -5,6 +5,14 @@
  *                        东方既白 #8BA3C7 品月 #8AABCC 授蓝 #6E9BC5 孔雀蓝 #4994C4
  * 纸带用的是原色和白混浅后的值，整体清透。
  */
+@font-face {
+  font-family: 'Imprint PingFang TC';
+  src: url('../assets/pingfang-tc-regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
   --paper: #f6fafc;   /* 纸：页面底 */
   --l1: #e5eff6;      /* 层一（月白混白）：天气 / 他此刻 / 留言板 */
@@ -27,7 +35,7 @@
   --serif: 'Cormorant Garamond', Georgia, serif;
   --hand: 'Mrs Saint Delafield', cursive;
   --hand-cn: 'Long Cang', cursive;
-  --sans: 'PingFangTC-Semibold', 'PingFang TC', '苹方-繁', 'Noto Sans TC', system-ui, sans-serif;
+  --sans: 'Imprint PingFang TC', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
   --pad: 24px;
 }
 
@@ -60,8 +68,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 a { color: inherit; text-decoration: none; }
 input, textarea { font: inherit; color: inherit; }
 
-/* 参考图使用苹方繁体粗字重；主屏幕模式也锁定同一字重。 */
-body, button, input, textarea, select { font-family: var(--sans); font-weight: 600; }
+/* 正文使用随站点部署的蘋方繁体字形，常规体由浏览器合成现有粗字重。 */
+body, button, input, textarea, select { font-family: var(--sans); font-weight: 600; font-synthesis: weight; }
 
 /* 主屏幕 App 与 Safari 的本地登录存储彼此隔离，首次打开时只需重新连接一次。 */
 .auth-gate { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(229, 239, 246, 0.88); -webkit-backdrop-filter: blur(22px); backdrop-filter: blur(22px); }

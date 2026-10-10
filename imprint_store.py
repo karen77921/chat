@@ -325,11 +325,11 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         if not gift:
             raise HTTPException(404, "没有这个礼物")
         with REDEEM_LOCK:
-            state = spark()
-            if state["wallets"]["me"] < gift["cost"]:
-                raise HTTPException(400, "积分不够")
             with db() as conn:
                 conn.execute("BEGIN IMMEDIATE")
+                state = spark()
+                if state["wallets"]["me"] < gift["cost"]:
+                    raise HTTPException(400, "积分不够")
                 rec_id, at = uuid.uuid4().hex, iso_now()
                 payload = {"itemId": gift["id"], "name": gift["name"], "cost": gift["cost"],
                            "by": "me", "status": "kept", "note": "已收好"}

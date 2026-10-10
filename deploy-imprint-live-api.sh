@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Install a verified, immutable release. Existing chat/memory databases are not
 # replaced or migrated; the new scrapbook database starts empty on first use.
-REV="bcfe8d8a23a77b01911c907c5ff93a6f18955c86"
-TAG="chat-swipe-bcfe8d8"
+REV="2a7a2f58c571be58ab5bc7efecbc1401e29661c0"
+TAG="nickname-post-2a7a2f5"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -29,10 +29,10 @@ test -n "${ROOT}"
 test -f "${ROOT}/imprint-app/dist/index.html"
 test -f "${ROOT}/imprint_store.py"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
-  '369a0cccbb05071b76fa59535400779ba55092dc841e5f8059ae7567d36fad73' "${ROOT}/api_loop.py" \
-  'a0adb2cb032975a5e2d410152adaaf15a870f0edaba815c668f158b0fd3fa153' "${ROOT}/imprint_store.py" \
-  '6fe1d95c74da64d94249e6b8c2e9a0e2fcbbfb854b3b1432470d46df39045095' "${ROOT}/imprint-app/dist/index.html" \
-  'e11fd57b6521de0a6767377d3c4cfc4b62be2e643d99cc530932dda8e3873da4' "${ROOT}/imprint-app/dist/assets/index-B8jwaM_C.js" \
+  '22b8d92d7f5b7a6caad7fa08582c8d222ed1074df1cc9003586b1b73bbf38076' "${ROOT}/api_loop.py" \
+  'bf988aeaa7ce763c971ba36b38c05f5bbb6cd860cf369f4135db11347549efb7' "${ROOT}/imprint_store.py" \
+  '6ebf4027ba52319e17395ac03d86ff3f4a3e92bbd1caddfed179c5ec709989cd' "${ROOT}/imprint-app/dist/index.html" \
+  'f838b5f333aff46b1176e32a900978611a37fc8821824b887bb66160ee4d1a62' "${ROOT}/imprint-app/dist/assets/index-NhnlVkJZ.js" \
   'e8e576aca47c3965e24dc40a4689e0e1ff328e214cd2c30400c233c36610c34b' "${ROOT}/imprint-app/dist/assets/index-nyfM4XhG.css" | sha256sum -c -
 sudo /root/companion-loop/venv/bin/python -m py_compile "${ROOT}/api_loop.py" "${ROOT}/imprint_store.py"
 
@@ -88,12 +88,12 @@ if [[ "${ready}" != 1 ]]; then
 fi
 curl -fsS http://127.0.0.1:3020/loop/imprint/usage | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and "tokens" in x["today"]'
 curl -fsS http://127.0.0.1:3020/loop/imprint/notes | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
-curl -fsS http://127.0.0.1:3020/openapi.json | python3 -c 'import json,sys; p=json.load(sys.stdin)["paths"]; assert p["/loop/tide/pulse"]["get"] and p["/loop/sessions/{session_id}"]["delete"]'
+curl -fsS http://127.0.0.1:3020/openapi.json | python3 -c 'import json,sys; p=json.load(sys.stdin)["paths"]; assert p["/loop/tide/pulse"]["get"] and p["/loop/sessions/{session_id}/delete"]["post"] and p["/loop/imprint/settings/contact"]["post"] and p["/loop/imprint/settings/avatar"]["post"] and p["/loop/imprint/settings/beauty"]["post"]'
 
 echo '[4/5] 切换前端…'
 if sudo test -d "${SITE}"; then sudo mv "${SITE}" "${SITE_BACKUP}"; fi
 sudo mv "${SITE_STAGE}" "${SITE}"
-sudo test -f "${SITE}/assets/index-B8jwaM_C.js"
+sudo test -f "${SITE}/assets/index-NhnlVkJZ.js"
 sudo test -f "${SITE}/assets/index-nyfM4XhG.css"
 
 echo '[5/5] 完成。'

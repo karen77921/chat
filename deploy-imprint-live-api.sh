@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Install a verified, immutable release. Existing chat/memory databases are not
 # replaced or migrated; the new scrapbook database starts empty on first use.
-REV="e96b2b9c41a55fbb13900d110d15394cdaf642b5"
-TAG="live-api-e96b2b9"
+REV="2d30a0fce89b12bbe75ff72f27be8d0617881830"
+TAG="chat-custom-2d30a0f"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -30,10 +30,10 @@ test -f "${ROOT}/imprint-app/dist/index.html"
 test -f "${ROOT}/imprint_store.py"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
   'a119a4353bf29c7366bb449116c0fd635e590c0e4c24549042d65d9b0ea63c03' "${ROOT}/api_loop.py" \
-  'bdd8a4d80d8c5114139dca24159b60ce1bc9adae62b32b6073e5a2efcb20b52e' "${ROOT}/imprint_store.py" \
-  'b86cb2c809b01dc62632318db1980acf0954bf6967f9726a31d485ea89170c00' "${ROOT}/imprint-app/dist/index.html" \
-  '2cc3c04111295393e629e7bdf9c72a86dc1d1a287bb6eb3c70d1d36a56e62644' "${ROOT}/imprint-app/dist/assets/index-C3R9JBsp.js" \
-  '0a872a01e4b6e4abd872fdefdd3c778d75b9bbd481af26fc0118c9f2d753845f' "${ROOT}/imprint-app/dist/assets/index-BrA-n6yt.css" | sha256sum -c -
+  'a0adb2cb032975a5e2d410152adaaf15a870f0edaba815c668f158b0fd3fa153' "${ROOT}/imprint_store.py" \
+  'c7be4e7336f794acc14378f4736d359cd2eac12b2dc6d8f0829bc03cf5870d6c' "${ROOT}/imprint-app/dist/index.html" \
+  '1af0b3992267d7247ff62fefade217f2948edd465fe187fdd024612ca44b8fc2' "${ROOT}/imprint-app/dist/assets/index-_psRcEob.js" \
+  '0c7f98b54dfba6584eba945accb870a06d9ec82b963a479ec4bb54eb2493f9a3' "${ROOT}/imprint-app/dist/assets/index-BRxaoHWn.css" | sha256sum -c -
 sudo /root/companion-loop/venv/bin/python -m py_compile "${ROOT}/api_loop.py" "${ROOT}/imprint_store.py"
 
 echo '[2/5] 准备站点并备份当前程序…'
@@ -92,8 +92,8 @@ curl -fsS http://127.0.0.1:3020/loop/imprint/notes | python3 -c 'import json,sys
 echo '[4/5] 切换前端…'
 if sudo test -d "${SITE}"; then sudo mv "${SITE}" "${SITE_BACKUP}"; fi
 sudo mv "${SITE_STAGE}" "${SITE}"
-sudo test -f "${SITE}/assets/index-C3R9JBsp.js"
-sudo test -f "${SITE}/assets/index-BrA-n6yt.css"
+sudo test -f "${SITE}/assets/index-_psRcEob.js"
+sudo test -f "${SITE}/assets/index-BRxaoHWn.css"
 
 echo '[5/5] 完成。'
 rollback=0

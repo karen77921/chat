@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REV="pwa-auth-v1"
-FULL_REV="fec37220307504362edb5ccdad97b4409a6a1ff9"
+REV="pingfang-bold-v1"
+FULL_REV="1187742d08ecdde251532b281fe176ba43f75af3"
 TARGET="/var/www/imprint"
 BACKUP="/var/www/imprint.backup-${REV}"
 STAGE="/var/www/imprint.new-${REV}"
@@ -25,9 +25,9 @@ fi
 
 echo '[2/7] 校验构建产物…'
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
-  '600cca147ef03a28934e75866d159930df9df8e3f2341f5f6d151b5f1c878456' "${SOURCE}/index.html" \
-  'acf3a91e7a0d25389d1853f33f708ba0e0895e2e302bcf2e8edd895e8b9428c0' "${SOURCE}/assets/index-B3f9uzOI.css" \
-  'f5453263b1dfc85c135b7cda733e7c8409c24677e3938ccf28bb6db97fc78d35' "${SOURCE}/assets/index-oUncuG51.js" \
+  'ca536b35ae82d60df23d609803acf24edb5d715dbe2706aa5b82f57f0bd1490b' "${SOURCE}/index.html" \
+  'c0643452ab84e1d0a373e33dc5671b5d620e3a61e6f14d17bdfd9de570f04fad' "${SOURCE}/assets/index-txswBpe3.css" \
+  'f5453263b1dfc85c135b7cda733e7c8409c24677e3938ccf28bb6db97fc78d35' "${SOURCE}/assets/index-r8ZTMPFN.js" \
   'a46e19132b8c1258a40d2b506dab0c841e8638cc8a17150258ef6282be46203b' "${BACKEND_SOURCE}" | sha256sum -c -
 sudo /root/companion-loop/venv/bin/python -m py_compile "${BACKEND_SOURCE}"
 
@@ -69,8 +69,8 @@ sudo systemctl restart companion-api-loop
 
 echo '[6/7] 验证静态文件、私人后端和心潮记忆…'
 sudo test -f "${TARGET}/index.html"
-sudo test -f "${TARGET}/assets/index-B3f9uzOI.css"
-sudo test -f "${TARGET}/assets/index-oUncuG51.js"
+sudo test -f "${TARGET}/assets/index-txswBpe3.css"
+sudo test -f "${TARGET}/assets/index-r8ZTMPFN.js"
 ready=0
 for attempt in {1..30}; do
   if curl -fsS 127.0.0.1:3020/healthz 2>/dev/null | jq -e '.ok == true' >/dev/null; then

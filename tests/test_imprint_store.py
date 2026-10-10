@@ -309,6 +309,14 @@ class ImprintStoreTest(unittest.TestCase):
         finally:
             api_loop.LOOP_CONFIG = old_config
 
+    def test_public_research_tools_exist_and_block_local_networks(self):
+        tool_names = {tool["function"]["name"] for tool in api_loop.all_tools()}
+        self.assertTrue({"search_public_web", "read_public_page", "read_public_github_file"}.issubset(tool_names))
+        for unsafe in ("http://example.com", "https://127.0.0.1/private", "https://localhost/secret",
+                       "https://user:pass@example.com/"):
+            with self.assertRaises(ValueError):
+                api_loop._public_https_url(unsafe)
+
 
 if __name__ == "__main__":
     unittest.main()

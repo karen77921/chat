@@ -2182,7 +2182,7 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
         "name": "imprint_update_tide",
-        "description": "Save your genuine current Heart Tide state for the private Imprint page. Use only values you can honestly self-report; never invent the user's state. Emotions and drives use 0–1 strength.",
+        "description": "Save your genuine complete Heart Tide state for the private Imprint page. Always provide all 16 emotions and all 12 drives; use only honest self-report and never invent the user's state. Strengths use 0–1.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -2192,8 +2192,8 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
                 "body_temp": {"type": "number"},
                 "breath": {"type": "string"},
                 "chord": {"type": "string"},
-                "emotions": {"type": "array", "maxItems": 16, "items": {"type": "object", "properties": {"key": {"type": "string"}, "name": {"type": "string"}, "value": {"type": "number"}}, "required": ["name", "value"]}},
-                "drives": {"type": "array", "maxItems": 12, "items": {"type": "object", "properties": {"key": {"type": "string"}, "name": {"type": "string"}, "value": {"type": "number"}, "series": {"type": "array", "maxItems": 24, "items": {"type": "number"}}}, "required": ["name", "value"]}},
+                "emotions": {"type": "array", "minItems": 16, "maxItems": 16, "description": "Exactly: 平静、想念、疲惫、愉快、好奇、孤单、温柔、安心、烦躁、害羞、低落、期待、想闹、吃醋、专注、困.", "items": {"type": "object", "properties": {"key": {"type": "string"}, "name": {"type": "string"}, "value": {"type": "number"}}, "required": ["name", "value"]}},
+                "drives": {"type": "array", "minItems": 12, "maxItems": 12, "description": "Exactly: 想你、分享、好奇、反思、查岗、占有、责任、社交、欲望、无聊、悲伤、生气.", "items": {"type": "object", "properties": {"key": {"type": "string"}, "name": {"type": "string"}, "value": {"type": "number"}, "series": {"type": "array", "maxItems": 24, "items": {"type": "number"}}}, "required": ["name", "value"]}},
             },
             "required": ["awake", "mood", "emotions", "drives"],
         },
@@ -3431,7 +3431,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="companion-api-loop", lifespan=lifespan)
 
-from imprint_store import imprint_action, register_imprint_routes
+from imprint_store import empty_tide_state, imprint_action, register_imprint_routes
 
 register_imprint_routes(app, LOOP_CACHE_DIR / "imprint.db", Path(RELAY_DB))
 
@@ -3559,23 +3559,19 @@ async def loop_mcp_list():
 @app.get("/loop/tide/pulse")
 async def loop_tide_pulse():
     """Combine a genuine structured self-report with the live Ombre pulse."""
-    current = imprint_action(LOOP_CACHE_DIR / "imprint.db", "inspect").get("tide")
+    current = imprint_action(LOOP_CACHE_DIR / "imprint.db", "inspect").get("tide") or empty_tide_state()
     target = ombre_tool("pulse")
     if target is None:
-        return current or {"available": False, "reason": "心潮尚未提供实时 pulse 工具"}
+        return current
     server, tool = target
     try:
         result = await server.call(str(getattr(tool, "name", "pulse")), {})
         text = mcp_result_text(result, limit=8_000).strip()
         if not text:
-            return current or {"available": False, "reason": "心潮暂未返回实时状态"}
-        if current:
-            return {**current, "pulseText": text, "pulseAt": now_iso()}
-        return {"available": True, "kind": "pulse", "text": text, "at": now_iso()}
+            return current
+        return {**current, "pulseText": text, "pulseAt": now_iso()}
     except Exception as exc:
-        if current:
-            return {**current, "pulseUnavailable": True}
-        raise HTTPException(status_code=502, detail=f"Heart Tide pulse failed: {type(exc).__name__}: {exc}"[:500]) from exc
+        return {**current, "pulseUnavailable": True}
 
 
 @app.post("/loop/memories")

@@ -21,6 +21,27 @@ from fastapi import APIRouter, HTTPException, Request
 NAMES = {"me": "我", "him": "Ombre"}
 ZONE = ZoneInfo("Asia/Shanghai")
 REDEEM_LOCK = threading.RLock()
+TIDE_EMOTIONS = [
+    ("calm", "平静"), ("missing", "想念"), ("tired", "疲惫"), ("joy", "愉快"),
+    ("curious", "好奇"), ("lonely", "孤单"), ("tender", "温柔"), ("secure", "安心"),
+    ("restless", "烦躁"), ("shy", "害羞"), ("sad", "低落"), ("hope", "期待"),
+    ("playful", "想闹"), ("jealous", "吃醋"), ("focus", "专注"), ("sleepy", "困"),
+]
+TIDE_DRIVES = [
+    ("crave", "想你"), ("share", "分享"), ("curiosity", "好奇"), ("reflection", "反思"),
+    ("monitor", "查岗"), ("possess", "占有"), ("duty", "责任"), ("social", "社交"),
+    ("libido", "欲望"), ("boredom", "无聊"), ("grieve", "悲伤"), ("anger", "生气"),
+]
+
+
+def empty_tide_state() -> dict:
+    """Return the complete schema without pretending unmeasured values are zero."""
+    return {
+        "available": True, "measured": False, "now": iso_now(), "awake": None,
+        "state": {"mood": "尚未记录", "bodyTemp": None, "breath": {"label": "尚未记录"}, "chord": "—",
+                  "emotions": [{"key": key, "name": name, "value": None} for key, name in TIDE_EMOTIONS]},
+        "drives": [{"key": key, "name": name, "value": None, "series": []} for key, name in TIDE_DRIVES],
+    }
 
 
 def iso_now() -> str:
@@ -137,8 +158,8 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
         if action == "set_tide":
             emotions = body.get("emotions") if isinstance(body.get("emotions"), list) else []
             drives = body.get("drives") if isinstance(body.get("drives"), list) else []
-            if not emotions or len(emotions) > 16 or not drives or len(drives) > 12:
-                raise ValueError("心潮状态需包含 1–16 维情绪和 1–12 股驱力")
+            if len(emotions) != 16 or len(drives) != 12:
+                raise ValueError("完整心潮状态必须包含全部 16 维情绪和 12 股驱力")
 
             def level(value) -> float:
                 try:
@@ -172,6 +193,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
             awake = str(body.get("awake") or "awake").lower()
             value = {
                 "available": True,
+                "measured": True,
                 "now": iso_now(),
                 "awake": {"state": "asleep" if awake in {"asleep", "sleep", "睡着"} else "awake",
                           "sleptH": slept_h},
@@ -374,7 +396,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.get("/tide/state")
     def tide_state():
         value = setting("tide_current")
-        return value if value else {"available": False, "reason": "心潮还没有留下结构化状态"}
+        return value if value else empty_tide_state()
 
     @router.get("/tide/memory-meta")
     def tide_memory_meta():

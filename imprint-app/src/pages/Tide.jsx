@@ -46,19 +46,21 @@ function BigSpecimen({ emotions }) {
   const p0 = [150, 300], p1 = [138, 160], p2 = [158, 16];
   const n = emotions.length;
   return (
-    <svg viewBox="0 0 300 310" className="td-spec" role="img" aria-label={`十六维情绪：${emotions.map((e) => `${e.name}${Math.round(e.value * 100)}`).join('，')}`}>
+    <svg viewBox="0 0 300 310" className="td-spec" role="img" aria-label={`十六维情绪：${emotions.map((e) => `${e.name}${typeof e.value === 'number' ? Math.round(e.value * 100) : '尚未测得'}`).join('，')}`}>
       <path d={`M${p0}Q${p1} ${p2}`} fill="none" stroke="var(--ink)" strokeWidth="1.4" strokeLinecap="round" opacity=".8" />
       {emotions.map((e, i) => {
+        const measured = typeof e.value === 'number' && Number.isFinite(e.value);
+        const value = measured ? Math.max(0, Math.min(1, e.value)) : 0;
         const t = 0.08 + (0.86 * i) / Math.max(1, n - 1);
         const [x, y] = qpt(p0, p1, p2, t);
         const a = qang(p0, p1, p2, t) + (i % 2 ? -1 : 1) * 1.15;
-        const L = 16 + e.value * 62;
-        const fill = e.value > 0.6 ? 'var(--print-c)' : e.value > 0.4 ? 'var(--print-a)' : 'var(--l1)';
+        const L = 13 + value * 62;
+        const fill = value > 0.6 ? 'var(--print-c)' : value > 0.4 ? 'var(--print-a)' : 'var(--l1)';
         const ex = x + Math.cos(a) * (L + 6), ey = y + Math.sin(a) * (L + 6);
         return (
           <g key={e.key}>
-            <path d={leafPath(x, y, a, L, L * 0.2)} style={{ fill }} fillOpacity=".85" stroke="var(--ink)" strokeWidth=".8" strokeOpacity=".7" />
-            {e.value > 0.45 && <text x={ex} y={ey + 3} fontSize="10" fill="var(--ink)" textAnchor={Math.cos(a) > 0 ? 'start' : 'end'}>{e.name}</text>}
+            <path d={leafPath(x, y, a, L, L * 0.2)} style={{ fill }} fillOpacity={measured ? '.85' : '.18'} stroke="var(--ink)" strokeWidth=".8" strokeOpacity={measured ? '.7' : '.28'} />
+            {value > 0.45 && <text x={ex} y={ey + 3} fontSize="10" fill="var(--ink)" textAnchor={Math.cos(a) > 0 ? 'start' : 'end'}>{e.name}</text>}
           </g>
         );
       })}
@@ -79,8 +81,9 @@ function Now({ data }) {
     </div>
   );
   const s = data.state;
-  const top3 = [...s.emotions].sort((a, b) => b.value - a.value).slice(0, 3);
-  const drives = [...data.drives].sort((a, b) => b.value - a.value);
+  const emotions = s.emotions || [];
+  const top3 = emotions.filter((e) => typeof e.value === 'number').sort((a, b) => b.value - a.value).slice(0, 3);
+  const drives = [...(data.drives || [])].sort((a, b) => (typeof b.value === 'number' ? b.value : -1) - (typeof a.value === 'number' ? a.value : -1));
   const W = 306, H = 62;
   const path = (series) => series.map((v, h) => `${h ? 'L' : 'M'}${(8 + (h * (W - 16)) / 23).toFixed(1)} ${(H - 4 - v * (H - 12)).toFixed(1)}`).join(' ');
   const COLS = ['var(--dot)', 'var(--print-b)', 'var(--print-a)'];
@@ -88,14 +91,15 @@ function Now({ data }) {
     <>
       <div className="card td-specard">
         <div className="sec-head"><span className="en" style={{ fontSize: 22 }}>specimen</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>十六维情绪</h2><span className="go">叶子越长越强</span></div>
-        <BigSpecimen emotions={s.emotions} />
+        <BigSpecimen emotions={emotions} />
+        <div className="td-emotion-grid">{emotions.map((e, index) => <span key={e.key}><i>{pad(index + 1)}</i>{e.name}<b className="serif">{typeof e.value === 'number' ? Math.round(e.value * 100) : '—'}</b></span>)}</div>
       </div>
       <div className="card td-rec">
         <div className="rec"><span>心情</span><i /><b>{s.mood}</b></div>
         <div className="rec"><span>体温</span><i /><b className="serif" style={{ fontSize: 16 }}>{s.bodyTemp == null ? '—' : `${s.bodyTemp}°`}</b></div>
         <div className="rec"><span>呼吸</span><i /><b>{s.breath?.label}</b></div>
         <div className="rec"><span>和弦</span><i /><b className="serif" style={{ fontSize: 15, fontStyle: 'italic' }}>{s.chord}</b></div>
-        <div className="td-top3">最长的三片叶子：<b>{top3.map((e) => e.name).join(' · ')}</b></div>
+        <div className="td-top3">最长的三片叶子：<b>{top3.length ? top3.map((e) => e.name).join(' · ') : '尚未测得'}</b></div>
       </div>
       {data.pulseText && <details className="card td-live-note"><summary>心潮原声 · 刚刚</summary><p>{data.pulseText}</p></details>}
       <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>drives</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>驱力 · 今天的潮汐</h2>
@@ -103,15 +107,15 @@ function Now({ data }) {
       <div className="card td-tide">
         <svg viewBox={`0 0 ${W} ${H + 4}`} role="img" aria-label={`最强的三股驱力：${drives.slice(0, 3).map((d) => d.name).join('、')}`}>
           <path d={`M8 ${H}H${W - 8}`} stroke="var(--line)" />
-          {drives.slice(0, 3).map((d, k) => <path key={d.key} d={path(d.series)} fill="none" stroke={COLS[k]} strokeWidth={2 - k * 0.4} strokeLinecap="round" />)}
+          {drives.slice(0, 3).map((d, k) => <path key={d.key} d={path(d.series || [])} fill="none" stroke={COLS[k]} strokeWidth={2 - k * 0.4} strokeLinecap="round" />)}
         </svg>
-        <div className="td-legend">{drives.slice(0, 3).map((d, k) => <span key={d.key}><i style={{ background: COLS[k] }} />{d.name} {Math.round(d.value * 100)}</span>)}</div>
+        <div className="td-legend">{drives.slice(0, 3).map((d, k) => <span key={d.key}><i style={{ background: COLS[k] }} />{d.name} {typeof d.value === 'number' ? Math.round(d.value * 100) : '—'}</span>)}</div>
         <div className="td-axis serif"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>现在</span></div>
       </div>
       {all && (
         <div className="card td-all m-settle">
           {drives.map((d) => (
-            <div key={d.key} className="td-drv"><span>{d.name}</span><span className="td-drv-b"><i style={{ width: `${d.value * 100}%` }} /></span><b className="serif">{Math.round(d.value * 100)}</b></div>
+            <div key={d.key} className="td-drv"><span>{d.name}</span><span className="td-drv-b"><i style={{ width: `${typeof d.value === 'number' ? d.value * 100 : 0}%` }} /></span><b className="serif">{typeof d.value === 'number' ? Math.round(d.value * 100) : '—'}</b></div>
           ))}
         </div>
       )}

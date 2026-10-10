@@ -72,7 +72,7 @@ uvicorn = types.ModuleType("uvicorn")
 uvicorn.run = lambda *args, **kwargs: None
 sys.modules.setdefault("uvicorn", uvicorn)
 
-from imprint_store import imprint_action, register_imprint_routes  # noqa: E402
+from imprint_store import TIDE_DRIVES, TIDE_EMOTIONS, imprint_action, register_imprint_routes  # noqa: E402
 import api_loop  # noqa: E402
 
 
@@ -363,12 +363,16 @@ class ImprintStoreTest(unittest.TestCase):
                          "imprint_comment_photo", "imprint_add_watch"}.issubset(tool_names))
 
     def test_heart_tide_state_memory_heat_dreams_and_awareness_are_durable(self):
+        empty = self.call("GET", "/tide/state")
+        self.assertEqual(len(empty["state"]["emotions"]), 16)
+        self.assertEqual(len(empty["drives"]), 12)
+        self.assertTrue(all(item["value"] is None for item in empty["state"]["emotions"]))
         tide = imprint_action(self.store, "set_tide", {
             "awake": "awake", "slept_h": 7.5, "mood": "安静地想念", "body_temp": 36.5,
             "breath": "慢", "chord": "Fmaj7",
-            "emotions": [{"key": "calm", "name": "平静", "value": 0.8},
-                         {"key": "missing", "name": "想念", "value": 0.7}],
-            "drives": [{"key": "reach", "name": "靠近", "value": 0.75, "series": [0.4, 0.6, 0.75]}],
+            "emotions": [{"key": key, "name": name, "value": 0.5} for key, name in TIDE_EMOTIONS],
+            "drives": [{"key": key, "name": name, "value": 0.5, "series": [0.4, 0.6, 0.5]}
+                       for key, name in TIDE_DRIVES],
         })
         self.assertTrue(tide["available"])
         self.assertEqual(self.call("GET", "/tide/state")["state"]["mood"], "安静地想念")

@@ -196,10 +196,6 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
                 except (TypeError, ValueError):
                     return 0.0
 
-            def key(value, fallback: str) -> str:
-                clean = "".join(ch for ch in str(value or "").lower() if ch.isalnum() or ch in "-_")[:40]
-                return clean or fallback
-
             try:
                 slept_h = max(0.0, min(24.0, float(body.get("slept_h") or 0)))
             except (TypeError, ValueError):
@@ -209,15 +205,17 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
             for index, item in enumerate(emotions):
                 if not isinstance(item, dict) or not str(item.get("name") or "").strip():
                     raise ValueError("每一维情绪都需要名字和 0–1 强度")
-                normalized_emotions.append({"key": key(item.get("key"), f"emotion-{index + 1}"),
-                                            "name": str(item["name"]).strip()[:12], "value": level(item.get("value"))})
+                canonical_key, canonical_name = TIDE_EMOTIONS[index]
+                normalized_emotions.append({"key": canonical_key, "name": canonical_name,
+                                            "value": level(item.get("value"))})
             normalized_drives = []
             for index, item in enumerate(drives):
                 if not isinstance(item, dict) or not str(item.get("name") or "").strip():
                     raise ValueError("每一股驱力都需要名字和 0–1 强度")
                 series = item.get("series") if isinstance(item.get("series"), list) else []
-                normalized_drives.append({"key": key(item.get("key"), f"drive-{index + 1}"),
-                                          "name": str(item["name"]).strip()[:12], "value": level(item.get("value")),
+                canonical_key, canonical_name = TIDE_DRIVES[index]
+                normalized_drives.append({"key": canonical_key, "name": canonical_name,
+                                          "value": level(item.get("value")),
                                           "series": [level(value) for value in series[:24]]})
             awake = str(body.get("awake") or "awake").lower()
             value = {

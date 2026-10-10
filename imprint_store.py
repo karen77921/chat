@@ -66,12 +66,18 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
             current = conn.execute(
                 "SELECT payload FROM records WHERE id='setting_room_current' AND kind='setting'"
             ).fetchone()
+            tide = conn.execute(
+                "SELECT payload FROM records WHERE id='setting_tide_current' AND kind='setting'"
+            ).fetchone()
             return {
                 "current": json.loads(current["payload"]) if current else None,
+                "tide": json.loads(tide["payload"]) if tide else None,
                 "notes": recent("note"),
                 "photos": recent("photo"),
                 "solo": recent("solo"),
                 "watch": recent("watch"),
+                "dreams": recent("tide_dream"),
+                "awareness": recent("tide_awareness"),
             }
 
         if action == "leave_note":
@@ -127,6 +133,82 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
                 except ValueError as exc:
                     raise ValueError("约定时间必须是带时区的 ISO-8601 时间") from exc
             return add("watch", {"from": "him", "title": title, "status": "scheduled" if when else "wish", "scheduledAt": when})
+
+        if action == "set_tide":
+            emotions = body.get("emotions") if isinstance(body.get("emotions"), list) else []
+            drives = body.get("drives") if isinstance(body.get("drives"), list) else []
+            if not emotions or len(emotions) > 16 or not drives or len(drives) > 12:
+                raise ValueError("心潮状态需包含 1–16 维情绪和 1–12 股驱力")
+
+            def level(value) -> float:
+                try:
+                    return max(0.0, min(1.0, float(value)))
+                except (TypeError, ValueError):
+                    return 0.0
+
+            def key(value, fallback: str) -> str:
+                clean = "".join(ch for ch in str(value or "").lower() if ch.isalnum() or ch in "-_")[:40]
+                return clean or fallback
+
+            try:
+                slept_h = max(0.0, min(24.0, float(body.get("slept_h") or 0)))
+            except (TypeError, ValueError):
+                slept_h = 0.0
+
+            normalized_emotions = []
+            for index, item in enumerate(emotions):
+                if not isinstance(item, dict) or not str(item.get("name") or "").strip():
+                    raise ValueError("每一维情绪都需要名字和 0–1 强度")
+                normalized_emotions.append({"key": key(item.get("key"), f"emotion-{index + 1}"),
+                                            "name": str(item["name"]).strip()[:12], "value": level(item.get("value"))})
+            normalized_drives = []
+            for index, item in enumerate(drives):
+                if not isinstance(item, dict) or not str(item.get("name") or "").strip():
+                    raise ValueError("每一股驱力都需要名字和 0–1 强度")
+                series = item.get("series") if isinstance(item.get("series"), list) else []
+                normalized_drives.append({"key": key(item.get("key"), f"drive-{index + 1}"),
+                                          "name": str(item["name"]).strip()[:12], "value": level(item.get("value")),
+                                          "series": [level(value) for value in series[:24]]})
+            awake = str(body.get("awake") or "awake").lower()
+            value = {
+                "available": True,
+                "now": iso_now(),
+                "awake": {"state": "asleep" if awake in {"asleep", "sleep", "睡着"} else "awake",
+                          "sleptH": slept_h},
+                "state": {"mood": str(body.get("mood") or "").strip()[:80],
+                          "bodyTemp": body.get("body_temp"),
+                          "breath": {"label": str(body.get("breath") or "").strip()[:20]},
+                          "chord": str(body.get("chord") or "").strip()[:20],
+                          "emotions": normalized_emotions},
+                "drives": normalized_drives,
+            }
+            conn.execute(
+                "INSERT OR REPLACE INTO records(id,kind,at,payload) VALUES('setting_tide_current','setting',?,?)",
+                (value["now"], json.dumps(value, ensure_ascii=False)),
+            )
+            return value
+
+        if action == "record_dream":
+            title = str(body.get("title") or "").strip()
+            text = str(body.get("text") or "").strip()
+            tags = body.get("tags") if isinstance(body.get("tags"), list) else []
+            if not title or not text or len(title) > 80 or len(text) > 2000:
+                raise ValueError("梦需要 1–80 字标题和不超过 2000 字的内容")
+            return add("tide_dream", {"title": title, "text": text,
+                                      "tags": [str(tag).strip()[:24] for tag in tags[:8] if str(tag).strip()]})
+
+        if action == "record_awareness":
+            text = str(body.get("text") or "").strip()
+            if not text or len(text) > 500:
+                raise ValueError("觉察需为 1–500 字")
+            return add("tide_awareness", {"text": text})
+
+        if action == "record_memory":
+            text = str(body.get("text") or "").strip()
+            if not text or len(text) > 4000:
+                raise ValueError("记忆需为 1–4000 字")
+            return add("tide_memory", {"text": text, "tag": str(body.get("tag") or "").strip()[:80],
+                                       "by": "me" if body.get("by") == "me" else "him"})
 
     raise ValueError(f"unknown Imprint action: {action}")
 
@@ -240,6 +322,41 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def get_settings():
         return {"available": True, "beauty": setting("beauty"), "avatars": setting("avatars"),
                 "contact": setting("contact")}
+
+    @router.get("/tide/state")
+    def tide_state():
+        value = setting("tide_current")
+        return value if value else {"available": False, "reason": "心潮还没有留下结构化状态"}
+
+    @router.get("/tide/memory-meta")
+    def tide_memory_meta():
+        items = rows("tide_memory")
+        today = dt.datetime.now(ZONE).date()
+        start = today - dt.timedelta(days=118)
+        counts = {start + dt.timedelta(days=offset): 0 for offset in range(119)}
+        for item in items:
+            day_text = local_day(item.get("at"))
+            if day_text:
+                day = dt.date.fromisoformat(day_text)
+                if day in counts:
+                    counts[day] += 1
+        week_start = today - dt.timedelta(days=today.weekday())
+        return {
+            "available": True,
+            "stats": {"weekWrites": sum(1 for item in items if local_day(item.get("at")) >= week_start.isoformat()),
+                      "manual": sum(1 for item in items if item.get("by") == "me")},
+            "heat": [{"date": day.isoformat(), "count": count} for day, count in counts.items()],
+            "items": items,
+            "recent": [{"at": item["at"], "text": item.get("text", "")[:80]} for item in items[:8]],
+        }
+
+    @router.get("/tide/dreams")
+    def tide_dreams():
+        dreams = rows("tide_dream")
+        awareness = rows("tide_awareness")
+        return {"available": True, "now": iso_now(), "last": dreams[0] if dreams else None,
+                "older": dreams[1:7], "olderCount": max(0, len(dreams) - 1),
+                "aware": [{**item, "date": item["at"]} for item in awareness[:12]]}
 
     @router.put("/settings/contact")
     @router.post("/settings/contact")

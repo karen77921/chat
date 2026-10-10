@@ -17,7 +17,7 @@ import Tide from './pages/Tide.jsx';
 import Settings from './pages/Settings.jsx';
 import { Grain } from './design/paper.jsx';
 import { useEffect, useState } from 'react';
-import { saveToken, savedToken } from './lib/api.js';
+import { MOCK, saveToken, savedToken } from './lib/api.js';
 
 const ROUTES = {
   '/': Home,
@@ -38,9 +38,9 @@ const TITLES = {
 export default function App() {
   const { path, query } = useRoute();
   const Page = ROUTES[path];
-  const [needsAuth, setNeedsAuth] = useState(() => !savedToken());
+  const [needsAuth, setNeedsAuth] = useState(() => !MOCK && !savedToken());
   useEffect(() => {
-    const show = () => setNeedsAuth(true);
+    const show = () => { if (!MOCK) setNeedsAuth(true); };
     addEventListener('imprint-auth-required', show);
     return () => removeEventListener('imprint-auth-required', show);
   }, []);

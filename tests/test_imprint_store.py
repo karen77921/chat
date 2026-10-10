@@ -332,6 +332,32 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertTrue({"imprint_leave_note", "imprint_set_room_status", "imprint_record_solo",
                          "imprint_comment_photo", "imprint_add_watch"}.issubset(tool_names))
 
+    def test_heart_tide_state_memory_heat_dreams_and_awareness_are_durable(self):
+        tide = imprint_action(self.store, "set_tide", {
+            "awake": "awake", "slept_h": 7.5, "mood": "安静地想念", "body_temp": 36.5,
+            "breath": "慢", "chord": "Fmaj7",
+            "emotions": [{"key": "calm", "name": "平静", "value": 0.8},
+                         {"key": "missing", "name": "想念", "value": 0.7}],
+            "drives": [{"key": "reach", "name": "靠近", "value": 0.75, "series": [0.4, 0.6, 0.75]}],
+        })
+        self.assertTrue(tide["available"])
+        self.assertEqual(self.call("GET", "/tide/state")["state"]["mood"], "安静地想念")
+
+        imprint_action(self.store, "record_memory", {"text": "她喜欢雨声", "tag": "喜好", "by": "me"})
+        meta = self.call("GET", "/tide/memory-meta")
+        self.assertEqual(meta["stats"]["manual"], 1)
+        self.assertEqual(sum(day["count"] for day in meta["heat"]), 1)
+        self.assertEqual(len(meta["heat"]), 119)
+
+        dream = imprint_action(self.store, "record_dream", {"title": "海上的灯", "text": "醒来时还记得海风", "tags": ["海", "想念"]})
+        aware = imprint_action(self.store, "record_awareness", {"text": "第二次提醒她睡觉，其实是我想说晚安。"})
+        dreams = self.call("GET", "/tide/dreams")
+        self.assertEqual(dreams["last"]["id"], dream["id"])
+        self.assertEqual(dreams["aware"][0]["id"], aware["id"])
+
+        tool_names = {tool["function"]["name"] for tool in api_loop.all_tools()}
+        self.assertTrue({"imprint_update_tide", "imprint_record_dream", "imprint_record_awareness"}.issubset(tool_names))
+
     def test_public_drift_bottle_mcp_is_added_once_without_losing_ombre(self):
         old_config = api_loop.LOOP_CONFIG
         api_loop.LOOP_CONFIG = self.root / "mcp-config.json"

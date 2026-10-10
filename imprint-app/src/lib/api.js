@@ -253,18 +253,31 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/music/search') return { available: true, items: [] };
   if (method === 'GET' && p === '/api/together/listen') return { available: false };
   if (method === 'GET' && p === '/api/tide') return loop('tide/pulse');
-  if (method === 'GET' && p === '/api/tide/dreams') return { available: false };
+  if (method === 'GET' && p === '/api/tide/dreams') return loop('imprint/tide/dreams');
   if (method === 'GET' && p === '/api/tide/memory') {
     const query = new URL(path, window.location.origin).searchParams.get('q') || '';
-    const result = await loop('memories', { method: 'POST', body: { query } });
-    const items = tideMemoryItems(result.text, query);
+    const [result, meta] = await Promise.all([
+      loop('memories', { method: 'POST', body: { query } }),
+      loop('imprint/tide/memory-meta').catch(() => ({ stats: {}, heat: [], items: [], recent: [] })),
+    ]);
+    const remote = tideMemoryItems(result.text, query);
+    const local = (meta.items || []).filter((item) => !query || item.text?.includes(query) || item.tag?.includes(query));
+    const localByText = new Map(local.map((item) => [String(item.text || '').trim(), item]));
+    const seen = new Set();
+    const items = remote.map((item) => {
+      const saved = localByText.get(String(item.text || '').trim());
+      if (!saved) return item;
+      seen.add(saved.id);
+      return { ...item, id: saved.id, at: saved.at, tag: saved.tag || item.tag, by: saved.by || item.by };
+    });
+    items.push(...local.filter((item) => !seen.has(item.id)).map((item, index) => ({ ...item, no: items.length + index + 1 })));
     return {
       available: true,
       now: new Date().toISOString(),
-      stats: { longTerm: items.length, weekWrites: null, manual: null },
-      heat: [],
+      stats: { longTerm: items.length, weekWrites: meta.stats?.weekWrites ?? 0, manual: meta.stats?.manual ?? 0 },
+      heat: meta.heat || [],
       items,
-      recent: [],
+      recent: meta.recent || [],
     };
   }
   if (method === 'POST' && p === '/api/tide/memory') {

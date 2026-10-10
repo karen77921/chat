@@ -92,11 +92,12 @@ function Now({ data }) {
       </div>
       <div className="card td-rec">
         <div className="rec"><span>心情</span><i /><b>{s.mood}</b></div>
-        <div className="rec"><span>体温</span><i /><b className="serif" style={{ fontSize: 16 }}>{s.bodyTemp}°</b></div>
+        <div className="rec"><span>体温</span><i /><b className="serif" style={{ fontSize: 16 }}>{s.bodyTemp == null ? '—' : `${s.bodyTemp}°`}</b></div>
         <div className="rec"><span>呼吸</span><i /><b>{s.breath?.label}</b></div>
         <div className="rec"><span>和弦</span><i /><b className="serif" style={{ fontSize: 15, fontStyle: 'italic' }}>{s.chord}</b></div>
         <div className="td-top3">最长的三片叶子：<b>{top3.map((e) => e.name).join(' · ')}</b></div>
       </div>
+      {data.pulseText && <details className="card td-live-note"><summary>心潮原声 · 刚刚</summary><p>{data.pulseText}</p></details>}
       <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>drives</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>驱力 · 今天的潮汐</h2>
         <button type="button" className="go" onClick={() => setAll((a) => !a)} aria-expanded={all}>{all ? '收起' : `全部 ${drives.length} 股`}<Icon name="arrow" size={13} /></button></div>
       <div className="card td-tide">
@@ -136,7 +137,7 @@ function Memory({ pressOpen }) {
   const [q, setQ] = useState('');
   const [qd, setQd] = useState('');
   useEffect(() => { const t = setTimeout(() => setQd(q.trim()), 300); return () => clearTimeout(t); }, [q]);
-  const { data, setData } = useLoad(`/api/tide/memory${qd ? `?q=${encodeURIComponent(qd)}` : ''}`);
+  const { data, setData } = useLoad(`/api/tide/memory${qd ? `?q=${encodeURIComponent(qd)}` : ''}`, { keepPrevious: true });
   const [press, setPress] = useState(pressOpen);
   const [fresh, setFresh] = useState(null);
   if (!data) return <div className="card cl-empty">正在翻记忆…</div>;
@@ -148,9 +149,9 @@ function Memory({ pressOpen }) {
         <button type="button" className="btn-main td-press" onClick={() => { setPress(true); replaceQuery({ tab: 'memory', press: '1' }); }}><Icon name="plus" size={14} stroke={1.6} />压一枚</button>
       </div>
       <div className="card td-heatcard">
-        <div className="sec-head" style={{ margin: 0 }}><span className="en" style={{ fontSize: 20 }}>heat</span><h3 className="zh" style={{ margin: 0, fontSize: 12.5 }}>记忆热力</h3><span className="go" style={{ fontSize: 10 }}>心潮暂未提供逐日写入时间</span></div>
-        {data.heat?.length ? <Heat heat={data.heat} /> : <p className="st-tip">无法生成准确热力图</p>}
-        <div className="td-stats"><span>当前读到 <b className="serif">{data.stats.longTerm}</b></span><span>这周写入 <b className="serif">{data.stats.weekWrites ?? '—'}</b></span><span>你手动压的 <b className="serif">{data.stats.manual ?? '—'}</b></span></div>
+        <div className="sec-head" style={{ margin: 0 }}><span className="en" style={{ fontSize: 20 }}>heat</span><h3 className="zh" style={{ margin: 0, fontSize: 12.5 }}>记忆热力</h3><span className="go" style={{ fontSize: 10 }}>颜色越深，那天记下的越多</span></div>
+        {data.heat?.length ? <Heat heat={data.heat} /> : <p className="st-tip">还没有带日期的记忆</p>}
+        <div className="td-stats"><span>长期 <b className="serif">{data.stats.longTerm}</b></span><span>这周写入 <b className="serif">{data.stats.weekWrites ?? 0}</b></span><span>你手动压的 <b className="serif">{data.stats.manual ?? 0}</b></span></div>
       </div>
       <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>specimens</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>长期记忆</h2>{qd && <span className="go">找到 {data.items.length} 条</span>}</div>
       {data.items.map((m, i) => (
@@ -169,7 +170,7 @@ function Memory({ pressOpen }) {
       {press && (
         <Press onClose={() => { setPress(false); replaceQuery({ tab: 'memory' }); }}
           next={data.stats.longTerm + 1}
-          onDone={(it) => { setData((d) => ({ ...d, stats: { ...d.stats, longTerm: d.stats.longTerm + 1 }, items: [it, ...d.items] })); setFresh(it.id); setPress(false); replaceQuery({ tab: 'memory' }); }} />
+          onDone={(it) => { setData((d) => ({ ...d, stats: { ...d.stats, longTerm: d.stats.longTerm + 1, weekWrites: (d.stats.weekWrites || 0) + 1, manual: (d.stats.manual || 0) + 1 }, items: [it, ...d.items], recent: [{ at: it.at, text: it.text }, ...(d.recent || [])].slice(0, 8) })); setFresh(it.id); setPress(false); replaceQuery({ tab: 'memory' }); }} />
       )}
     </>
   );
@@ -217,14 +218,15 @@ function Dream() {
             <div className="kicker" style={{ color: 'var(--ink)' }}>LAST NIGHT · 昨晚的梦</div>
             <h3>{data.last.title}</h3>
             <p>{data.last.text}</p>
-            <div className="td-dream-tags">{data.last.tags.map((t) => <span key={t}>{t}</span>)}</div>
+            <div className="td-dream-tags">{(data.last.tags || []).map((t) => <span key={t}>{t}</span>)}</div>
           </div>
         </div>
       ) : <div className="card cl-empty">昨晚没有做梦</div>}
       <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>in the margin</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>觉察</h2><span className="go">他写在页边的</span></div>
-      {data.aware.map((a) => (
+      {(data.aware || []).map((a) => (
         <div key={a.date} className="td-aware"><span className="serif">{md(a.date)}</span><p className="hand-cn">{a.text}</p></div>
       ))}
+      {!data.aware?.length && <div className="card cl-empty">他还没有写下新的觉察</div>}
       {data.older?.length > 0 && (
         <div className="td-older">
           <span>更早的梦 · {data.olderCount} 个</span>

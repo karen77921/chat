@@ -1951,39 +1951,49 @@ async def stream_chat(route: dict[str, str], messages: list[dict[str, Any]], too
     # the tracked task when the user no longer wants to wait.
     timeout = httpx.Timeout(connect=30, read=None, write=60, pool=30)
     async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
-        async with client.stream(
-            "POST",
-            route["url"].rstrip("/") + "/chat/completions",
-            headers={"Authorization": f"Bearer {route['key']}", "Content-Type": "application/json"},
-            json=body,
-        ) as resp:
-            await _raise_for(resp, route)
-            async for line in resp.aiter_lines():
-                line = line.strip()
-                if not line.startswith("data:"):
+        # OpenAI-compatible gateways may omit usage for streams unless asked.
+        # Older gateways reject stream_options; retry without it before any
+        # output is emitted, so normal chat remains compatible.
+        for include_usage in (True, False):
+            request_body = {**body}
+            if include_usage:
+                request_body["stream_options"] = {"include_usage": True}
+            async with client.stream(
+                "POST",
+                route["url"].rstrip("/") + "/chat/completions",
+                headers={"Authorization": f"Bearer {route['key']}", "Content-Type": "application/json"},
+                json=request_body,
+            ) as resp:
+                if include_usage and resp.status_code in (400, 422):
                     continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    ev = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(ev.get("usage"), dict):
-                    usage = ev["usage"]
-                choice = (ev.get("choices") or [{}])[0]
-                delta = choice.get("delta") or {}
-                think = delta.get("reasoning_content") or delta.get("reasoning") or ""
-                if think:
-                    think_parts.append(think)
-                    await think_sink(think)
-                chunk = delta.get("content") or ""
-                if chunk:
-                    text_parts.append(chunk)
-                    await sink(chunk)
-                for pos, tc in enumerate(delta.get("tool_calls") or []):
-                    if isinstance(tc, dict):
-                        _merge_tool_call(acc, tc, pos)
+                await _raise_for(resp, route)
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        ev = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(ev.get("usage"), dict):
+                        usage = ev["usage"]
+                    choice = (ev.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
+                    think = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                    if think:
+                        think_parts.append(think)
+                        await think_sink(think)
+                    chunk = delta.get("content") or ""
+                    if chunk:
+                        text_parts.append(chunk)
+                        await sink(chunk)
+                    for pos, tc in enumerate(delta.get("tool_calls") or []):
+                        if isinstance(tc, dict):
+                            _merge_tool_call(acc, tc, pos)
+                break
     return {"text": "".join(text_parts).strip(), "thinking": "".join(think_parts).strip(), "tool_calls": _finish_tool_calls(acc), "usage": usage}
 
 
@@ -2178,8 +2188,16 @@ async def handle_turn(
             await close_thinking(thinking)
             model_used = out.get("model") or model_used
             fallback_from = out.get("tried") or fallback_from
-            if out.get("usage"):
-                turn.usage = out["usage"]
+            if isinstance(out.get("usage"), dict) and out["usage"]:
+                for key, value in out["usage"].items():
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        turn.usage[key] = turn.usage.get(key, 0) + value
+                    elif isinstance(value, dict):
+                        previous = turn.usage.get(key) if isinstance(turn.usage.get(key), dict) else {}
+                        merged = dict(previous)
+                        for sub, amount in value.items():
+                            merged[sub] = previous.get(sub, 0) + amount if isinstance(amount, (int, float)) else amount
+                        turn.usage[key] = merged
             if step_text:
                 texts.append(step_text)
             if not calls:
@@ -2399,6 +2417,11 @@ def create_backup() -> dict[str, Any]:
         with sqlite3.connect(str(relay_path)) as source, sqlite3.connect(str(target / "relay.db")) as dest:
             source.backup(dest)
         copied.append("relay.db")
+    imprint_path = LOOP_CACHE_DIR / "imprint.db"
+    if imprint_path.exists():
+        with sqlite3.connect(str(imprint_path)) as source, sqlite3.connect(str(target / "imprint.db")) as dest:
+            source.backup(dest)
+        copied.append("imprint.db")
     for source, name in (
         (LOOP_CONFIG, "api_loop.config.json"),
         (HERE / ".env", "service.env"),
@@ -2608,6 +2631,10 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="companion-api-loop", lifespan=lifespan)
+
+from imprint_store import register_imprint_routes
+
+register_imprint_routes(app, LOOP_CACHE_DIR / "imprint.db", Path(RELAY_DB))
 
 
 @app.get("/healthz")

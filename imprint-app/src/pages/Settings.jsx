@@ -21,7 +21,7 @@ const PAGES = {
   access: ['access', '接入'], features: ['features', '功能管理'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
 const upload = (file, kind) => { const f = new FormData(); f.append('file', file); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
-const fmtN = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}` : n.toLocaleString('en-US'));
+const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
 const hm = (iso) => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
 export default function Settings({ query }) {
@@ -62,7 +62,7 @@ function Desk({ go }) {
     ['access', 'link', '接入', conn?.items ? `${conn.items.filter((x) => x.kind === 'window').length} 个窗口 · ${conn.items.filter((x) => x.kind === 'member').length} 个群成员` : '…', false],
     ['features', 'plug', '功能管理', f?.features ? `${f.features.filter((x) => x.on).length} 个功能在跑 · MCP ${f.mcps.filter((m) => m.on && m.status === 'ok').length} 个连上${mcpDown ? ` · ${mcpDown} 个断开` : ''}` : '…', mcpDown > 0],
     ['beauty', 'brush', '美化', '主题 · 头像 · 聊天背景 · 气泡', false],
-    ['usage', 'tool', '用量与日志', ok ? `缓存命中 ${Math.round(c.hitRate * 100)}% · 各窗口明细 · 工具调用 · 后端日志` : '…', false],
+    ['usage', 'tool', '用量与日志', ok ? `${c.observed || 0} 次真实用量记录 · 工具调用` : '…', false],
   ];
   return (
     <main className="settings">
@@ -75,11 +75,13 @@ function Desk({ go }) {
           {ok && (
             <div className="st-nums">
               <div><em>今日 token</em><b className="serif">{fmtN(c.today.tokens)}</b></div>
-              <div><em>本月 token</em><b className="serif">{fmtN(c.month.tokens)}<small> M</small></b></div>
-              <div><em>本月花费</em><b className="serif"><small>{c.month.currency}</small>{c.month.cost.toFixed(2)}</b></div>
-              <div><em>缓存命中率</em><b className="serif">{Math.round(c.hitRate * 100)}<small>%</small></b></div>
+              <div><em>本月 token</em><b className="serif">{fmtN(c.month.tokens)}</b></div>
+              <div><em>本月花费</em><b className="serif">{c.month.cost == null ? '未提供' : <><small>{c.month.currency}</small>{c.month.cost.toFixed(2)}</>}</b></div>
+              <div><em>缓存命中率</em><b className="serif">{c.hitRate == null ? '—' : <>{Math.round(c.hitRate * 100)}<small>%</small></>}</b></div>
             </div>
           )}
+          {ok && !c.observed && <p className="st-tip">现有回复没有上游回传的 token 用量；新版会请求真实用量，不能核实的数字不会填 0 冒充统计。</p>}
+          {ok && c.month.cost == null && <p className="st-tip">金额需由模型供应商返回账单或提供对应模型单价；这里不会估算扣费。</p>}
           {daily.length > 1 && (
             <svg className="st-spark" viewBox="0 0 200 40" aria-hidden="true"><path d={`${spark} L200 40 L0 40Z`} style={{ fill: 'color-mix(in srgb, var(--print-a) 30%, transparent)' }} /><path d={spark} fill="none" stroke="var(--print-c)" strokeWidth="1.6" strokeLinecap="round" /></svg>
           )}
@@ -207,10 +209,21 @@ function Features() {
   const { data, setData } = useLoad('/api/features');
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', url: '' });
+  const [error, setError] = useState('');
   if (!data) return <div className="card cl-empty">正在看…</div>;
   if (data.available === false) return <div className="card cl-empty">暂时连不上，过一会儿再来看看。</div>;
-  const setF = (key, on) => { setData((d) => ({ ...d, features: d.features.map((x) => (x.key === key ? { ...x, on } : x)) })); api(`/api/features/${key}`, { method: 'PUT', body: { on } }); };
-  const setM = (id, on) => { setData((d) => ({ ...d, mcps: d.mcps.map((x) => (x.id === id ? { ...x, on } : x)) })); api(`/api/mcp/${id}`, { method: 'PUT', body: { on } }); };
+  const setF = async (key, on) => {
+    setError('');
+    try { await api(`/api/features/${key}`, { method: 'PUT', body: { on } });
+      setData((d) => ({ ...d, features: d.features.map((x) => (x.key === key ? { ...x, on } : x)) }));
+    } catch (e) { setError(e?.message || '设置失败'); }
+  };
+  const setM = async (id, on) => {
+    setError('');
+    try { await api(`/api/mcp/${id}`, { method: 'PUT', body: { on } });
+      setData((d) => ({ ...d, mcps: d.mcps.map((x) => (x.id === id ? { ...x, on } : x)) }));
+    } catch (e) { setError(e?.message || '设置失败'); }
+  };
   const retry = async (id) => {
     setData((d) => ({ ...d, mcps: d.mcps.map((x) => (x.id === id ? { ...x, status: 'pending' } : x)) }));
     const m = await api(`/api/mcp/${id}/reconnect`, { method: 'POST' });
@@ -223,6 +236,7 @@ function Features() {
   const ST = { ok: '', down: '断开 · 点一下重连', pending: '连接中…' };
   return (
     <>
+      {error && <p className="ws-err" role="alert">{error}</p>}
       <div className="sec-head"><span className="en" style={{ fontSize: 22 }}>running</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>后台在跑的</h2><span className="go">关掉就不跑了</span></div>
       <div className="card st-list">
         {data.features.map((x) => (
@@ -269,9 +283,34 @@ function Beauty() {
   const avIn = useRef(null), wallIn = useRef(null);
   const who = useRef('him');
   const flash = (t) => { setTip(t); setTimeout(() => setTip(''), 1800); };
-  const save = (next) => { setBeauty(next); api('/api/settings/beauty', { method: 'PUT', body: next }).catch(() => {}); };
-  const pickAvatar = async (f) => { if (!f) return; const u = await upload(f, 'avatar'); await api('/api/settings/avatar', { method: 'PUT', body: { who: who.current, url: u.url } }); flash('头像换好了'); };
-  const pickWall = async (f) => { if (!f) return; const u = await upload(f, 'wallpaper'); setWall(u.url || 'custom'); save({ ...beauty, wallpaper: u.url }); flash('聊天背景换好了'); };
+  useEffect(() => {
+    api('/api/settings/beauty').then((saved) => {
+      if (saved.beauty && Object.keys(saved.beauty).length) setBeauty(saved.beauty);
+      if (saved.beauty?.wallpaper) setWall(saved.beauty.wallpaper);
+    }).catch((e) => flash(e?.message || '暂时读不到美化设置'));
+  }, []);
+  const save = async (next) => {
+    const previous = beauty;
+    setBeauty(next);
+    try { await api('/api/settings/beauty', { method: 'PUT', body: next }); }
+    catch (e) { setBeauty(previous); flash(e?.message || '美化设置保存失败'); }
+  };
+  const pickAvatar = async (f) => {
+    if (!f) return;
+    try {
+      const u = await upload(f, 'avatar');
+      await api('/api/settings/avatar', { method: 'PUT', body: { who: who.current, url: u.url } });
+      flash('头像换好了，重新进入聊天即可看到');
+    } catch (e) { flash(e?.message || '头像保存失败'); }
+  };
+  const pickWall = async (f) => {
+    if (!f) return;
+    try {
+      const u = await upload(f, 'wallpaper');
+      await api('/api/settings/beauty', { method: 'PUT', body: { ...beauty, wallpaper: u.url } });
+      setWall(u.url); setBeauty({ ...beauty, wallpaper: u.url }); flash('聊天背景换好了');
+    } catch (e) { flash(e?.message || '背景保存失败'); }
+  };
   const STYLES = [['glass', '磨砂玻璃'], ['paper', '纸片'], ['cyan', '蓝晒信纸']];
   return (
     <>
@@ -332,8 +371,9 @@ function Usage() {
         <>
           <div className="sec-head" style={{ marginTop: 18 }}><span className="en" style={{ fontSize: 22 }}>cache</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>各个窗口的缓存命中</h2>
             <button type="button" className="go" onClick={() => setRange((r) => (r === 'today' ? 'month' : 'today'))}>{range === 'today' ? '今天' : '本月'} ⇄</button></div>
-          <p className="st-tip">命中率 = 命中缓存的输入 ÷ 全部输入。越高越省钱，也回得越快。</p>
+          <p className="st-tip">只统计模型接口实际回传的输入与缓存 token；未回传的调用不会被猜测。</p>
           {!cache.data && <div className="card cl-empty">正在算…</div>}
+          {cache.data && !cache.data.items?.length && <div className="card cl-empty">当前没有可核实的缓存用量。新回复产生后再来看。</div>}
           {cache.data?.items?.map((x) => {
             const pct = Math.round((x.hitTokens / Math.max(1, x.inputTokens)) * 100);
             const lv = pct >= 70 ? 'hi' : pct >= 50 ? 'mid' : 'lo';
@@ -342,12 +382,12 @@ function Usage() {
               <div key={x.chatId} className={`card st-cache ${lv}`}>
                 <div className="st-cache-h"><b>{x.name}</b><span>{x.sub}</span><strong className="serif">{pct}<small>%</small></strong></div>
                 <div className="st-cache-bar"><i style={{ width: `${pct}%` }} /></div>
-                <div className="st-cache-f"><span>命中 <b className="serif">{x.hitTokens.toLocaleString('en-US')}</b> / {x.inputTokens.toLocaleString('en-US')} token</span><span>省下 <b>{cache.data.currency}{x.saved.toFixed(2)}</b></span>
+                <div className="st-cache-f"><span>命中 <b className="serif">{x.hitTokens.toLocaleString('en-US')}</b> / {x.inputTokens.toLocaleString('en-US')} token</span>{x.saved != null && <span>省下 <b>{cache.data.currency}{x.saved.toFixed(2)}</b></span>}
                   {tr && <svg viewBox="0 0 56 30" aria-hidden="true"><path d={tr} fill="none" strokeWidth="1.6" /></svg>}</div>
               </div>
             );
           })}
-          <p className="st-tip">低于 50% 标红：多半是人设或开头那段经常变，缓存没对上。</p>
+          <p className="st-tip">缓存金额取决于供应商的实际计费，未提供单价时不估算。</p>
         </>
       )}
       {tab === 'tools' && (
@@ -365,6 +405,7 @@ function Usage() {
       {tab === 'backend' && (
         <div className="st-log">
           {!back.data && <div>正在翻…</div>}
+          {back.data && !back.data.items?.length && <div>后端系统日志尚未开放给网页查看；这里不会放示例记录。</div>}
           {back.data?.items?.map((x, i) => <div key={i}><span className={`lv ${x.level}`}>{x.level.toUpperCase()}</span> {hm(x.at)} {x.text}</div>)}
         </div>
       )}

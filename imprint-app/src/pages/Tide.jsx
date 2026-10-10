@@ -140,16 +140,16 @@ function Memory({ pressOpen }) {
         <button type="button" className="btn-main td-press" onClick={() => { setPress(true); replaceQuery({ tab: 'memory', press: '1' }); }}><Icon name="plus" size={14} stroke={1.6} />压一枚</button>
       </div>
       <div className="card td-heatcard">
-        <div className="sec-head" style={{ margin: 0 }}><span className="en" style={{ fontSize: 20 }}>heat</span><h3 className="zh" style={{ margin: 0, fontSize: 12.5 }}>记忆热力</h3><span className="go" style={{ fontSize: 10 }}>颜色越深，那天记下的越多</span></div>
-        <Heat heat={data.heat} />
-        <div className="td-stats"><span>长期 <b className="serif">{data.stats.longTerm}</b></span><span>这周写入 <b className="serif">{data.stats.weekWrites}</b></span><span>你手动压的 <b className="serif">{data.stats.manual}</b></span></div>
+        <div className="sec-head" style={{ margin: 0 }}><span className="en" style={{ fontSize: 20 }}>heat</span><h3 className="zh" style={{ margin: 0, fontSize: 12.5 }}>记忆热力</h3><span className="go" style={{ fontSize: 10 }}>心潮暂未提供逐日写入时间</span></div>
+        {data.heat?.length ? <Heat heat={data.heat} /> : <p className="st-tip">无法生成准确热力图</p>}
+        <div className="td-stats"><span>当前读到 <b className="serif">{data.stats.longTerm}</b></span><span>这周写入 <b className="serif">{data.stats.weekWrites ?? '—'}</b></span><span>你手动压的 <b className="serif">{data.stats.manual ?? '—'}</b></span></div>
       </div>
       <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>specimens</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>长期记忆</h2>{qd && <span className="go">找到 {data.items.length} 条</span>}</div>
       {data.items.map((m, i) => (
         <div key={m.id} className={`td-mem ${m.id === fresh ? 'm-settle' : ''}`} style={{ rotate: `${[-0.8, 0.6, -0.4, 0.5][i % 4]}deg` }}>
           <TornBox seed={140 + i} amp={2.5} innerStyle={{ padding: '10px 14px 10px 64px', minHeight: 74 }}>
             <span className="td-mem-i"><Cyanotype w={40} h={54} seed={50 + i} variant="sprig" develop={false} /></span>
-            <div className="td-mem-h serif"><span>No.{m.no}</span><span>采集 {md(m.at)}</span>{m.by === 'me' && <span className="td-mine">你压的</span>}{m.tag && <em>#{m.tag}</em>}</div>
+            <div className="td-mem-h serif"><span>No.{m.no}</span><span>{m.at ? `采集 ${md(m.at)}` : '时间未提供'}</span>{m.by === 'me' && <span className="td-mine">你压的</span>}{m.tag && <em>#{m.tag}</em>}</div>
             <p>{m.text}</p>
           </TornBox>
         </div>
@@ -161,7 +161,7 @@ function Memory({ pressOpen }) {
       {press && (
         <Press onClose={() => { setPress(false); replaceQuery({ tab: 'memory' }); }}
           next={data.stats.longTerm + 1}
-          onDone={(it) => { setData((d) => ({ ...d, stats: { ...d.stats, longTerm: d.stats.longTerm + 1, manual: d.stats.manual + 1 }, items: [it, ...d.items] })); setFresh(it.id); setPress(false); replaceQuery({ tab: 'memory' }); }} />
+          onDone={(it) => { setData((d) => ({ ...d, stats: { ...d.stats, longTerm: d.stats.longTerm + 1 }, items: [it, ...d.items] })); setFresh(it.id); setPress(false); replaceQuery({ tab: 'memory' }); }} />
       )}
     </>
   );

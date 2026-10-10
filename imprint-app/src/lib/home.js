@@ -20,6 +20,7 @@ export function greetingOf(date) {
 export function daysTogether(together, now) {
   if (!together) return null;
   if (Number.isFinite(together.days)) return together.days;
+  if (!together.since) return null;
   const since = new Date(`${together.since}T00:00:00`);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.max(0, Math.round((today - since) / DAY));

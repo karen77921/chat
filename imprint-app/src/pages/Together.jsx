@@ -56,6 +56,7 @@ function Listen({ onList }) {
   const s = L?.state;
   const bar = useRef(null);
   if (!s) return <div className="card cl-empty tp-pad">正在找歌…</div>;
+  if (s.available === false) return <div className="card cl-empty tp-pad">一起听还没有连接音乐来源。等你选定音乐服务后才能搜索、播放和同步；这里不会放示例歌曲。</div>;
   const him = { id: 'him', name: s.names?.him };
   const dur = s.track.durationS || 1;
   const seek = (e) => {
@@ -127,6 +128,8 @@ function Playlist({ onClose }) {
     L.setPlaylist(next); setDragIdx(to); dragY.current = e.clientY;
   };
   const onUp = () => { if (dragIdx != null) { setDragIdx(null); save(list); } };
+
+  if (!s?.track) return <Sheet open onClose={onClose} label="歌单"><div className="card cl-empty">音乐来源尚未接入，没有你们的歌单。</div></Sheet>;
 
   return (
     <Sheet open onClose={onClose} label="歌单" seed={63}>

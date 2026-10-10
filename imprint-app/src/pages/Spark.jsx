@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import Icon from '../design/icons.jsx';
 import { Band, TornBox, Tape } from '../design/paper.jsx';
+import Sheet from '../design/Sheet.jsx';
 import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
@@ -59,8 +60,9 @@ function SparkTab() {
   if (data.recording === false) return <div className="card cl-empty sp-pad">还没有你们的火花记录。不会用参考天数代替；真实统计接入后再从你们的聊天开始计算。</div>;
   const names = data.names;
   const him = { ...HIM, name: names?.him };
-  const missed = data.week.find((d) => !d.done);
+  const missed = data.week.find((d) => !d.done && d.date < data.now?.slice(0, 10));
   const useCard = async () => {
+    if (!data.cards.count) { setTip('还没有可用的续火卡。每累计续上 7 天会得到一张。'); return; }
     if (!missed) { setTip(`续火卡留着：哪天断了，在这里补上那一天。每满 ${data.cards.every} 天收到一张。`); return; }
     await api('/api/spark/cards/use', { method: 'POST', body: { date: missed.date } });
     setData((d) => ({ ...d, cards: { ...d.cards, count: d.cards.count - 1 }, week: d.week.map((x) => (x.date === missed.date ? { ...x, done: true } : x)) }));
@@ -125,12 +127,20 @@ function ShopTab() {
   const [who, setWho] = useState('him');
   const [item, setItem] = useState(null);
   const [tip, setTip] = useState('');
-  const { data, setData } = useLoad(`/api/spark/shop${cat ? `?cat=${cat}` : ''}`);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState({ name: '', cat: 'bubble', sub: '', cost: 1 });
+  const { data, setData, reload } = useLoad(`/api/spark/shop${cat ? `?cat=${cat}` : ''}`);
   const names = data?.names || { me: '我', him: '他' };
   if (!data) return <div className="card cl-empty sp-pad">正在翻…</div>;
   if (data.available === false) return <div className="card cl-empty sp-pad">暂时连不上，过一会儿再来看看。</div>;
   if (data.recording === false) return <div className="card cl-empty sp-pad">礼物铺尚未接入真实积分与兑换，参考商品已清空。</div>;
   const him = { ...HIM, name: names.him };
+  const saveGift = async () => {
+    try {
+      await api('/api/spark/shop', { method: 'POST', body: draft });
+      setAdding(false); setDraft({ name: '', cat: 'bubble', sub: '', cost: 1 }); await reload();
+    } catch (error) { setTip(error?.message || '礼物没保存，请重试'); }
+  };
   return (
     <div className="sp-body">
       <div className="card sp-wallet">
@@ -141,6 +151,7 @@ function ShopTab() {
       <div className="sp-cats" role="group" aria-label="分类">
         {CATS.map(([k, n]) => <button key={k} type="button" className={`chip ${cat === k ? 'on' : ''}`} aria-pressed={cat === k} onClick={() => setCat(k)}>{n}</button>)}
       </div>
+      <button type="button" className="btn-main" style={{ margin: '0 20px 14px' }} onClick={() => setAdding(true)}>＋ 添加我们的礼物</button>
       {tip && <div className="rm-tip" role="status">{tip}</div>}
       <Band tone="l1" seed={51} className="sp-band">
         <div className="sp-grid">
@@ -164,6 +175,14 @@ function ShopTab() {
             setTimeout(() => setTip(''), 2400);
           }} />
       )}
+      {adding && <Sheet open onClose={() => setAdding(false)} label="添加礼物">
+        <div className="sec-head"><span className="en">our gift</span><h2 className="zh" style={{ margin: 0 }}>添加礼物</h2></div>
+        <label className="pill nc-in"><span className="sr">名称</span><input value={draft.name} maxLength={60} placeholder="礼物名称" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} /></label>
+        <label className="pill nc-in"><span className="sr">说明</span><input value={draft.sub} maxLength={120} placeholder="一句说明" onChange={(e) => setDraft((d) => ({ ...d, sub: e.target.value }))} /></label>
+        <div className="sp-cats" role="group" aria-label="礼物分类">{CATS.slice(1).map(([key, name]) => <button key={key} type="button" className={`chip ${draft.cat === key ? 'on' : ''}`} onClick={() => setDraft((d) => ({ ...d, cat: key }))}>{name}</button>)}</div>
+        <label className="pill nc-in"><span className="sr">积分</span><input type="number" min="1" max="100000" value={draft.cost} onChange={(e) => setDraft((d) => ({ ...d, cost: Number(e.target.value) }))} /></label>
+        <button type="button" className="btn-main nc-go" disabled={!draft.name.trim() || draft.cost < 1} onClick={saveGift}>保存礼物</button>
+      </Sheet>}
     </div>
   );
 }

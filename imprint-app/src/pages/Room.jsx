@@ -20,6 +20,7 @@ export default function Room({ query }) {
   const [filter, setFilter] = useState('');
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
   const fileIn = useRef(null);
   useEffect(() => { if (TABS.some(([k]) => k === query.tab)) setTab(query.tab); }, [query.tab]);
 
@@ -36,6 +37,7 @@ export default function Room({ query }) {
     const list = [...files].slice(0, 9);
     if (!list.length) return;
     setBusy(`正在贴 ${list.length} 张…`);
+    setError('');
     try {
       for (const f of list) {
         const u = await upload(f, 'photo');
@@ -43,6 +45,8 @@ export default function Room({ query }) {
         photos.setData((d) => (d?.items ? { ...d, total: d.total + 1, items: [{ ...p, fresh: true }, ...d.items] } : d));
       }
       pick('photos');
+    } catch (cause) {
+      setError(cause?.message || '照片没有贴上，请重试');
     } finally { setBusy(''); }
   };
   const changePhoto = (p) => { setOpen(p); photos.setData((d) => ({ ...d, items: d.items.map((x) => (x.id === p.id ? p : x)) })); };
@@ -65,6 +69,7 @@ export default function Room({ query }) {
         <span className="rm-count">{tab === 'photos' && photos.data?.total ? `${photos.data.total} 张` : tab === 'solo' && solo.data?.monthCount ? `这个月 ${solo.data.monthCount} 次` : ''}</span>
       </div>
       {busy && <div className="rm-tip" role="status">{busy}</div>}
+      {error && <div className="rm-tip" role="alert">{error}</div>}
 
       <Band tone="l1" seed={21 + TABS.findIndex(([k]) => k === tab)} className="rm-band">
         {tab === 'photos' && <PhotoWall data={photos.data} filter={filter} setFilter={setFilter} onOpen={setOpen} names={home?.names} />}

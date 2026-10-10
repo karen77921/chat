@@ -14,7 +14,7 @@ export function ListenProvider({ children }) {
   const [pos, setPos] = useState(0);
   const audio = useRef(null);
 
-  const apply = useCallback((d) => { if (d && d.available !== false) { setS(d); setPos(d.positionS || 0); } }, []);
+  const apply = useCallback((d) => { if (d) { setS(d); setPos(d.positionS || 0); } }, []);
   const load = useCallback(() => api('/api/together/listen').then(apply).catch(() => {}), [apply]);
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
 

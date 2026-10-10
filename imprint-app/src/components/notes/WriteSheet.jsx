@@ -23,8 +23,8 @@ export default function WriteSheet({ open, onClose, onSubmit, myName }) {
     try {
       await onSubmit({ text: text.trim(), paper, pinned });
       setText(''); setPinned(false);
-    } catch {
-      setErr('没贴上，再试一次');
+    } catch (error) {
+      setErr(error?.message || '没贴上，再试一次');
     } finally {
       setBusy(false);
     }

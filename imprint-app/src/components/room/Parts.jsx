@@ -82,13 +82,20 @@ export function PhotoWall({ data, filter, setFilter, onOpen, names }) {
 export function PhotoView({ photo, names, onClose, onChange, onDelete }) {
   const [writing, setWriting] = useState(false);
   const [text, setText] = useState('');
+  const [error, setError] = useState('');
   const fav = async () => { onChange({ ...photo, fav: !photo.fav }); api(`/api/room/photos/${photo.id}/fav`, { method: 'POST' }).catch(() => onChange(photo)); };
   const note = async () => {
     const t = text.trim(); if (!t) return;
-    const n = await api(`/api/room/photos/${photo.id}/notes`, { method: 'POST', body: { text: t } });
-    onChange({ ...photo, notes: [...(photo.notes || []), n] }); setText(''); setWriting(false);
+    try {
+      const n = await api(`/api/room/photos/${photo.id}/notes`, { method: 'POST', body: { text: t } });
+      onChange({ ...photo, notes: [...(photo.notes || []), n] }); setText(''); setWriting(false); setError('');
+    } catch (e) { setError(e?.message || '保存失败'); }
   };
-  const del = () => { if (confirm('删掉这张照片？')) { api(`/api/room/photos/${photo.id}`, { method: 'DELETE' }); onDelete(photo.id); } };
+  const del = async () => {
+    if (!confirm('删掉这张照片？')) return;
+    try { await api(`/api/room/photos/${photo.id}`, { method: 'DELETE' }); onDelete(photo.id); }
+    catch (e) { setError(e?.message || '删除失败'); }
+  };
   const d = new Date(photo.at);
   return (
     <div className="rm-view" role="dialog" aria-label="看照片">
@@ -107,6 +114,7 @@ export function PhotoView({ photo, names, onClose, onChange, onDelete }) {
           <button type="button" onClick={() => setWriting(true)}><span><Icon name="pen" size={20} stroke={1.4} /></span>写一句</button>
           <button type="button" onClick={del}><span><Icon name="trash" size={20} stroke={1.4} /></span>删掉</button>
         </div>
+        {error && <div className="ws-err" role="alert">{error}</div>}
       </div>
       <button type="button" className="rbtn rm-view-x" aria-label="关闭" onClick={onClose}><Icon name="close" size={16} stroke={1.5} /></button>
       <Sheet open={writing} onClose={() => setWriting(false)} label="给这张照片写一句">
@@ -165,18 +173,24 @@ export function Stickers({ data, setData, onUpload }) {
 
   const add = async (f) => {
     if (!f) return;
-    const u = await onUpload(f, 'sticker');
-    const st = await api('/api/stickers', { method: 'POST', body: { url: u.url } });
-    setData((d) => ({ ...d, mine: [...d.mine, st] }));
+    try {
+      const u = await onUpload(f, 'sticker');
+      const st = await api('/api/stickers', { method: 'POST', body: { url: u.url } });
+      setData((d) => ({ ...d, mine: [...d.mine, st] }));
+    } catch (error) { flash(error?.message || '上传失败'); }
   };
-  const del = (st) => {
+  const del = async (st) => {
     if (!confirm('删掉这个表情？')) return;
-    setData((d) => ({ ...d, mine: d.mine.filter((x) => x.id !== st.id) }));
-    api(`/api/stickers/${st.id}`, { method: 'DELETE' });
+    try {
+      await api(`/api/stickers/${st.id}`, { method: 'DELETE' });
+      setData((d) => ({ ...d, mine: d.mine.filter((x) => x.id !== st.id) }));
+    } catch (error) { flash(error?.message || '删除失败'); }
   };
   const ask = async () => {
-    await api('/api/stickers/draw', { method: 'POST', body: { prompt: prompt.trim() } });
-    setDrawing(false); setPrompt(''); flash('他收到了，画好会放在这里');
+    try {
+      await api('/api/stickers/draw', { method: 'POST', body: { prompt: prompt.trim() } });
+      setDrawing(false); setPrompt(''); flash('他收到了，画好会放在这里');
+    } catch (error) { flash(error?.message || '暂时不能画表情'); }
   };
   const longPress = (st) => ({
     onPointerDown: () => { press.current = setTimeout(() => del(st), 520); },

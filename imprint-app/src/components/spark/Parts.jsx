@@ -50,7 +50,7 @@ export function GiftArt({ art, me, him, tall }) {
 
 /** 换一个：用我的积分，或者让他换给我（他同意了才扣） */
 export function Redeem({ item, wallets, names, me, him, onClose, onDone }) {
-  const [wallet, setWallet] = useState(wallets.me >= item.cost ? 'me' : 'him');
+  const [wallet, setWallet] = useState('me');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const go = async () => {
@@ -62,7 +62,7 @@ export function Redeem({ item, wallets, names, me, him, onClose, onDone }) {
   };
   const opts = [
     ['me', '我的钱包', wallets.me, wallets.me >= item.cost ? '够了' : `还差 ${item.cost - wallets.me} 分`, wallets.me >= item.cost],
-    ['him', '让他换给我', wallets.him, `${names?.him} 的钱包 · 他同意了才扣`, true],
+    ['him', '让他换给我', wallets.him, '等待接入他确认的流程', false],
   ];
   return (
     <Sheet open onClose={onClose} label={`换「${item.name}」`} seed={53}>
@@ -80,7 +80,7 @@ export function Redeem({ item, wallets, names, me, him, onClose, onDone }) {
         ))}
       </div>
       {err && <div className="ws-err" role="alert">{err}</div>}
-      <button type="button" className="btn-main nc-go" disabled={busy} onClick={go}>{wallet === 'him' ? `问问他 · ${item.cost} 分` : `换 · ${item.cost} 分`}</button>
+      <button type="button" className="btn-main nc-go" disabled={busy || wallets.me < item.cost} onClick={go}>换 · {item.cost} 分</button>
     </Sheet>
   );
 }

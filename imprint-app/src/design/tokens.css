@@ -13,9 +13,9 @@
   font-display: swap;
 }
 @font-face {
-  font-family: 'Imprint PingFang TC Thin';
-  src: local('PingFangTC-Thin'), local('PingFang TC Thin'),
-       local('PingFangTC-Light'), local('PingFang TC Light');
+  font-family: 'Imprint PingFang TC Light';
+  src: local('PingFangTC-Light'), local('.PingFangTC-Light'),
+       local('PingFang TC Light');
   font-style: normal;
   font-weight: 300;
   font-display: swap;
@@ -43,7 +43,7 @@
   --serif: 'Cormorant Garamond', Georgia, serif;
   --hand: 'Mrs Saint Delafield', cursive;
   --hand-cn: 'Long Cang', cursive;
-  --sans: 'Imprint PingFang TC Thin', 'PingFang TC', 'Imprint PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+  --sans: 'Imprint PingFang TC Light', 'PingFang TC', 'Imprint PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
   --pad: 24px;
 }
 

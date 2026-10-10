@@ -225,7 +225,7 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/settings/console') return loop('imprint/usage');
   if (method === 'GET' && p === '/api/logs/cache') return loop(`imprint/usage/cache${query}`);
   if (method === 'GET' && p === '/api/logs/tools') return loop('imprint/logs/tools');
-  if (method === 'GET' && p === '/api/logs/backend') return { available: true, items: [] };
+  if (method === 'GET' && p === '/api/logs/backend') return loop('imprint/logs/backend');
   if (method === 'GET' && p === '/api/settings/beauty') return loop('imprint/settings');
   if (method === 'PUT' && p === '/api/settings/contact') return loop('imprint/settings/contact', { ...opts, method: 'POST' });
   if (method === 'PUT' && p === '/api/settings/beauty') return loop('imprint/settings/beauty', { ...opts, method: 'POST' });

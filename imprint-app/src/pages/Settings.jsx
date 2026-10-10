@@ -360,7 +360,7 @@ function Usage() {
   return (
     <>
       <div className="st-seg" role="tablist">
-        {[['cache', '缓存命中'], ['tools', '工具调用'], ['backend', '后端日志']].map(([k, n]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{n}</button>)}
+        {[['cache', '缓存命中'], ['tools', '工具调用'], ['backend', '运行记录']].map(([k, n]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{n}</button>)}
       </div>
       {tab === 'cache' && (
         <>
@@ -400,7 +400,7 @@ function Usage() {
       {tab === 'backend' && (
         <div className="st-log">
           {!back.data && <div>正在翻…</div>}
-          {back.data && !back.data.items?.length && <div>后端系统日志尚未开放给网页查看；这里不会放示例记录。</div>}
+          {back.data && !back.data.items?.length && <div>目前没有工具运行或模型接口错误记录。</div>}
           {back.data?.items?.map((x, i) => <div key={i}><span className={`lv ${x.level}`}>{x.level.toUpperCase()}</span> {hm(x.at)} {x.text}</div>)}
         </div>
       )}

@@ -259,6 +259,10 @@ class ImprintStoreTest(unittest.TestCase):
         items = self.call("GET", "/activity")["items"]
         self.assertEqual(items[0]["text"], "新回复")
         self.assertEqual(sum(x["unread"] for x in items), 1)
+        logs = self.call("GET", "/logs/backend")["items"]
+        self.assertTrue(any(x["level"] == "error" and "bad" in x["text"] for x in logs))
+        tool_rows = self.call("GET", "/logs/tools")["items"]
+        self.assertTrue(any(x["ok"] is False for x in tool_rows))
 
     def test_context_summary_versions_and_ombre_retry_queue_are_durable(self):
         api_loop.RELAY_DB = str(self.relay)

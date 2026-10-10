@@ -827,12 +827,35 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                 continue
             steps = meta.get("steps") or []
             first = steps[0] if steps else {}
+            result = str(first.get("result") or "")
             items.append({"id": row["id"], "at": row["ts"], "title": row["text"] or "使用工具",
-                          "tool": first.get("tool") or "工具", "detail": str(first.get("result") or "")[:120],
-                          "ms": 0, "ok": True})
+                          "tool": first.get("tool") or "工具", "detail": result[:120],
+                          "ms": 0, "ok": not result.startswith("ERROR:")})
             if len(items) >= 100:
                 break
         return {"available": True, "items": items}
+
+    @router.get("/logs/backend")
+    def backend_logs():
+        items = []
+        for row in relay_messages():
+            meta = visible(row)
+            if meta is None:
+                continue
+            if row["kind"] == "act":
+                for step in (meta.get("steps") or [])[:3]:
+                    if not isinstance(step, dict):
+                        continue
+                    result = str(step.get("result") or "")
+                    tool = str(step.get("tool") or "工具")
+                    items.append({"at": row["ts"], "level": "error" if result.startswith("ERROR:") else "info",
+                                  "text": f"{tool}：{result[:240] or '执行完成'}"})
+            api = meta.get("api") or {}
+            if isinstance(api, dict) and api.get("error"):
+                items.append({"at": row["ts"], "level": "error", "text": str(api["error"])[:300]})
+            if len(items) >= 200:
+                break
+        return {"available": True, "items": items[:200]}
 
     @router.get("/usage/cache")
     def cache_usage(range: str = "today"):

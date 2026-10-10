@@ -2219,8 +2219,27 @@ def turn_tools(text: str = "") -> list[dict[str, Any]]:
     Other MCP tools are exposed when their server/tool is named explicitly.
     """
     query = str(text or "").casefold()
-    selected = list(BUILTIN_TOOLS)
-    always_real = {"hold", "grow", "send_drift_bottle"}
+    builtin_by_name = {t["function"]["name"]: t for t in BUILTIN_TOOLS}
+    selected: list[dict[str, Any]] = []
+
+    def add_builtin(*names: str) -> None:
+        for name in names:
+            if name in builtin_by_name and builtin_by_name[name] not in selected:
+                selected.append(builtin_by_name[name])
+
+    if any(word in query for word in ("附件", "文件", "发给我", "传给我", "下载", "attach")):
+        add_builtin("attach_file")
+    if any(word in query for word in ("唤醒", "醒来", "定时", "提醒", "主动找", "wake")):
+        add_builtin("inspect_wake_control", "schedule_self_wake")
+    if any(word in query for word in ("留言板", "小屋", "照片墙", "独处", "片单", "想看", "房间", "动态", "imprint")):
+        add_builtin("imprint_inspect_home", "imprint_leave_note", "imprint_set_room_status",
+                    "imprint_record_solo", "imprint_comment_photo", "imprint_add_watch")
+    if any(word in query for word in ("搜索", "查一下", "查找", "联网", "网页", "网址", "链接",
+                                      "github", "仓库", "skill.md", "最新", "search")):
+        add_builtin("search_public_web", "read_public_page", "read_public_github_file")
+
+    memory_intent = any(word in query for word in ("记住", "记忆", "心潮", "别忘", "长期保存", "档案", "ombre"))
+    drift_intent = any(word in query for word in ("漂流瓶", "投递", "收信邮箱", "邮箱", "galatea", "drift bottle"))
     for spec in mcp_manager.openai_tools():
         public_name = str(spec.get("function", {}).get("name") or "")
         server_name, real_name = mcp_manager.index.get(public_name, ("", public_name))
@@ -2229,9 +2248,41 @@ def turn_tools(text: str = "") -> list[dict[str, Any]]:
             for token in (server_name, real_name, public_name)
             if len(str(token)) >= 4
         )
-        if real_name in always_real or named:
+        core_requested = (real_name in {"hold", "grow"} and memory_intent) or (real_name == "send_drift_bottle" and drift_intent)
+        if core_requested or named:
             selected.append(spec)
     return selected
+
+
+def tool_context_text(text: str, messages: list[dict[str, Any]], limit: int = 8) -> str:
+    """Use a little recent dialogue for tool routing without scanning the system prompt."""
+    parts = [str(text or "")]
+    for message in messages[-limit:]:
+        if message.get("role") not in {"user", "assistant"}:
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            parts.append(content[:1000])
+        elif isinstance(content, list):
+            parts.extend(str(x.get("text") or "")[:1000] for x in content if isinstance(x, dict) and x.get("type") == "text")
+    return "\n".join(parts)
+
+
+def friendly_model_error(detail: str) -> str:
+    """Turn provider diagnostics into a short, actionable chat message."""
+    text = str(detail or "")
+    reasons: list[str] = []
+    if "ReadTimeout" in text or "TimeoutError" in text:
+        reasons.append("主线路响应超时")
+    if "HTTP 429" in text:
+        reasons.append("备用线路繁忙或达到并发限制（429）")
+    if "HTTP 402" in text or "insufficient_quota" in text:
+        reasons.append("另一条线路余额或额度不足（402）")
+    if "HTTP 401" in text or "HTTP 403" in text:
+        reasons.append("有线路的 API 密钥无效或无权限")
+    if not reasons:
+        reasons.append("模型线路暂时不可用")
+    return "这次没有生成成功：" + "；".join(dict.fromkeys(reasons)) + "。请在设置的 API 线路中保留至少一条可用线路后重试。"
 
 
 def attach_allowed(path: Path) -> bool:
@@ -2628,12 +2679,20 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
                 await think_sink(chunk)
 
         try:
-            request = stream_chat(route, messages, tools, _sink, _think) if stream and STREAM_OUTPUT else complete_chat(route, messages, tools)
             remaining = max(1.0, deadline - loop.time())
-            out = await asyncio.wait_for(
-                request,
-                timeout=min(cfg_int("model_request_timeout_seconds", 30, 300), remaining),
-            )
+            route_timeout = min(cfg_int("model_request_timeout_seconds", 30, 300), remaining)
+            request = stream_chat(route, messages, tools, _sink, _think) if stream and STREAM_OUTPUT else complete_chat(route, messages, tools)
+            try:
+                # Give a tool-capable attempt a short head start, then retry the
+                # same model without schemas so ordinary conversation can get out.
+                first_timeout = min(route_timeout, 25 if tools else route_timeout)
+                out = await asyncio.wait_for(request, timeout=first_timeout)
+            except (asyncio.TimeoutError, httpx.TimeoutException):
+                retry_remaining = min(route_timeout - first_timeout, deadline - loop.time())
+                if not tools or started["v"] or retry_remaining < 5:
+                    raise
+                request = stream_chat(route, messages, None, _sink, _think) if stream and STREAM_OUTPUT else complete_chat(route, messages, None)
+                out = await asyncio.wait_for(request, timeout=retry_remaining)
             out["model"] = route.get("model")
             out["tried"] = tried[:-1]
             return out
@@ -2699,7 +2758,7 @@ async def handle_turn(
 
     with_images = vision_enabled()
     messages, had_images = await build_messages(text, atts, before_id=msg_id, session_id=session_id, use_context=use_context, with_images=with_images)
-    tools = turn_tools(text)
+    tools = turn_tools(tool_context_text(text, messages))
     max_steps = cfg_int("max_tool_steps", 0, 50)
     texts: list[str] = []
     model_used = ""
@@ -2775,7 +2834,7 @@ async def handle_turn(
     if cancelled:
         reply = (reply + "\n\n" if reply else "") + "（已停止生成）"
     if error:
-        reply = (reply + "\n\n" if reply else "") + f"⚠️ API loop 出错：{error}"
+        reply = (reply + "\n\n" if reply else "") + f"⚠️ {friendly_model_error(error)}"
     if not reply:
         reply = "(The API loop did not produce a reply.)"
     meta: dict[str, Any] = {

@@ -327,12 +327,25 @@ class ImprintStoreTest(unittest.TestCase):
         fake = types.SimpleNamespace(openai_tools=lambda: specs, index=index)
         with mock.patch.object(api_loop, "mcp_manager", fake):
             names = {x["function"]["name"] for x in api_loop.turn_tools("普通聊天")}
-            self.assertIn("ombre__hold", names)
-            self.assertIn("galatea__send_drift_bottle", names)
+            self.assertNotIn("ombre__hold", names)
+            self.assertNotIn("galatea__send_drift_bottle", names)
             self.assertNotIn("ombre__breath_advanced", names)
             self.assertNotIn("other__special_lookup", names)
+            memory = {x["function"]["name"] for x in api_loop.turn_tools("把这件事写进心潮记忆")}
+            self.assertIn("ombre__hold", memory)
+            drift = {x["function"]["name"] for x in api_loop.turn_tools("收信邮箱是 me@example.com，投递漂流瓶")}
+            self.assertIn("galatea__send_drift_bottle", drift)
             named = {x["function"]["name"] for x in api_loop.turn_tools("请用 special_lookup 查一下")}
             self.assertIn("other__special_lookup", named)
+
+    def test_provider_errors_are_short_and_actionable(self):
+        message = api_loop.friendly_model_error(
+            "route-a: ReadTimeout; route-b: HTTP 429 busy; route-c: HTTP 402 insufficient_quota"
+        )
+        self.assertIn("主线路响应超时", message)
+        self.assertIn("429", message)
+        self.assertIn("402", message)
+        self.assertNotIn("route-a", message)
 
     def test_model_and_tool_waits_are_bounded_by_default(self):
         self.assertLessEqual(api_loop.CONFIG_DEFAULTS["model_idle_timeout_seconds"], 40)

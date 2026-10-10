@@ -46,10 +46,33 @@ class Request:
         return self.body
 
 
-fastapi.APIRouter, fastapi.HTTPException, fastapi.Request = APIRouter, HTTPException, Request
+class FastAPI:
+    def __init__(self, *args, **kwargs):
+        self.routes = {}
+
+    def include_router(self, router):
+        self.routes.update(router.routes)
+
+    def _route(self, path):
+        return lambda fn: fn
+
+    get = post = put = patch = delete = _route
+
+
+fastapi.APIRouter, fastapi.FastAPI = APIRouter, FastAPI
+fastapi.HTTPException, fastapi.Request = HTTPException, Request
 sys.modules.setdefault("fastapi", fastapi)
 
+httpx = types.ModuleType("httpx")
+httpx.Response = object
+httpx.RequestError = Exception
+sys.modules.setdefault("httpx", httpx)
+uvicorn = types.ModuleType("uvicorn")
+uvicorn.run = lambda *args, **kwargs: None
+sys.modules.setdefault("uvicorn", uvicorn)
+
 from imprint_store import register_imprint_routes  # noqa: E402
+import api_loop  # noqa: E402
 
 
 class App:
@@ -167,6 +190,37 @@ class ImprintStoreTest(unittest.TestCase):
         items = self.call("GET", "/activity")["items"]
         self.assertEqual(items[0]["text"], "新回复")
         self.assertEqual(sum(x["unread"] for x in items), 1)
+
+    def test_context_summary_versions_and_ombre_retry_queue_are_durable(self):
+        api_loop.RELAY_DB = str(self.relay)
+        api_loop.save_context_summary("our-window", "第一版摘要", 10)
+        api_loop.save_context_summary("our-window", "第二版摘要", 20)
+        queue_id = api_loop.queue_ombre_digest("our-window", "需要长期记住的内容", 20)
+        with sqlite3.connect(self.relay) as conn:
+            versions = conn.execute(
+                "SELECT summary,last_compacted_id FROM api_context_summary_versions "
+                "WHERE session_id=? ORDER BY id", ("our-window",)
+            ).fetchall()
+            queued = conn.execute(
+                "SELECT status,attempts FROM api_ombre_archive_queue WHERE id=?", (queue_id,)
+            ).fetchone()
+        self.assertEqual(versions, [("第一版摘要", 10), ("第二版摘要", 20)])
+        self.assertEqual(queued, ("pending", 0))
+        api_loop.finish_ombre_digest(queue_id, "offline")
+        self.assertEqual(api_loop.pending_ombre_digests("our-window")[0]["attempts"], 1)
+        api_loop.finish_ombre_digest(queue_id)
+        self.assertEqual(api_loop.pending_ombre_digests("our-window"), [])
+        api_loop.save_context_summary("our-window", "删除前摘要", 30)
+        pending_id = api_loop.queue_ombre_digest("our-window", "尚未归档", 30)
+        with sqlite3.connect(self.relay) as conn:
+            self.assertTrue(api_loop._invalidate_compacted_context(conn, "our-window", 15))
+            conn.commit()
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM api_context_summary_versions WHERE session_id='our-window'"
+            ).fetchone()[0], 0)
+            self.assertIsNone(conn.execute(
+                "SELECT id FROM api_ombre_archive_queue WHERE id=?", (pending_id,)
+            ).fetchone())
 
 
 if __name__ == "__main__":

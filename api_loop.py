@@ -965,6 +965,36 @@ def _context_table(conn: sqlite3.Connection) -> None:
                updated_at TEXT NOT NULL DEFAULT ''
            )"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS api_context_summary_versions (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               session_id TEXT NOT NULL,
+               summary TEXT NOT NULL,
+               last_compacted_id INTEGER NOT NULL,
+               created_at TEXT NOT NULL
+           )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_context_versions_session "
+        "ON api_context_summary_versions(session_id, id DESC)"
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS api_ombre_archive_queue (
+               id TEXT PRIMARY KEY,
+               session_id TEXT NOT NULL,
+               digest TEXT NOT NULL,
+               last_compacted_id INTEGER NOT NULL,
+               status TEXT NOT NULL DEFAULT 'pending',
+               attempts INTEGER NOT NULL DEFAULT 0,
+               last_error TEXT NOT NULL DEFAULT '',
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+           )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ombre_archive_pending "
+        "ON api_ombre_archive_queue(status, session_id, created_at)"
+    )
 
 
 def patch_message(message_id: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -1010,6 +1040,13 @@ def _invalidate_compacted_context(conn: sqlite3.Connection, session_id: str, mes
     if row is None or int(row[0] or 0) < message_id:
         return False
     conn.execute("DELETE FROM api_context_summaries WHERE session_id = ?", (session_id,))
+    # Recovery versions must never resurrect content the user deliberately edited,
+    # hid or deleted. Raw remaining messages will produce a clean new lineage.
+    conn.execute("DELETE FROM api_context_summary_versions WHERE session_id = ?", (session_id,))
+    conn.execute(
+        "DELETE FROM api_ombre_archive_queue WHERE session_id = ? AND status = 'pending'",
+        (session_id,),
+    )
     return True
 
 
@@ -1149,6 +1186,7 @@ def save_context_summary(session_id: str, summary: str, last_compacted_id: int) 
         return
     with sqlite3.connect(str(path)) as conn:
         _context_table(conn)
+        timestamp = now_iso()
         conn.execute(
             """INSERT INTO api_context_summaries(session_id, summary, last_compacted_id, updated_at)
                VALUES(?,?,?,?)
@@ -1156,8 +1194,72 @@ def save_context_summary(session_id: str, summary: str, last_compacted_id: int) 
                  summary=excluded.summary,
                  last_compacted_id=excluded.last_compacted_id,
                  updated_at=excluded.updated_at""",
-            (session_id, summary, int(last_compacted_id), now_iso()),
+            (session_id, summary, int(last_compacted_id), timestamp),
         )
+        conn.execute(
+            "INSERT INTO api_context_summary_versions(session_id,summary,last_compacted_id,created_at) "
+            "VALUES(?,?,?,?)",
+            (session_id, summary, int(last_compacted_id), timestamp),
+        )
+        # Version history is a recovery aid, not another unbounded chat log.
+        conn.execute(
+            "DELETE FROM api_context_summary_versions WHERE session_id=? AND id NOT IN "
+            "(SELECT id FROM api_context_summary_versions WHERE session_id=? ORDER BY id DESC LIMIT 50)",
+            (session_id, session_id),
+        )
+        conn.commit()
+
+
+def queue_ombre_digest(session_id: str, digest: str, last_compacted_id: int) -> str:
+    """Persist a digest before calling Ombre so a transient outage cannot lose it."""
+    clean = digest.strip()
+    if not clean or not Path(RELAY_DB).exists():
+        return ""
+    queue_id = uuid.uuid5(
+        uuid.NAMESPACE_URL, f"imprint-ombre:{session_id}:{int(last_compacted_id)}:{clean}"
+    ).hex
+    timestamp = now_iso()
+    with sqlite3.connect(str(RELAY_DB)) as conn:
+        _context_table(conn)
+        conn.execute(
+            """INSERT OR IGNORE INTO api_ombre_archive_queue
+               (id,session_id,digest,last_compacted_id,status,attempts,last_error,created_at,updated_at)
+               VALUES(?,?,?,?, 'pending',0,'',?,?)""",
+            (queue_id, session_id, clean, int(last_compacted_id), timestamp, timestamp),
+        )
+        conn.commit()
+    return queue_id
+
+
+def pending_ombre_digests(session_id: str, limit: int = 3) -> list[dict[str, Any]]:
+    if not Path(RELAY_DB).exists():
+        return []
+    with sqlite3.connect(str(RELAY_DB)) as conn:
+        conn.row_factory = sqlite3.Row
+        _context_table(conn)
+        rows = conn.execute(
+            "SELECT id,digest,attempts FROM api_ombre_archive_queue "
+            "WHERE status='pending' AND session_id=? ORDER BY created_at ASC LIMIT ?",
+            (session_id, max(1, min(int(limit), 20))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def finish_ombre_digest(queue_id: str, error: str = "") -> None:
+    if not Path(RELAY_DB).exists():
+        return
+    with sqlite3.connect(str(RELAY_DB)) as conn:
+        _context_table(conn)
+        if error:
+            conn.execute(
+                "UPDATE api_ombre_archive_queue SET attempts=attempts+1,last_error=?,updated_at=? WHERE id=?",
+                (error[:500], now_iso(), queue_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE api_ombre_archive_queue SET status='archived',attempts=attempts+1,last_error='',updated_at=? WHERE id=?",
+                (now_iso(), queue_id),
+            )
         conn.commit()
 
 
@@ -1188,8 +1290,44 @@ async def _archive_digest_to_ombre(digest: str) -> str:
             if server is None:
                 return "offline"
             result = await server.call(tool_name, {"content": digest.strip()})
-            return str(result)[:500]
+            return mcp_result_text(result, limit=500) or "archived"
     return "unavailable"
+
+
+async def _retry_pending_ombre(session_id: str) -> None:
+    """Try a few durable queued digests; failures stay pending for a later turn."""
+    if not cfg_bool("compact_to_ombre"):
+        return
+    for item in pending_ombre_digests(session_id):
+        try:
+            result = await _archive_digest_to_ombre(str(item["digest"]))
+            if result in {"offline", "unavailable", "skipped"}:
+                raise RuntimeError(result)
+            finish_ombre_digest(str(item["id"]))
+        except Exception as exc:
+            finish_ombre_digest(str(item["id"]), f"{type(exc).__name__}: {exc}")
+            break
+
+
+_ombre_retry_tasks: dict[str, asyncio.Task] = {}
+
+
+def schedule_ombre_retry(session_id: str) -> None:
+    """Run archive retries out of band so an unavailable memory server never delays chat."""
+    key = session_id or "__default__"
+    current = _ombre_retry_tasks.get(key)
+    if current is not None and not current.done():
+        return
+    task = asyncio.create_task(_retry_pending_ombre(session_id), name=f"ombre-archive:{key}")
+    _ombre_retry_tasks[key] = task
+
+    def clear(done: asyncio.Task) -> None:
+        if _ombre_retry_tasks.get(key) is done:
+            _ombre_retry_tasks.pop(key, None)
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            done.result()
+
+    task.add_done_callback(clear)
 
 
 async def ombre_recall_text(query: str) -> str:
@@ -1217,6 +1355,7 @@ _context_locks: dict[str, asyncio.Lock] = {}
 
 async def _compact_context_locked(session_id: str, before_id: int | None) -> dict[str, Any]:
     summary, last_id = context_summary(session_id)
+    schedule_ombre_retry(session_id)
     if not cfg_bool("context_compaction"):
         return {"summary": summary, "last_id": last_id, "compacted": False}
     threshold = cfg_int("compact_threshold", 20, 2000)
@@ -1260,10 +1399,9 @@ async def _compact_context_locked(session_id: str, before_id: int | None) -> dic
             save_context_summary(session_id, summary, last_id)
             did_compact = True
             if digest:
-                try:
-                    ombre = await _archive_digest_to_ombre(digest)
-                except Exception as exc:
-                    ombre = f"error:{type(exc).__name__}"
+                queue_ombre_digest(session_id, digest, last_id)
+                schedule_ombre_retry(session_id)
+                ombre = "queued"
         except Exception as exc:
             print(f"[context] compaction skipped for {session_id or 'default'}: {type(exc).__name__}: {exc}", flush=True)
             return {"summary": summary, "last_id": last_id, "compacted": did_compact, "ombre": ombre, "error": str(exc)[:200]}

@@ -99,6 +99,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                 "contact": setting("contact")}
 
     @router.put("/settings/contact")
+    @router.post("/settings/contact")
     async def set_contact(request: Request):
         body = await request.json()
         nickname = str(body.get("himName") or "").strip()
@@ -107,6 +108,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         return save_setting("contact", {"himName": nickname})
 
     @router.put("/settings/beauty")
+    @router.post("/settings/beauty")
     async def set_beauty(request: Request):
         body = await request.json()
         bubble = body.get("bubble") if body.get("bubble") in {"glass", "paper", "cyan"} else "glass"
@@ -120,6 +122,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         return save_setting("beauty", {"bubble": bubble, "alpha": alpha, "wallpaper": wallpaper})
 
     @router.put("/settings/avatar")
+    @router.post("/settings/avatar")
     async def set_avatar(request: Request):
         body = await request.json()
         who = str(body.get("who") or "")

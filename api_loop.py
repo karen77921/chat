@@ -3006,11 +3006,13 @@ async def loop_sessions_create(request: Request):
 
 
 @app.patch("/loop/sessions/{session_id}")
+@app.post("/loop/sessions/{session_id}/patch")
 async def loop_sessions_patch(session_id: str, request: Request):
     return patch_session(session_id, await request.json())
 
 
 @app.delete("/loop/sessions/{session_id}")
+@app.post("/loop/sessions/{session_id}/delete")
 async def loop_sessions_delete(session_id: str):
     return delete_session(session_id)
 

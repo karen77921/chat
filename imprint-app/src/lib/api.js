@@ -171,9 +171,9 @@ async function compat(path, opts) {
     if (opts.body?.pinned !== undefined) body.pinned = opts.body.pinned;
     if (opts.body?.archived !== undefined) body.archived = opts.body.archived;
     if (opts.body?.active !== undefined) body.active = opts.body.active;
-    return request(`${RELAY}/app/sessions/${m[1]}`, { method: 'PATCH', body });
+    return loop(`sessions/${m[1]}/patch`, { method: 'POST', body });
   }
-  if (method === 'DELETE' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return loop(`sessions/${m[1]}`, { method: 'DELETE' });
+  if (method === 'DELETE' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return loop(`sessions/${m[1]}/delete`, { method: 'POST' });
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/messages$/.exec(p))) return sendMessage(decodeURIComponent(m[1]), opts.body || {});
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/reply$/.exec(p))) return request(`${RELAY}/app/trigger`, { method: 'POST', body: { api_session: decodeURIComponent(m[1]) } });
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/pause$/.exec(p))) return loop('cancel', { method: 'POST', body: { session_id: decodeURIComponent(m[1]) } });
@@ -215,9 +215,9 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/logs/tools') return loop('imprint/logs/tools');
   if (method === 'GET' && p === '/api/logs/backend') return { available: true, items: [] };
   if (method === 'GET' && p === '/api/settings/beauty') return loop('imprint/settings');
-  if (method === 'PUT' && p === '/api/settings/contact') return loop('imprint/settings/contact', opts);
-  if (method === 'PUT' && p === '/api/settings/beauty') return loop('imprint/settings/beauty', opts);
-  if (method === 'PUT' && p === '/api/settings/avatar') return loop('imprint/settings/avatar', opts);
+  if (method === 'PUT' && p === '/api/settings/contact') return loop('imprint/settings/contact', { ...opts, method: 'POST' });
+  if (method === 'PUT' && p === '/api/settings/beauty') return loop('imprint/settings/beauty', { ...opts, method: 'POST' });
+  if (method === 'PUT' && p === '/api/settings/avatar') return loop('imprint/settings/avatar', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/home') {
     const notes = await loop('imprint/notes');
     return { available: true, now: new Date().toISOString(), names: { me: '小年糕', him: '季宁' },

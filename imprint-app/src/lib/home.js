@@ -19,11 +19,13 @@ export function greetingOf(date) {
 /** 后端给了 days 就用；没给就按 since 算到今天 */
 export function daysTogether(together, now) {
   if (!together) return null;
-  if (Number.isFinite(together.days)) return together.days;
   if (!together.since) return null;
-  const since = new Date(`${together.since}T00:00:00`);
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.max(0, Math.round((today - since) / DAY));
+  const [year, month, day] = together.since.split('-').map(Number);
+  if (![year, month, day].every(Number.isFinite)) return null;
+  const today = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(now);
+  const part = (type) => Number(today.find((item) => item.type === type)?.value);
+  const elapsed = Math.floor((Date.UTC(part('year'), part('month') - 1, part('day')) - Date.UTC(year, month - 1, day)) / DAY);
+  return Math.max(0, elapsed + 1);
 }
 
 export function ago(iso, now) {

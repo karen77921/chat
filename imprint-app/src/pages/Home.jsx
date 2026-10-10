@@ -2,7 +2,7 @@
  * 01 首页：撕纸长卷。从上到下纸带越来越深（层一 → 层四），核心模块都能直接点进去。
  * 数据：GET /api/home（字段见 src/lib/mock.js 和 docs/01-首页.md）
  */
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLoad } from '../lib/useLoad.js';
 import { useReveal } from '../lib/useReveal.js';
 import { api } from '../lib/api.js';
@@ -19,10 +19,15 @@ function Reveal({ children }) {
 
 export default function Home() {
   const { data, setData } = useLoad('/api/home');
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
   const latelyRef = useRef(null);
   const ok = data && data.available !== false;
   const d = ok ? data : null;
-  const now = nowOf(d);
+  const now = d ? new Date(clock) : nowOf(d);
   const unread = d?.activity?.reduce((n, a) => n + (a.unread || 0), 0) || 0;
 
   const readAll = () => {

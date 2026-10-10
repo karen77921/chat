@@ -95,7 +95,16 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
 
     @router.get("/settings")
     def get_settings():
-        return {"available": True, "beauty": setting("beauty"), "avatars": setting("avatars")}
+        return {"available": True, "beauty": setting("beauty"), "avatars": setting("avatars"),
+                "contact": setting("contact")}
+
+    @router.put("/settings/contact")
+    async def set_contact(request: Request):
+        body = await request.json()
+        nickname = str(body.get("himName") or "").strip()
+        if not nickname or len(nickname) > 24:
+            raise HTTPException(400, "昵称需为 1–24 字")
+        return save_setting("contact", {"himName": nickname})
 
     @router.put("/settings/beauty")
     async def set_beauty(request: Request):

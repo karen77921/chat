@@ -120,8 +120,9 @@ async function loadChat(id) {
   return {
     available: true, id, kind: 'window', name: s.title,
     me: { id: 'me', name: '我', avatar: attachmentUrl({ url: settings.avatars?.me }) },
-    members: [{ id: 'him', name: 'Ombre', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
-    presence: { online: true }, replying: null, wallpaper: settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
+    members: [{ id: 'him', name: settings.contact?.himName || 'Ombre', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
+    presence: { online: true }, replying: null, beauty: settings.beauty || {},
+    wallpaper: settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
     items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && m.kind !== 'thinking').map(relayMessage),
   };
 }
@@ -207,11 +208,13 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/logs/tools') return loop('imprint/logs/tools');
   if (method === 'GET' && p === '/api/logs/backend') return { available: true, items: [] };
   if (method === 'GET' && p === '/api/settings/beauty') return loop('imprint/settings');
+  if (method === 'PUT' && p === '/api/settings/contact') return loop('imprint/settings/contact', opts);
   if (method === 'PUT' && p === '/api/settings/beauty') return loop('imprint/settings/beauty', opts);
   if (method === 'PUT' && p === '/api/settings/avatar') return loop('imprint/settings/avatar', opts);
   if (method === 'GET' && p === '/api/home') {
     const notes = await loop('imprint/notes');
-    return { available: true, now: new Date().toISOString(), names: { me: '你', him: 'Ombre' }, together: {}, greeting: '',
+    return { available: true, now: new Date().toISOString(), names: { me: '小年糕', him: '季宁' },
+      together: { since: '2026-09-18' }, greeting: '',
       note: notes.items[0] ? { ...notes.items[0], total: notes.total } : null, activity: [] };
   }
   if (method === 'GET' && p === '/api/notes') return loop(`imprint/notes${query}`);

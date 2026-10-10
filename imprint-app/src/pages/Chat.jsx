@@ -8,8 +8,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../design/icons.jsx';
 import { Cyanotype } from '../design/paper.jsx';
-import { MOCK } from '../lib/api.js';
+import Sheet from '../design/Sheet.jsx';
+import { api, MOCK } from '../lib/api.js';
 import { useChat, replyState, hm, dayLabel, nameOf, memberOf } from '../lib/chat.js';
+import { useBeauty } from '../theme/theme.js';
 import Message from '../components/chat/Message.jsx';
 import InputBar from '../components/chat/InputBar.jsx';
 import MessageMenu from '../components/chat/MessageMenu.jsx';
@@ -19,6 +21,10 @@ export default function Chat({ query }) {
   const chatId = query.id || 'w1';
   const c = useChat(chatId, MOCK ? query.demo : undefined);
   const { data, now } = c;
+  const [, setBeauty] = useBeauty();
+  useEffect(() => {
+    if (data?.beauty && Object.keys(data.beauty).length) setBeauty(data.beauty);
+  }, [data?.beauty]);
   const [menu, setMenu] = useState(null); // { m, rect }
   const [quote, setQuote] = useState(null);
   const [editing, setEditing] = useState(null); // { id, text, then? }
@@ -27,6 +33,7 @@ export default function Chat({ query }) {
   const [q, setQ] = useState('');
   const [toast, setToast] = useState('');
   const [chooser, setChooser] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const ok = data && data.available !== false;
   const items = ok ? data.items : [];
@@ -92,7 +99,7 @@ export default function Chat({ query }) {
               <div className={`ch-st ${st ? st.kind : 'idle'}`}>{group ? <>{data.members.map((m) => m.name).join(' · ')} · 你</> : <><i />{status}</>}</div>
             </div>
             <button type="button" className="gbtn" aria-label="搜聊天" onClick={() => setSearching(true)}><Icon name="search" size={18} /></button>
-            <a className="gbtn" aria-label="美化聊天" href="#/settings?tab=beauty"><Icon name="more" size={18} /></a>
+            <button type="button" className="gbtn" aria-label="聊天设置" onClick={() => setDetailsOpen(true)}><Icon name="more" size={18} /></button>
           </>
         )}
       </header>
@@ -146,6 +153,7 @@ export default function Chat({ query }) {
           onReact={c.react} />
       )}
       {viewer && <ImageViewer {...viewer} onClose={() => setViewer(null)} onGo={(i) => setViewer((v) => ({ ...v, i }))} />}
+      {detailsOpen && <ChatDetails data={data} upload={c.upload} onClose={() => setDetailsOpen(false)} onUpdated={c.reload} />}
       {toast && <div className="ch-toast glass" role="status">{toast}</div>}
       {chooser && group && (
         <div className="ch-choose-layer">
@@ -162,6 +170,81 @@ export default function Chat({ query }) {
         </div>
       )}
     </main>
+  );
+}
+
+function ChatDetails({ data, upload, onClose, onUpdated }) {
+  const [beauty, setBeauty] = useBeauty();
+  const [nickname, setNickname] = useState(data?.members?.[0]?.name || 'Ombre');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const avatarInput = useRef(null);
+  const wallInput = useRef(null);
+  const say = (message) => setNotice(message);
+  const saveName = async () => {
+    const himName = nickname.trim();
+    if (!himName) return say('先写一个昵称');
+    setBusy(true); setNotice('');
+    try { await api('/api/settings/contact', { method: 'PUT', body: { himName } }); await onUpdated(); say('昵称已保存'); }
+    catch (e) { say(e?.message || '昵称保存失败'); }
+    finally { setBusy(false); }
+  };
+  const saveBeauty = async (next) => {
+    setBusy(true); setNotice('');
+    try {
+      const saved = await api('/api/settings/beauty', { method: 'PUT', body: next });
+      setBeauty(saved); await onUpdated(); say('外观已保存');
+    } catch (e) { say(e?.message || '外观保存失败'); }
+    finally { setBusy(false); }
+  };
+  const changeImage = async (file, kind) => {
+    if (!file) return;
+    setBusy(true); setNotice('');
+    try {
+      const uploaded = await upload(file, kind);
+      if (kind === 'avatar') {
+        await api('/api/settings/avatar', { method: 'PUT', body: { who: 'him', url: uploaded.url } });
+        await onUpdated(); say('头像已保存');
+      } else {
+        const saved = await api('/api/settings/beauty', { method: 'PUT', body: { ...beauty, wallpaper: uploaded.url } });
+        setBeauty(saved); await onUpdated(); say('聊天壁纸已保存');
+      }
+    } catch (e) { say(e?.message || '图片保存失败'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Sheet open onClose={onClose} label="聊天设置" seed={103}>
+      <div className="ch-detail">
+        <div className="sec-head"><span className="en">just us</span><h2 className="zh">聊天设置</h2></div>
+        <p className="ch-detail-hint">这里改的是你看到的名字和这段聊天的外观，不会改动聊天记录或他的记忆。</p>
+        <div className="ch-detail-person">
+          <span className="ch-detail-avatar"><Avatar m={data?.members?.[0]} size={52} /></span>
+          <button type="button" className="chip" disabled={busy} onClick={() => avatarInput.current?.click()}>更换他的头像</button>
+          <input ref={avatarInput} type="file" accept="image/*" hidden onChange={(e) => { changeImage(e.target.files[0], 'avatar'); e.target.value = ''; }} />
+        </div>
+        <label className="ch-detail-field">对他的昵称
+          <input value={nickname} maxLength={24} onChange={(e) => setNickname(e.target.value)} placeholder="给他起个名字" />
+        </label>
+        <button type="button" className="btn-main ch-detail-save" disabled={busy || !nickname.trim() || nickname.trim() === data?.members?.[0]?.name} onClick={saveName}>保存昵称</button>
+        <div className="ch-detail-divider" />
+        <div className="ch-detail-label">聊天壁纸</div>
+        <div className="ch-detail-actions">
+          <button type="button" className="chip" disabled={busy} onClick={() => wallInput.current?.click()}>从相册选择</button>
+          {beauty.wallpaper && <button type="button" className="chip" disabled={busy} onClick={() => saveBeauty({ ...beauty, wallpaper: null })}>恢复默认</button>}
+          <input ref={wallInput} type="file" accept="image/*" hidden onChange={(e) => { changeImage(e.target.files[0], 'wallpaper'); e.target.value = ''; }} />
+        </div>
+        <div className="ch-detail-label">气泡样式</div>
+        <div className="ch-detail-actions" role="radiogroup" aria-label="气泡样式">
+          {[['glass', '磨砂玻璃'], ['paper', '纸片'], ['cyan', '蓝晒信纸']].map(([id, label]) => (
+            <button key={id} type="button" role="radio" aria-checked={beauty.bubble === id} className={`chip ${beauty.bubble === id ? 'on' : ''}`} disabled={busy} onClick={() => saveBeauty({ ...beauty, bubble: id })}>{label}</button>
+          ))}
+        </div>
+        <label className="ch-detail-field">气泡透明度 · {Math.round((beauty.alpha ?? 0.5) * 100)}%
+          <input type="range" min="0.2" max="0.95" step="0.05" value={beauty.alpha ?? 0.5} disabled={busy} onChange={(e) => setBeauty({ ...beauty, alpha: Number(e.target.value) })} onPointerUp={() => saveBeauty(beauty)} />
+        </label>
+        {notice && <p className="ch-detail-notice" role="status">{notice}</p>}
+      </div>
+    </Sheet>
   );
 }
 

@@ -128,9 +128,11 @@ class ImprintStoreTest(unittest.TestCase):
     def test_beauty_and_avatar_persist(self):
         self.call("PUT", "/settings/beauty", Request({"bubble": "paper", "alpha": 0.7}))
         self.call("PUT", "/settings/avatar", Request({"who": "him", "url": "/uploads/real.png"}))
+        self.call("PUT", "/settings/contact", Request({"himName": "小年糕"}))
         settings = self.call("GET", "/settings")
         self.assertEqual(settings["beauty"]["bubble"], "paper")
         self.assertEqual(settings["avatars"]["him"], "/uploads/real.png")
+        self.assertEqual(settings["contact"]["himName"], "小年糕")
 
 
 if __name__ == "__main__":

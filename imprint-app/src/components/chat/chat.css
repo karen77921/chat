@@ -183,3 +183,21 @@ svg.up { transform: rotate(180deg); }
 [data-bubble='paper'] .cm-bubble.me { background: color-mix(in srgb, var(--l1) 90%, #fff); }
 [data-bubble='cyan'] .cm-bubble.me { background: linear-gradient(135deg, var(--print-a), var(--print-b)); color: #fff; }
 [data-bubble='cyan'] .cm-bubble.me .cm-quote, [data-bubble='cyan'] .cm-bubble.me .cm-quote-who { color: rgba(255, 255, 255, 0.85); border-color: rgba(255, 255, 255, 0.6); }
+
+/* 聊天右上角的个性化设置 */
+.ch-detail { padding-bottom: 8px; }
+.ch-detail .sec-head { margin: 0 0 8px; }
+.ch-detail .sec-head h2 { margin: 0; }
+.ch-detail-hint { margin: 0 0 18px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.ch-detail-person { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.ch-detail-avatar { width: 58px; height: 58px; padding: 3px; border-radius: 50%; background: rgba(255,255,255,.75); box-shadow: 0 4px 16px rgba(var(--sh-rgb),.13); overflow: hidden; }
+.ch-detail-avatar > img, .ch-detail-avatar > svg { border-radius: 50%; }
+.ch-detail-field { display: flex; flex-direction: column; gap: 9px; margin: 16px 0 10px; font-size: 13px; color: var(--ink); }
+.ch-detail-field input:not([type='range']) { height: 46px; border: 1px solid var(--line); border-radius: 18px; padding: 0 14px; background: rgba(255,255,255,.68); color: var(--ink); font: inherit; outline-color: var(--accent); }
+.ch-detail-field input[type='range'] { width: 100%; accent-color: var(--print-b); }
+.ch-detail-save { min-height: 40px; padding: 0 20px; }
+.ch-detail-divider { height: 1px; margin: 22px 0; background: var(--line); }
+.ch-detail-label { margin: 18px 0 9px; font-size: 13px; color: var(--ink); }
+.ch-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ch-detail-actions .chip[aria-checked='true'] { color: var(--print-c); border-color: var(--print-b); }
+.ch-detail-notice { min-height: 20px; margin: 18px 0 0; color: var(--print-c); font-size: 12px; }

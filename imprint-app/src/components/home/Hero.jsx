@@ -22,7 +22,7 @@ export default function Hero({ data, now, unread, onBell }) {
     <header className="hero">
       <div className="brand"><BrandMark /><span>IMPRINT</span></div>
       <h1 className="names serif">
-        <span>{names.him || ' '}</span><span className="amp hand">&amp;</span><span>{names.me}</span>
+        <span>{names.him || ' '}</span><span className="amp hand">×</span><span>{names.me}</span>
       </h1>
       <p className="greet">{greetingOf(now)}{data?.greeting ? `，${data.greeting}` : ''}</p>
       <button type="button" className="rbtn bell" aria-label={unread ? `他的动态，${unread} 条没看` : '他的动态'} onClick={onBell}>

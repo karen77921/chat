@@ -59,6 +59,36 @@ async function request(path, { method = 'GET', body, form, timeout = 30000, raw 
 
 const loop = (path, opts) => request(`${RELAY}/app/loop/${path}`, opts);
 
+function tideHeat(items) {
+  const counts = new Map();
+  for (const item of items) {
+    const day = String(item.at || '').slice(0, 10);
+    if (day) counts.set(day, (counts.get(day) || 0) + 1);
+  }
+  const out = [];
+  const now = new Date();
+  for (let n = 118; n >= 0; n -= 1) {
+    const d = new Date(now);
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - n);
+    const date = d.toISOString().slice(0, 10);
+    out.push({ date, count: counts.get(date) || 0 });
+  }
+  return out;
+}
+
+function tideMemoryItems(text, query = '') {
+  const clean = String(text || '').trim();
+  if (!clean) return [];
+  let blocks = clean.split(/\n\s*\n+/).map((x) => x.trim()).filter(Boolean);
+  if (blocks.length === 1 && clean.includes('\n')) blocks = clean.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  const now = new Date().toISOString();
+  return blocks.slice(0, 120).map((block, index) => {
+    const value = block.replace(/^\s*(?:[-*•]+|\d+[.)])\s*/, '').replace(/^#{1,6}\s*/, '').trim();
+    return { id: `tide-${index}-${value.length}`, no: blocks.length - index, at: now, text: value.slice(0, 2000), tag: query ? '搜索' : '心潮', by: 'him' };
+  });
+}
+
 function quoteParts(text) {
   const m = String(text || '').match(/^> 引用：([^\n]+)\n\n([\s\S]*)$/);
   return m ? { text: m[2], quote: { id: '', from: 'him', text: m[1] } } : { text: String(text || '') };
@@ -128,8 +158,8 @@ async function liveFeatures() {
     available: true,
     features: [
       { key: 'reach', name: '主动找你', desc: `Wake 2.0 · ${cfg.wake?.control?.mode || '低频'}`, last: cfg.wake?.state?.last_opportunity_at || '', on: cfg.wake?.control?.enabled !== false },
-      { key: 'memory', name: '记忆整理', desc: '上下文压缩与 Ombre 长期记忆', last: '', on: cfg.context_compaction !== false },
-      { key: 'recall', name: '记忆自动回想', desc: '每轮按话题读取 Ombre', last: '', on: cfg.ombre_auto_recall !== false },
+      { key: 'memory', name: '心潮记忆整理', desc: '上下文压缩后沉入心潮记忆', last: '', on: cfg.context_compaction !== false },
+      { key: 'recall', name: '心潮自动回想', desc: '每轮按当前话题读取心潮记忆', last: '', on: cfg.ombre_auto_recall !== false },
       { key: 'time', name: '现实时间感知', desc: cfg.context_timezone || 'Asia/Shanghai', last: '', on: cfg.context_time !== false },
       { key: 'backup', name: '自动备份', desc: `每 ${cfg.backup_interval_hours || 24} 小时`, last: '', on: cfg.backup_enabled !== false },
     ],
@@ -179,6 +209,28 @@ async function compat(path, opts) {
   if (method === 'PUT' && (p === '/api/settings/beauty' || p === '/api/settings/avatar')) return { ok: true };
   if (method === 'GET' && p === '/api/home') return { available: true, now: new Date().toISOString(), names: { me: '你', him: 'Ombre' }, together: {}, greeting: '', activity: [] };
   if (method === 'GET' && p === '/api/together/listen') return { available: false };
+  if (method === 'GET' && p === '/api/tide') return { available: false };
+  if (method === 'GET' && p === '/api/tide/dreams') return { available: false };
+  if (method === 'GET' && p === '/api/tide/memory') {
+    const query = new URL(path, window.location.origin).searchParams.get('q') || '';
+    const result = await loop('memories', { method: 'POST', body: { query } });
+    const items = tideMemoryItems(result.text, query);
+    return {
+      available: true,
+      now: new Date().toISOString(),
+      stats: { longTerm: items.length, weekWrites: 0, manual: 0 },
+      heat: tideHeat(items),
+      items,
+      recent: items.slice(0, 3).map(({ at, text }) => ({ at, text })),
+    };
+  }
+  if (method === 'POST' && p === '/api/tide/memory') {
+    const text = String(opts.body?.text || '').trim();
+    const tag = String(opts.body?.tag || '').trim();
+    if (!text) throw new ApiError(400, '请先写下要记住的内容');
+    await loop('memories/write', { method: 'POST', body: { text, tag, mode: text.length > 500 ? 'grow' : 'hold', tell_him: Boolean(opts.body?.tellHim) }, timeout: 60000 });
+    return { id: `tide-${Date.now()}`, no: Date.now(), at: new Date().toISOString(), text, tag, by: 'me' };
+  }
   return mockFetch(path, opts);
 }
 

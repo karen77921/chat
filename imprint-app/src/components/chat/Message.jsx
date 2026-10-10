@@ -20,6 +20,11 @@ function Text({ text, q }) {
   return <>{splitByQuery(text || '', q).map((p, i) => (p.hit ? <mark key={i}>{p.t}</mark> : p.t))}</>;
 }
 
+function bubbleParts(text) {
+  const parts = String(text || '').split(/\s*⟦气泡⟧\s*/).map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts : [''];
+}
+
 function Quote({ quote, nameOf }) {
   return (
     <div className="cm-quote">
@@ -127,13 +132,20 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
       );
       break;
     default:
+      {
+        const parts = bubbleParts(m.text);
       body = (
-        <div className={`cm-bubble ${mine ? 'me' : 'him'}`}>
-          {m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
-          <Text text={m.text} q={q} />
-          {m.edited && <span className="cm-edited">（改过）</span>}
+        <div className="cm-bubble-stack">
+          {parts.map((part, index) => (
+            <div key={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
+              {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
+              <Text text={part} q={q} />
+              {index === parts.length - 1 && m.edited && <span className="cm-edited">（改过）</span>}
+            </div>
+          ))}
         </div>
       );
+      }
   }
 
   return (

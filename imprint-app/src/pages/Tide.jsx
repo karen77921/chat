@@ -69,7 +69,15 @@ function BigSpecimen({ emotions }) {
 function Now({ data }) {
   const [all, setAll] = useState(false);
   if (!data) return <div className="card cl-empty">正在看他…</div>;
-  if (data.available === false) return <div className="card cl-empty">暂时连不上他那边，过一会儿再来。</div>;
+  if (data.available === false) return <div className="card cl-empty">{data.reason || '暂时连不上心潮，过一会儿再来。'}</div>;
+  if (data.kind === 'pulse') return (
+    <div className="card td-pulse-live">
+      <div className="sec-head"><span className="en">live pulse</span><h2 className="zh" style={{ margin: 0 }}>此刻的心潮</h2></div>
+      <p>{data.text}</p>
+      <small>来自已连接的心潮工具 · {new Date(data.at).toLocaleString('zh-CN')}</small>
+      <p className="td-pulse-note">心潮目前没有提供真实的十六维情绪、体温或呼吸数值，因此这里不显示推测数据。</p>
+    </div>
+  );
   const s = data.state;
   const top3 = [...s.emotions].sort((a, b) => b.value - a.value).slice(0, 3);
   const drives = [...data.drives].sort((a, b) => b.value - a.value);

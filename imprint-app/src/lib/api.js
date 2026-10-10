@@ -106,7 +106,7 @@ export function relayMessage(raw) {
 
 function chatList(sessions) {
   const rows = [...(sessions || [])].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-  const convert = (s) => ({ id: s.id, kind: 'window', name: s.title || '新对话', provider: '私人后端', members: [{ id: 'him', name: 'Ombre' }], pinned: Boolean(s.pinned), preview: '', at: s.updated_at || s.created_at, unread: 0, replying: false });
+  const convert = (s) => ({ id: s.id, kind: 'window', name: s.title || '新对话', provider: '私人后端', members: [{ id: 'him', name: 'Ombre' }], pinned: Boolean(s.pinned), preview: '', lastAt: s.updated_at || s.created_at, unread: 0, replying: false });
   return { available: true, windows: rows.filter((x) => !x.archived).map(convert), groups: [], archived: rows.filter((x) => x.archived).map(convert) };
 }
 
@@ -165,7 +165,14 @@ async function compat(path, opts) {
   }
   if (method === 'GET' && p === '/api/connections') return { available: true, items: [{ id: 'main', name: '私人后端', kind: 'window', provider: 'Imprint API loop', note: '现有主窗口', status: 'ok', statusText: '在线', mode: 'OpenAI 兼容 API', workdir: 'VPS 私有目录', sandbox: '只访问已配置目录' }] };
   if (method === 'GET' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return loadChat(decodeURIComponent(m[1]));
-  if (method === 'PATCH' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return request(`${RELAY}/app/sessions/${m[1]}`, { method: 'PATCH', body: { title: opts.body?.name, pinned: opts.body?.pinned, active: opts.body?.active } });
+  if (method === 'PATCH' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) {
+    const body = {};
+    if (opts.body?.name !== undefined) body.title = opts.body.name;
+    if (opts.body?.pinned !== undefined) body.pinned = opts.body.pinned;
+    if (opts.body?.archived !== undefined) body.archived = opts.body.archived;
+    if (opts.body?.active !== undefined) body.active = opts.body.active;
+    return request(`${RELAY}/app/sessions/${m[1]}`, { method: 'PATCH', body });
+  }
   if (method === 'DELETE' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return loop(`sessions/${m[1]}`, { method: 'DELETE' });
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/messages$/.exec(p))) return sendMessage(decodeURIComponent(m[1]), opts.body || {});
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/reply$/.exec(p))) return request(`${RELAY}/app/trigger`, { method: 'POST', body: { api_session: decodeURIComponent(m[1]) } });
@@ -244,7 +251,7 @@ async function compat(path, opts) {
   if (method === 'POST' && p === '/api/together/watch/list') return loop('imprint/together/watch/list', opts);
   if (method === 'GET' && p === '/api/music/search') return { available: true, items: [] };
   if (method === 'GET' && p === '/api/together/listen') return { available: false };
-  if (method === 'GET' && p === '/api/tide') return { available: false };
+  if (method === 'GET' && p === '/api/tide') return loop('tide/pulse');
   if (method === 'GET' && p === '/api/tide/dreams') return { available: false };
   if (method === 'GET' && p === '/api/tide/memory') {
     const query = new URL(path, window.location.origin).searchParams.get('q') || '';

@@ -22,19 +22,25 @@ export default function ChatList({ query }) {
   const [creating, setCreating] = useState(query.new === '1');
   const [showArchived, setShowArchived] = useState(query.archived === '1');
   const [swiped, setSwiped] = useState(null);
+  const [error, setError] = useState('');
   const now = data?.now ? new Date(data.now) : new Date();
   const ok = data && data.available !== false;
 
   const match = (c) => !q.trim() || c.name.includes(q.trim()) || c.preview?.includes(q.trim());
   const act = async (c, patch) => {
-    setSwiped(null);
-    if (patch === 'delete') {
-      if (!confirm(`删掉「${c.name}」？聊天记录也会一起删掉。`)) return;
-      await api(`/api/chats/${c.id}`, { method: 'DELETE' });
-    } else {
-      await api(`/api/chats/${c.id}`, { method: 'PATCH', body: patch });
+    setError('');
+    try {
+      if (patch === 'delete') {
+        if (!confirm(`永久删除「${c.name}」和里面的聊天记录？删除后不能恢复。`)) return;
+        await api(`/api/chats/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
+      } else {
+        await api(`/api/chats/${encodeURIComponent(c.id)}`, { method: 'PATCH', body: patch });
+      }
+      setSwiped(null);
+      await reload();
+    } catch (e) {
+      setError(e?.message || '操作失败，请重试');
     }
-    reload();
   };
   const open = (id) => { location.hash = `#/chat/t?id=${encodeURIComponent(id)}`; };
   const startNew = () => { setCreating(true); replaceQuery({ new: '1' }); };
@@ -80,6 +86,7 @@ export default function ChatList({ query }) {
       </label>
 
       <Band tone="l1" seed={41} className="cl-band">
+        {error && <div className="card cl-empty" role="alert">{error}</div>}
         {!data && <div className="card cl-empty">正在翻…</div>}
         {data?.available === false && <div className="card cl-empty">暂时连不上，过一会儿再来看看。</div>}
         {ok && showArchived && (
@@ -113,10 +120,24 @@ export default function ChatList({ query }) {
 /** 左滑露出操作（电脑上右键也能打开） */
 function SwipeRow({ c, open, onSwipe, actions, children }) {
   const start = useRef(null);
+  const suppressClick = useRef(false);
+  const finish = (x, y) => {
+    if (!start.current) return;
+    const dx = x - start.current.x;
+    const dy = y - start.current.y;
+    start.current = null;
+    if (Math.abs(dx) < 35 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    suppressClick.current = true;
+    setTimeout(() => { suppressClick.current = false; }, 350);
+    onSwipe(dx < 0);
+  };
   return (
     <div className={`cl-swipe ${open ? 'open' : ''}`}
-      onPointerDown={(e) => { start.current = e.clientX; }}
-      onPointerUp={(e) => { if (start.current == null) return; const dx = e.clientX - start.current; if (dx < -40) onSwipe(true); if (dx > 40) onSwipe(false); start.current = null; }}
+      onPointerDown={(e) => { if (e.pointerType !== 'touch') start.current = { x: e.clientX, y: e.clientY }; }}
+      onPointerUp={(e) => { if (e.pointerType !== 'touch') finish(e.clientX, e.clientY); }}
+      onTouchStart={(e) => { start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
+      onTouchEnd={(e) => { finish(e.changedTouches[0].clientX, e.changedTouches[0].clientY); }}
+      onClickCapture={(e) => { if (suppressClick.current) { e.preventDefault(); e.stopPropagation(); suppressClick.current = false; } }}
       onContextMenu={(e) => { e.preventDefault(); onSwipe(!open); }}>
       <div className="cl-acts">
         {actions.map(([ic, name, fn, tone]) => <button key={name} type="button" className={tone || ''} tabIndex={open ? 0 : -1} onClick={fn}><Icon name={ic} size={18} stroke={1.4} />{name}</button>)}

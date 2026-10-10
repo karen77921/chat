@@ -63,3 +63,6 @@
 .td-aware p { margin: 0; font-size: 16px; line-height: 23px; border-left: 2px solid color-mix(in srgb, var(--print-c) 45%, transparent); padding-left: 10px; }
 .td-older { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); margin-top: 8px; }
 .td-older > span:first-child { color: var(--ink); }
+.td-pulse-live { padding: 22px; white-space: pre-wrap; }
+.td-pulse-live > p { line-height: 1.75; overflow-wrap: anywhere; }
+.td-pulse-live > small, .td-pulse-live .td-pulse-note { color: var(--muted); font-size: 11px; }

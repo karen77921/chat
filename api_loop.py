@@ -512,6 +512,8 @@ def patch_session(session_id: str, body: dict[str, Any]) -> dict[str, Any]:
             item["title"] = str(body.get("title") or item["title"]).strip() or item["title"]
         if "pinned" in body:
             item["pinned"] = bool(body.get("pinned"))
+        if "archived" in body:
+            item["archived"] = bool(body.get("archived"))
         item["updated_at"] = now_iso()
     if not found:
         raise HTTPException(status_code=404, detail="session not found")
@@ -2755,6 +2757,23 @@ async def loop_tools():
 @app.get("/loop/mcp")
 async def loop_mcp_list():
     return {"available": MCP_AVAILABLE, "servers": mcp_manager.public()}
+
+
+@app.get("/loop/tide/pulse")
+async def loop_tide_pulse():
+    """Expose only a real Heart Tide pulse; do not synthesize vital signs."""
+    target = ombre_tool("pulse")
+    if target is None:
+        return {"available": False, "reason": "心潮尚未提供实时 pulse 工具"}
+    server, tool = target
+    try:
+        result = await server.call(str(getattr(tool, "name", "pulse")), {})
+        text = mcp_result_text(result, limit=8_000).strip()
+        if not text:
+            return {"available": False, "reason": "心潮暂未返回实时状态"}
+        return {"available": True, "kind": "pulse", "text": text, "at": now_iso()}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Heart Tide pulse failed: {type(exc).__name__}: {exc}"[:500]) from exc
 
 
 @app.post("/loop/memories")

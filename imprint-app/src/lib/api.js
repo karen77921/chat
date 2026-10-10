@@ -82,6 +82,13 @@ function attachmentUrl(a) {
   return withToken(url.startsWith('/') ? `${BASE}${url}` : url);
 }
 
+function listenPayload(data) {
+  if (!data) return data;
+  const track = data.track ? { ...data.track, url: attachmentUrl(data.track) } : null;
+  const playlist = (data.playlist || []).map((item) => ({ ...item, url: attachmentUrl(item) }));
+  return { ...data, track, playlist };
+}
+
 export function relayMessage(raw) {
   const mine = raw.from === 'human';
   const q = quoteParts(raw.text);
@@ -111,19 +118,22 @@ function chatList(sessions) {
 }
 
 async function loadChat(id) {
-  const [ss, hist, settings] = await Promise.all([
+  const [ss, hist, settings, reactions] = await Promise.all([
     request(`${RELAY}/app/sessions`),
     request(`${RELAY}/app/history?session_id=${encodeURIComponent(id)}&since=0&limit=500`),
     loop('imprint/settings').catch(() => ({ avatars: {} })),
+    loop('imprint/chat/reactions').catch(() => ({ items: [] })),
   ]);
   const s = (ss.sessions || []).find((x) => x.id === id) || { id, title: '新对话' };
+  const reactionById = new Map((reactions.items || []).map((item) => [String(item.messageId), item.stickerId]));
   return {
     available: true, id, kind: 'window', name: s.title,
     me: { id: 'me', name: '我', avatar: attachmentUrl({ url: settings.avatars?.me }) },
     members: [{ id: 'him', name: settings.contact?.himName || 'Ombre', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
     presence: { online: true }, replying: null, beauty: settings.beauty || {},
     wallpaper: settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
-    items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && m.kind !== 'thinking').map(relayMessage),
+    items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && m.kind !== 'thinking')
+      .map((message) => ({ ...relayMessage(message), reaction: reactionById.get(String(message.id)) || null })),
   };
 }
 
@@ -180,7 +190,9 @@ async function compat(path, opts) {
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)\/regenerate$/.exec(p))) return loop('regenerate', { method: 'POST', body: { session_id: decodeURIComponent(m[1]), reply_message_id: Number(m[2]) } });
   if (method === 'PUT' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)$/.exec(p))) return loop(`messages/${m[2]}`, { method: 'PATCH', body: { text: opts.body?.text } });
   if (method === 'DELETE' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)$/.exec(p))) return loop(`messages/${m[2]}/delete`, { method: 'POST', body: { session_id: decodeURIComponent(m[1]) } });
-  if (method === 'POST' && /\/react$/.test(p)) return { ok: true };
+  if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)\/react$/.exec(p))) {
+    return loop(`imprint/chat/messages/${m[2]}/reaction`, { method: 'POST', body: { stickerId: opts.body?.stickerId } });
+  }
   if (method === 'POST' && p === '/api/chat/upload') {
     const file = opts.form?.get('file');
     const uploaded = await request(`${RELAY}/app/upload?name=${encodeURIComponent(file?.name || 'attachment')}`, { method: 'POST', raw: file, timeout: opts.timeout || 60000 });
@@ -219,9 +231,17 @@ async function compat(path, opts) {
   if (method === 'PUT' && p === '/api/settings/beauty') return loop('imprint/settings/beauty', { ...opts, method: 'POST' });
   if (method === 'PUT' && p === '/api/settings/avatar') return loop('imprint/settings/avatar', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/home') {
-    const [notes, activity] = await Promise.all([loop('imprint/notes'), loop('imprint/activity')]);
-    return { available: true, now: new Date().toISOString(), names: { me: '小年糕', him: '季宁' },
-      together: { since: '2026-09-18' }, greeting: '',
+    const [notes, activity, settings, tide, listen, watch] = await Promise.all([
+      loop('imprint/notes'), loop('imprint/activity'), loop('imprint/settings'), loop('tide/pulse').catch(() => null),
+      loop('imprint/together/listen').catch(() => null), loop('imprint/together/watch').catch(() => null),
+    ]);
+    const track = listen?.track;
+    const nextWatch = watch?.list?.find((item) => item.status === 'scheduled' && (item.at || item.scheduledAt));
+    return { available: true, now: new Date().toISOString(),
+      names: { me: '我', him: settings.contact?.himName || 'Ombre' }, together: { since: '2026-09-18' }, greeting: '',
+      state: tide?.available === false ? null : tide?.state,
+      listen: track ? { ...track, positionS: listen.positionS || 0, playing: listen.playing } : null,
+      watch: nextWatch ? { title: nextWatch.title, order: 1, at: nextWatch.at || nextWatch.scheduledAt || nextWatch.createdAt, ticketNo: String(nextWatch.id || '').slice(0, 6) } : null,
       note: notes.items[0] ? { ...notes.items[0], total: notes.total } : null, activity: activity.items || [] };
   }
   if (method === 'POST' && p === '/api/activity/read') return loop('imprint/activity/read', { method: 'POST' });
@@ -250,8 +270,13 @@ async function compat(path, opts) {
   if (method === 'POST' && (m = /^\/api\/spark\/kept\/([^/]+)\/active$/.exec(p))) return loop(`imprint/spark/kept/${m[1]}/active`, opts);
   if (method === 'GET' && p === '/api/together/watch') return loop('imprint/together/watch');
   if (method === 'POST' && p === '/api/together/watch/list') return loop('imprint/together/watch/list', opts);
-  if (method === 'GET' && p === '/api/music/search') return { available: true, items: [] };
-  if (method === 'GET' && p === '/api/together/listen') return { available: false };
+  if (method === 'GET' && p === '/api/music/search') return loop(`imprint/together/tracks${query}`).then((data) => ({ ...data, items: (data.items || []).map((item) => ({ ...item, url: attachmentUrl(item) })) }));
+  if (method === 'POST' && p === '/api/music/tracks') return loop('imprint/together/tracks', opts).then(listenPayload);
+  if (method === 'GET' && p === '/api/together/listen') return loop('imprint/together/listen').then(listenPayload);
+  if (method === 'POST' && p === '/api/together/listen') return loop('imprint/together/listen', opts).then(listenPayload);
+  if (method === 'POST' && p === '/api/together/playlist') return loop('imprint/together/playlist', opts).then(listenPayload);
+  if (method === 'PUT' && p === '/api/together/playlist') return loop('imprint/together/playlist', opts).then(listenPayload);
+  if (method === 'DELETE' && (m = /^\/api\/together\/playlist\/([^/]+)$/.exec(p))) return loop(`imprint/together/playlist/${m[1]}`, opts).then(listenPayload);
   if (method === 'GET' && p === '/api/tide') return loop('tide/pulse');
   if (method === 'GET' && p === '/api/tide/dreams') return loop('imprint/tide/dreams');
   if (method === 'GET' && p === '/api/tide/memory') {

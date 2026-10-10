@@ -45,7 +45,7 @@ export function ListenProvider({ children }) {
 
   const value = {
     state: s, pos,
-    toggle: () => control({ playing: !s?.playing }),
+    toggle: () => control({ playing: !s?.playing, positionS: pos }),
     next: () => control({ action: 'next' }),
     prev: () => control({ action: 'prev' }),
     seek: (sec) => control({ positionS: sec }),

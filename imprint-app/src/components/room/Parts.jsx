@@ -162,8 +162,6 @@ export function Solo({ data, now }) {
 
 /* ---------- 表情包 ---------- */
 export function Stickers({ data, setData, onUpload }) {
-  const [drawing, setDrawing] = useState(false);
-  const [prompt, setPrompt] = useState('');
   const [tip, setTip] = useState('');
   const fileIn = useRef(null);
   const press = useRef(null);
@@ -186,12 +184,6 @@ export function Stickers({ data, setData, onUpload }) {
       setData((d) => ({ ...d, mine: d.mine.filter((x) => x.id !== st.id) }));
     } catch (error) { flash(error?.message || '删除失败'); }
   };
-  const ask = async () => {
-    try {
-      await api('/api/stickers/draw', { method: 'POST', body: { prompt: prompt.trim() } });
-      setDrawing(false); setPrompt(''); flash('他收到了，画好会放在这里');
-    } catch (error) { flash(error?.message || '暂时不能画表情'); }
-  };
   const longPress = (st) => ({
     onPointerDown: () => { press.current = setTimeout(() => del(st), 520); },
     onPointerUp: () => clearTimeout(press.current), onPointerLeave: () => clearTimeout(press.current),
@@ -203,7 +195,7 @@ export function Stickers({ data, setData, onUpload }) {
       <div className="sec-head"><span className="en" style={{ fontSize: 24 }}>by him</span><h3 className="zh" style={{ margin: 0, fontSize: 14 }}>他画的</h3><span className="go">{data.his.length} 个</span></div>
       <div className="rm-stk">
         {data.his.map((s) => <span key={s.id} className="card rm-stk-c" title={s.prompt || s.name}><Sticker sticker={s} size={58} /></span>)}
-        <button type="button" className="rm-stk-ask" onClick={() => setDrawing(true)}><Icon name="pen" size={15} stroke={1.5} />让他画一张</button>
+        {!data.his.length && <span className="card rm-empty">他还没有保存自己的表情</span>}
       </div>
       <div className="sec-head" style={{ marginTop: 26 }}><span className="en" style={{ fontSize: 24 }}>mine</span><h3 className="zh" style={{ margin: 0, fontSize: 14 }}>我的</h3><span className="go">长按删除</span></div>
       <div className="rm-stk">
@@ -212,11 +204,6 @@ export function Stickers({ data, setData, onUpload }) {
       </div>
       <input ref={fileIn} type="file" accept="image/*" hidden onChange={(e) => { add(e.target.files[0]); e.target.value = ''; }} />
       {tip && <div className="rm-tip" role="status">{tip}</div>}
-      <Sheet open={drawing} onClose={() => setDrawing(false)} label="让他画一张表情">
-        <div className="sec-head"><span className="en">draw me</span><h2 className="zh" style={{ margin: 0 }}>让他画一张</h2></div>
-        <label className="pill rm-in"><span className="sr">想要什么样子</span><input autoFocus value={prompt} maxLength={100} onChange={(e) => setPrompt(e.target.value)} placeholder="比如：抱着枕头的猫" /></label>
-        <button type="button" className="btn-main rm-go" disabled={!prompt.trim()} onClick={ask}>交给他</button>
-      </Sheet>
     </>
   );
 }

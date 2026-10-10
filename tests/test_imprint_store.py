@@ -127,6 +127,32 @@ class ImprintStoreTest(unittest.TestCase):
             conn.execute("INSERT INTO messages(ts,direction,kind,meta) VALUES(?,?,?,?)", (iso_now(), "out", "reply", "{}"))
         self.assertEqual(self.call("GET", "/spark")["streak"]["days"], 1)
 
+    def test_music_playlist_and_message_reactions_are_durable(self):
+        music = self.call("POST", "/together/tracks", Request({
+            "title": "我们上传的歌", "artist": "本地音频", "url": "/uploads/ours.mp3", "durationS": 183,
+        }))
+        self.assertEqual(music["track"]["title"], "我们上传的歌")
+        self.assertEqual(len(music["playlist"]), 1)
+        paused = self.call("POST", "/together/listen", Request({"playing": True, "positionS": 42}))
+        self.assertTrue(paused["playing"])
+        self.assertEqual(paused["positionS"], 42)
+        found = self.call("GET", "/together/tracks", q="上传")
+        self.assertEqual(found["items"][0]["id"], music["track"]["id"])
+        removed = self.call("DELETE", "/together/playlist/{track_id}", music["track"]["id"])
+        self.assertEqual(removed["playlist"], [])
+        self.assertFalse(removed["playing"])
+
+        with sqlite3.connect(self.relay) as conn:
+            message_id = conn.execute(
+                "INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                (dt.datetime.now(dt.timezone.utc).isoformat(), "out", "reply", "真实消息", "{}"),
+            ).lastrowid
+        saved = self.call("POST", "/chat/messages/{message_id}/reaction", message_id,
+                          Request({"stickerId": "cat-heart"}))
+        self.assertEqual(saved["stickerId"], "cat-heart")
+        reactions = self.call("GET", "/chat/reactions")["items"]
+        self.assertEqual(reactions, [{"messageId": str(message_id), "stickerId": "cat-heart"}])
+
     def test_usage_never_invents_cost(self):
         self.assertIsNone(self.call("GET", "/usage")["month"]["tokens"])
         from imprint_store import iso_now

@@ -105,12 +105,11 @@ function Desk({ go }) {
 function Access() {
   const { data } = useLoad('/api/connections');
   const [open, setOpen] = useState(null);
-  const [adding, setAdding] = useState(false);
   if (!data) return <div className="card cl-empty">正在看…</div>;
   return (
     <>
       <ModelAccess />
-      <p className="st-tip">每个窗口接一条 Codex。密钥只存在后端，这里看不到也拿不到。</p>
+      <p className="st-tip">所有聊天窗口使用当前私人后端。模型密钥只保存在 VPS，这里看不到也拿不到。</p>
       {data.items.map((x) => (
         <button key={x.id} type="button" className={`card st-conn ${open === x.id ? 'on' : ''}`} onClick={() => setOpen(open === x.id ? null : x.id)} aria-expanded={open === x.id}>
           <span className="st-cx serif">Cx</span>
@@ -125,14 +124,6 @@ function Access() {
           )}
         </button>
       ))}
-      <button type="button" className="cl-link" onClick={() => setAdding(true)}><Icon name="link" size={18} stroke={1.4} />新加一条接入<span>预留</span></button>
-      {adding && (
-        <Sheet open onClose={() => setAdding(false)} label="新加一条接入" seed={86}>
-          <div className="sec-head"><span className="en">new link</span><h2 className="zh" style={{ margin: 0 }}>新加一条接入</h2></div>
-          <p className="st-tip">这一步需要后端配合：在后端那台机器上准备好 Codex 和工作目录，再把名字和地址登记进来。见 docs/03a。</p>
-          <button type="button" className="btn-main nc-go" onClick={() => setAdding(false)}>知道了</button>
-        </Sheet>
-      )}
     </>
   );
 }

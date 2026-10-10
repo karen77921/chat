@@ -267,6 +267,34 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                          (f"setting_{name}", "setting", iso_now(), json.dumps(value, ensure_ascii=False)))
         return value
 
+    def public_names() -> dict[str, str]:
+        contact = setting("contact")
+        return {"me": NAMES["me"], "him": str(contact.get("himName") or NAMES["him"])[:24]}
+
+    def listen_public() -> dict:
+        tracks = rows("music_track")
+        by_id = {item["id"]: item for item in tracks}
+        playlist_setting = setting("music_playlist")
+        saved_order = playlist_setting.get("ids", [])
+        order = ([str(track_id) for track_id in saved_order if str(track_id) in by_id]
+                 if "ids" in playlist_setting else [item["id"] for item in reversed(tracks)])
+        playlist = [by_id[track_id] for track_id in order]
+        state = setting("listen_state")
+        current_id = str(state.get("trackId") or "")
+        if current_id not in by_id:
+            current_id = order[0] if order else ""
+        track = by_id.get(current_id)
+        try:
+            position = max(0.0, float(state.get("positionS") or 0))
+        except (TypeError, ValueError):
+            position = 0.0
+        if track and track.get("durationS"):
+            position = min(position, float(track["durationS"]))
+        return {"available": True, "names": public_names(), "track": track,
+                "playing": bool(track and state.get("playing")), "positionS": position,
+                "synced": False, "playlist": playlist, "notes": track.get("notes", []) if track else [],
+                "updatedAt": state.get("updatedAt") or iso_now()}
+
     def activity_items() -> list[dict]:
         events = []
         if not relay_path.exists():
@@ -322,6 +350,26 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def get_settings():
         return {"available": True, "beauty": setting("beauty"), "avatars": setting("avatars"),
                 "contact": setting("contact")}
+
+    @router.get("/chat/reactions")
+    def chat_reactions():
+        values = setting("chat_reactions")
+        return {"available": True, "items": [{"messageId": key, "stickerId": value}
+                                                for key, value in values.items()]}
+
+    @router.post("/chat/messages/{message_id}/reaction")
+    async def set_chat_reaction(message_id: int, request: Request):
+        sticker = str((await request.json()).get("stickerId") or "").strip()[:80]
+        if message_id < 1 or not sticker:
+            raise HTTPException(400, "消息和表情不能为空")
+        if relay_path.exists():
+            with sqlite3.connect(str(relay_path), timeout=10) as conn:
+                if not conn.execute("SELECT 1 FROM messages WHERE id=?", (message_id,)).fetchone():
+                    raise HTTPException(404, "消息不存在")
+        values = setting("chat_reactions")
+        values[str(message_id)] = sticker
+        save_setting("chat_reactions", values)
+        return {"messageId": message_id, "stickerId": sticker}
 
     @router.get("/tide/state")
     def tide_state():
@@ -510,6 +558,88 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def watch_list():
         films = [{**item, "at": item.get("scheduledAt")} for item in rows("watch")]
         return {"available": True, "names": NAMES, "current": None, "reactions": [], "list": films, "watchUrl": ""}
+
+    @router.get("/together/listen")
+    def listen_state():
+        return listen_public()
+
+    @router.post("/together/listen")
+    async def update_listen(request: Request):
+        body = await request.json()
+        current = listen_public()
+        playlist = current["playlist"]
+        ids = [item["id"] for item in playlist]
+        track_id = str(body.get("trackId") or (current.get("track") or {}).get("id") or "")
+        action = str(body.get("action") or "")
+        if action in {"next", "prev"} and ids:
+            index = ids.index(track_id) if track_id in ids else 0
+            track_id = ids[(index + (1 if action == "next" else -1)) % len(ids)]
+            position = 0.0
+        else:
+            try:
+                position = max(0.0, float(body.get("positionS", current.get("positionS") or 0)))
+            except (TypeError, ValueError):
+                raise HTTPException(400, "播放进度格式有误")
+        if track_id and track_id not in ids:
+            raise HTTPException(404, "歌曲不在歌单里")
+        state = {"trackId": track_id, "playing": bool(body.get("playing", current.get("playing", False))),
+                 "positionS": position, "updatedAt": iso_now()}
+        save_setting("listen_state", state)
+        return listen_public()
+
+    @router.get("/together/tracks")
+    def search_tracks(q: str = ""):
+        query = q.strip().casefold()
+        items = [item for item in rows("music_track") if not query or query in item.get("title", "").casefold()
+                 or query in item.get("artist", "").casefold()]
+        return {"available": True, "items": items[:100]}
+
+    @router.post("/together/tracks")
+    async def add_track(request: Request):
+        body = await request.json()
+        title = str(body.get("title") or "").strip()
+        artist = str(body.get("artist") or "").strip() or "我们的歌单"
+        url = str(body.get("url") or "").strip()
+        if not title or len(title) > 160 or not url or len(url) > 2048 or not (url.startswith("/") or url.startswith("https://")):
+            raise HTTPException(400, "请填写歌名并先上传音频")
+        try:
+            duration = max(0.0, min(24 * 3600.0, float(body.get("durationS") or 0)))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "音频时长格式有误")
+        track = put("music_track", {"title": title, "artist": artist[:120], "url": url,
+                                     "durationS": duration, "by": "me", "notes": []})
+        playlist = setting("music_playlist").get("ids", [])
+        save_setting("music_playlist", {"ids": [*playlist, track["id"]]})
+        return listen_public()
+
+    @router.post("/together/playlist")
+    async def add_playlist_track(request: Request):
+        track_id = str((await request.json()).get("trackId") or "")
+        if track_id not in {item["id"] for item in rows("music_track")}:
+            raise HTTPException(404, "找不到这首歌")
+        ids = [str(value) for value in setting("music_playlist").get("ids", [])]
+        if track_id not in ids:
+            ids.append(track_id)
+        save_setting("music_playlist", {"ids": ids})
+        return listen_public()
+
+    @router.put("/together/playlist")
+    async def reorder_playlist(request: Request):
+        requested = [str(value) for value in (await request.json()).get("ids", [])]
+        existing = {item["id"] for item in rows("music_track")}
+        ids = list(dict.fromkeys(value for value in requested if value in existing))
+        save_setting("music_playlist", {"ids": ids})
+        return listen_public()
+
+    @router.delete("/together/playlist/{track_id}")
+    def remove_playlist_track(track_id: str):
+        ids = [str(value) for value in setting("music_playlist").get("ids", []) if str(value) != track_id]
+        save_setting("music_playlist", {"ids": ids})
+        state = setting("listen_state")
+        if state.get("trackId") == track_id:
+            state.update({"trackId": ids[0] if ids else "", "playing": False, "positionS": 0, "updatedAt": iso_now()})
+            save_setting("listen_state", state)
+        return listen_public()
 
     @router.post("/together/watch/list")
     async def add_watch(request: Request):

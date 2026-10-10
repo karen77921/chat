@@ -78,7 +78,7 @@ export default function ChatList({ query }) {
         {showArchived ? (
           <button type="button" className="rbtn" aria-label="返回聊天列表" onClick={() => { setShowArchived(false); replaceQuery({}); }}><Icon name="back" size={18} stroke={1.5} /></button>
         ) : (
-          <button type="button" className="rbtn" aria-label="新建窗口或群聊" onClick={startNew}><Icon name="plus" size={18} stroke={1.5} /></button>
+          <button type="button" className="rbtn" aria-label="新建聊天窗口" onClick={startNew}><Icon name="plus" size={18} stroke={1.5} /></button>
         )}
       </header>
       <label className="pill cl-search"><Icon name="search" size={16} /><span className="sr">搜聊天</span>
@@ -100,11 +100,8 @@ export default function ChatList({ query }) {
             <div className="sec-head"><span className="en" style={{ fontSize: 24 }}>windows</span><h2 className="zh" style={{ margin: 0, fontSize: 14 }}>窗口</h2><span className="go">和他的每一个对话</span></div>
             {data.windows.filter(match).map(row)}
             <button type="button" className="cl-link" onClick={startNew}>
-              <Icon name="link" size={18} stroke={1.4} />接入一个新窗口<span>预留 · 填接入地址就能用</span>
+              <Icon name="link" size={18} stroke={1.4} />新建一个聊天窗口<span>使用当前私人后端</span>
             </button>
-            <div className="sec-head" style={{ marginTop: 26 }}><span className="en" style={{ fontSize: 24 }}>together</span><h2 className="zh" style={{ margin: 0, fontSize: 14 }}>群聊</h2><span className="go">{data.groups.length} 个</span></div>
-            {data.groups.filter(match).map(row)}
-            {!data.groups.length && <div className="card cl-empty">还没有群聊</div>}
             {data.archived.length > 0 && (
               <button type="button" className="cl-arch" onClick={() => { setShowArchived(true); replaceQuery({ archived: '1' }); }}><Icon name="archive" size={14} stroke={1.4} />已归档 {data.archived.length} 个 ›</button>
             )}
@@ -151,43 +148,35 @@ function SwipeRow({ c, open, onSwipe, actions, children }) {
 /** 新建：新窗口（起名字、接到哪个窗口）/ 新群聊（起名字、拉谁进来，他默认在） */
 function NewChat({ onClose, onDone }) {
   const { data } = useLoad('/api/connections');
-  const [kind, setKind] = useState('window');
   const [name, setName] = useState('');
   const [conn, setConn] = useState('main');
-  const [members, setMembers] = useState([]);
   const [busy, setBusy] = useState(false);
-  const opts = (data?.items || []).filter((x) => (kind === 'window' ? x.kind === 'window' : x.kind === 'member'));
+  const opts = (data?.items || []).filter((x) => x.kind === 'window');
   const go = async () => {
     setBusy(true);
     try {
-      const r = await api('/api/chats', { method: 'POST', body: kind === 'window' ? { kind, name: name.trim(), connection: conn } : { kind, name: name.trim(), members } });
+      const r = await api('/api/chats', { method: 'POST', body: { kind: 'window', name: name.trim(), connection: conn } });
       onDone(r.id);
     } finally { setBusy(false); }
   };
   return (
     <Sheet open onClose={onClose} label="新建" seed={44}>
       <div className="sec-head"><span className="en">new</span><h2 className="zh" style={{ margin: 0 }}>新建</h2><button type="button" className="go" onClick={onClose}>取消</button></div>
-      <div className="nc-kind" role="radiogroup" aria-label="新建什么">
-        <button type="button" role="radio" aria-checked={kind === 'window'} className={`chip ${kind === 'window' ? 'on' : ''}`} onClick={() => setKind('window')}><Icon name="window" size={16} />新窗口</button>
-        <button type="button" role="radio" aria-checked={kind === 'group'} className={`chip ${kind === 'group' ? 'on' : ''}`} onClick={() => setKind('group')}><Icon name="group" size={16} />新群聊</button>
-      </div>
       <div className="nc-k">起个名字</div>
-      <label className="pill nc-in"><span className="sr">名字</span><input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} placeholder={kind === 'window' ? '比如：十月旅行计划' : '比如：周末出游'} /></label>
-      <div className="nc-k">{kind === 'window' ? '接到哪个窗口' : '还拉谁进来（他默认在）'}</div>
+      <label className="pill nc-in"><span className="sr">名字</span><input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} placeholder="比如：十月旅行计划" /></label>
+      <div className="nc-k">接到哪个后端</div>
       <div className="nc-opts">
         {opts.map((x) => {
-          const on = kind === 'window' ? conn === x.id : members.includes(x.id);
+          const on = conn === x.id;
           return (
-            <button key={x.id} type="button" role={kind === 'window' ? 'radio' : 'checkbox'} aria-checked={on} className={`card nc-opt ${on ? 'on' : ''}`}
-              onClick={() => (kind === 'window' ? setConn(x.id) : setMembers((ms) => (ms.includes(x.id) ? ms.filter((y) => y !== x.id) : [...ms, x.id])))}>
-              <span className={`nc-dot ${kind}`}>{on && <i />}</span>
+            <button key={x.id} type="button" role="radio" aria-checked={on} className={`card nc-opt ${on ? 'on' : ''}`} onClick={() => setConn(x.id)}>
+              <span className="nc-dot window">{on && <i />}</span>
               <span><b>{x.name}</b><em>{x.provider} · {x.note}</em></span>
             </button>
           );
         })}
-        <div className="card nc-opt nc-new"><span className="nc-dot"><Icon name="link" size={12} /></span><span><b>新的接入</b><em>在「设置 · 接入」里填地址（预留）</em></span></div>
       </div>
-      <button type="button" className="btn-main nc-go" disabled={busy || !name.trim() || (kind === 'group' && !members.length)} onClick={go}>开始聊</button>
+      <button type="button" className="btn-main nc-go" disabled={busy || !name.trim()} onClick={go}>开始聊</button>
     </Sheet>
   );
 }

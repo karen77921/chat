@@ -56,7 +56,8 @@ function Listen({ onList }) {
   const s = L?.state;
   const bar = useRef(null);
   if (!s) return <div className="card cl-empty tp-pad">正在找歌…</div>;
-  if (s.available === false) return <div className="card cl-empty tp-pad">一起听还没有连接音乐来源。等你选定音乐服务后才能搜索、播放和同步；这里不会放示例歌曲。</div>;
+  if (s.available === false) return <div className="card cl-empty tp-pad">一起听暂时连不上后端。</div>;
+  if (!s.track) return <div className="card cl-empty tp-pad">歌单还是空的。<br /><button type="button" className="btn-main" style={{ marginTop: 16 }} onClick={onList}>上传第一首歌</button></div>;
   const him = { id: 'him', name: s.names?.him };
   const dur = s.track.durationS || 1;
   const seek = (e) => {
@@ -111,6 +112,10 @@ function Playlist({ onClose }) {
   useEffect(() => { const t = setTimeout(() => setQd(q.trim()), 300); return () => clearTimeout(t); }, [q]);
   const { data: found } = useLoad(qd ? `/api/music/search?q=${encodeURIComponent(qd)}` : null);
   const [dragIdx, setDragIdx] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const audioIn = useRef(null);
   const dragY = useRef(0);
   const list = s?.playlist || [];
 
@@ -128,12 +133,44 @@ function Playlist({ onClose }) {
     L.setPlaylist(next); setDragIdx(to); dragY.current = e.clientY;
   };
   const onUp = () => { if (dragIdx != null) { setDragIdx(null); save(list); } };
-
-  if (!s?.track) return <Sheet open onClose={onClose} label="歌单"><div className="card cl-empty">音乐来源尚未接入，没有你们的歌单。</div></Sheet>;
+  const pickAudio = async (file) => {
+    if (!file) return;
+    setError('');
+    let durationS = 0;
+    try {
+      durationS = await new Promise((resolve) => {
+        const audio = document.createElement('audio');
+        const url = URL.createObjectURL(file);
+        audio.preload = 'metadata';
+        audio.onloadedmetadata = () => { const duration = Number.isFinite(audio.duration) ? audio.duration : 0; URL.revokeObjectURL(url); resolve(duration); };
+        audio.onerror = () => { URL.revokeObjectURL(url); resolve(0); };
+        audio.src = url;
+      });
+    } catch { /* duration is optional */ }
+    setDraft({ file, title: file.name.replace(/\.[^.]+$/, ''), artist: '', durationS });
+  };
+  const uploadTrack = async () => {
+    if (!draft?.file || !draft.title.trim()) return;
+    setBusy(true); setError('');
+    try {
+      const form = new FormData(); form.append('file', draft.file); form.append('kind', 'audio');
+      const uploaded = await api('/api/chat/upload', { method: 'POST', form, timeout: 120000 });
+      L.apply(await api('/api/music/tracks', { method: 'POST', body: { title: draft.title.trim(), artist: draft.artist.trim(), durationS: draft.durationS, url: uploaded.url } }));
+      setDraft(null);
+    } catch (e) { setError(e?.message || '音频没有上传成功'); } finally { setBusy(false); }
+  };
 
   return (
     <Sheet open onClose={onClose} label="歌单" seed={63}>
       <div className="sec-head"><span className="en">playlist</span><h2 className="zh" style={{ margin: 0 }}>歌单</h2><button type="button" className="go" onClick={onClose}>收起</button></div>
+      <button type="button" className="btn-main" style={{ width: '100%', marginBottom: 12 }} onClick={() => audioIn.current?.click()}>＋ 上传本地音频</button>
+      <input ref={audioIn} hidden type="file" accept="audio/*" onChange={(e) => { pickAudio(e.target.files?.[0]); e.target.value = ''; }} />
+      {draft && <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+        <label className="pill nc-in"><span className="sr">歌名</span><input value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} placeholder="歌名" /></label>
+        <label className="pill nc-in" style={{ marginTop: 8 }}><span className="sr">歌手</span><input value={draft.artist} onChange={(e) => setDraft((d) => ({ ...d, artist: e.target.value }))} placeholder="歌手（可以不填）" /></label>
+        <button type="button" className="btn-main" style={{ width: '100%', marginTop: 10 }} disabled={busy || !draft.title.trim()} onClick={uploadTrack}>{busy ? '正在上传…' : '放进歌单'}</button>
+      </div>}
+      {error && <div className="ws-err" role="alert">{error}</div>}
       <label className="pill pl-search"><Icon name="search" size={16} /><span className="sr">搜歌</span>
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜歌名、歌手，加进歌单" />
       </label>
@@ -163,6 +200,7 @@ function Playlist({ onClose }) {
           </li>
         ))}
       </ol>
+      {!list.length && <div className="card cl-empty">还没有歌，上传音频后会真实保存到 VPS。</div>}
     </Sheet>
   );
 }

@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Complete Heart Tide deployment. Existing chat, Ombre memory and Imprint data
 # stay in place; only application code and versioned frontend assets change.
-REV="7d7b0235758c364b99cfe9570e319738d4737433"
-TAG="imprint-complete-7d7b023"
+REV="8afd45971bf927d808b62bb85e182c260f193d01"
+TAG="imprint-complete-8afd459"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -29,9 +29,9 @@ ROOT="$(find "${WORK}" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 test -n "${ROOT}"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
   '18566d28c23a65cea1f40a375d8082b50d3f430c9d97eaaa18539eba5985359e' "${ROOT}/api_loop.py" \
-  '10c4619772e8aaf223be259deeb9ad7a9757cbb91313199582dc94a5e31a28cd' "${ROOT}/imprint_store.py" \
-  '0b4ea36fd80b914144ac83db22807d4ec0f3eb5c66db44300872f4a97f3a5149' "${ROOT}/imprint-app/dist/index.html" \
-  'a009aa109eeaab25b7247b1147dcf9a3c7d459d5cafcef2116e30e6c8171ebc0' "${ROOT}/imprint-app/dist/assets/index-CfoWEf1f.js" \
+  '99b33647b1ece73e547c6ff7dc2d232d903af9de5817629bc3146e64a7f5efe1' "${ROOT}/imprint_store.py" \
+  'aa83b045bb7920b0168190a152519e51e1b76b5303dd27f3f27e08ae403c1592' "${ROOT}/imprint-app/dist/index.html" \
+  '350a7ff91caa1c0ed58c2218da8b8fbf91c3b457b82d8680e801dc4d0ba92d98' "${ROOT}/imprint-app/dist/assets/index-CBGHvL7M.js" \
   '9a191f16ce587bda2433a299c2268f040cba2d1d8191cf4792eaf0285a89cfe0' "${ROOT}/imprint-app/dist/assets/index-CM-Wrl2i.css" | sha256sum -c -
 sudo /root/companion-loop/venv/bin/python -m py_compile "${ROOT}/api_loop.py" "${ROOT}/imprint_store.py"
 
@@ -86,12 +86,13 @@ curl -fsS http://127.0.0.1:3020/loop/imprint/tide/memory-meta | python3 -c 'impo
 curl -fsS http://127.0.0.1:3020/loop/imprint/tide/dreams | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["aware"],list) and isinstance(x["older"],list)'
 curl -fsS http://127.0.0.1:3020/loop/imprint/together/listen | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["playlist"],list)'
 curl -fsS http://127.0.0.1:3020/loop/imprint/chat/reactions | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
+curl -fsS http://127.0.0.1:3020/loop/imprint/logs/backend | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
 curl -fsS http://127.0.0.1:3020/loop/tools | python3 -c 'import json,sys; names={x["function"]["name"] for x in json.load(sys.stdin)["tools"]}; assert {"imprint_update_tide","imprint_record_dream","imprint_record_awareness"} <= names'
 
 echo '[4/5] 原子切换完整前端…'
 if sudo test -d "${SITE}"; then sudo mv "${SITE}" "${SITE_BACKUP}"; fi
 sudo mv "${SITE_STAGE}" "${SITE}"
-sudo test -f "${SITE}/assets/index-CfoWEf1f.js"
+sudo test -f "${SITE}/assets/index-CBGHvL7M.js"
 sudo test -f "${SITE}/assets/index-CM-Wrl2i.css"
 
 echo '[5/5] 完成。'

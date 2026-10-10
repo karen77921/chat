@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Install a verified, immutable release. Existing chat/memory databases are not
 # replaced or migrated; the new scrapbook database starts empty on first use.
-REV="38eb1741901f648dbf2d339e293e3011800f2b20"
-TAG="reply-reliability-38eb174"
+REV="26c07148e4b75ecf59427154ed284fc3e2503a37"
+TAG="prompt-cache-26c0714"
 SITE="/var/www/imprint"
 SITE_BACKUP="/var/www/imprint.backup-${TAG}"
 SITE_STAGE="/var/www/imprint.stage-${TAG}"
@@ -29,11 +29,11 @@ test -n "${ROOT}"
 test -f "${ROOT}/imprint-app/dist/index.html"
 test -f "${ROOT}/imprint_store.py"
 printf '%s  %s\n%s  %s\n%s  %s\n%s  %s\n%s  %s\n' \
-  'c5c8f28ead6e1ad212196d13a8976ada0e0d9d4ef192f47c65d912a6da3735c8' "${ROOT}/api_loop.py" \
-  '4197ebad1f577cd2009611562b3174cd5ced1345dec6eb8c087c51630fcfe207' "${ROOT}/imprint_store.py" \
-  'fee2b0383a42a1fc2a2b9e5ba3b0716fd60ae1eed2de79e143a6051b17ba4f57' "${ROOT}/imprint-app/dist/index.html" \
-  '42f673bed274c780271d37eb43c93f82e71d712a9032b225092fb12e946b2a6e' "${ROOT}/imprint-app/dist/assets/index-j6awaTbv.js" \
-  '9986c9779e135111c3ba3f04bd6f53755bc97875e9b08dce73d83ae4e9cb04cd' "${ROOT}/imprint-app/dist/assets/index-DrWFhY49.css" | sha256sum -c -
+  '458ecc9f3cced5ffdc4ce461a906bea9101b8ce371670a4969d5fd95d313b909' "${ROOT}/api_loop.py" \
+  '9fc29e1a0085767f981e428b62f7b9921a99b92142bd45f49d0436da782fc5d1' "${ROOT}/imprint_store.py" \
+  '1776433308356b47dbabb1409651e4a795707f4de7c061244212f78a98baa763' "${ROOT}/imprint-app/dist/index.html" \
+  '539e2f4be0104be32c03233f8cfdb75e8c79abdfaa2763e82c049fc295aa4dbe' "${ROOT}/imprint-app/dist/assets/index-DcO66uJl.js" \
+  'a3e8a0a0150e65fe9a6ab9ecaceb4ecc39fec40fb08b1e22a251aea8c0b49d06' "${ROOT}/imprint-app/dist/assets/index-grIWdfZ4.css" | sha256sum -c -
 sudo /root/companion-loop/venv/bin/python -m py_compile "${ROOT}/api_loop.py" "${ROOT}/imprint_store.py"
 
 echo '[2/5] 准备站点并备份当前程序…'
@@ -96,6 +96,7 @@ fi
 curl -fsS http://127.0.0.1:3020/loop/imprint/usage | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and "tokens" in x["today"]'
 curl -fsS http://127.0.0.1:3020/loop/imprint/notes | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
 curl -fsS http://127.0.0.1:3020/loop/imprint/activity | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["available"] and isinstance(x["items"],list)'
+curl -fsS http://127.0.0.1:3020/loop/config | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["prompt_cache_enabled"] is True and x["prompt_cache_ttl"] in {"5m","1h"}'
 curl -fsS http://127.0.0.1:3020/loop/tools | python3 -c 'import json,sys; n={x["function"]["name"] for x in json.load(sys.stdin)["tools"]}; assert {"imprint_leave_note","imprint_set_room_status","imprint_record_solo","imprint_comment_photo","imprint_add_watch","search_public_web","read_public_page","read_public_github_file"} <= n'
 curl -fsS http://127.0.0.1:3020/loop/mcp | python3 -c 'import json,sys; s=json.load(sys.stdin)["servers"]; assert any(x.get("url")=="https://galatea.abysslumina.com/api/public/drift-bottle-mcp" for x in s)'
 if curl -fsS http://127.0.0.1:3020/loop/tools | python3 -c 'import json,sys; n={x["function"]["name"] for x in json.load(sys.stdin)["tools"]}; assert any(x.endswith("__send_drift_bottle") for x in n)'; then
@@ -108,8 +109,8 @@ curl -fsS http://127.0.0.1:3020/openapi.json | python3 -c 'import json,sys; p=js
 echo '[4/5] 切换前端…'
 if sudo test -d "${SITE}"; then sudo mv "${SITE}" "${SITE_BACKUP}"; fi
 sudo mv "${SITE_STAGE}" "${SITE}"
-sudo test -f "${SITE}/assets/index-j6awaTbv.js"
-sudo test -f "${SITE}/assets/index-DrWFhY49.css"
+sudo test -f "${SITE}/assets/index-DcO66uJl.js"
+sudo test -f "${SITE}/assets/index-grIWdfZ4.css"
 
 echo '[5/5] 完成。'
 rollback=0

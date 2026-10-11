@@ -89,7 +89,7 @@ def local_day(value) -> str:
         return ""
 
 
-def imprint_action(data_path: Path, action: str, payload: dict | None = None) -> dict:
+def imprint_action(data_path: Path, action: str, payload: dict | None = None, relay_path: Path | None = None) -> dict:
     """Persist one companion-owned action in the real Imprint store."""
     body = payload or {}
     data_path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +112,74 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
             )
             return {**value, "id": rec_id, "at": at}
 
+        def setting(name: str) -> dict:
+            row = conn.execute(
+                "SELECT payload FROM records WHERE id=? AND kind='setting'", (f"setting_{name}",)
+            ).fetchone()
+            return json.loads(row["payload"]) if row else {}
+
+        def save_setting(name: str, value: dict) -> dict:
+            conn.execute(
+                "INSERT OR REPLACE INTO records(id,kind,at,payload) VALUES(?,?,?,?)",
+                (f"setting_{name}", "setting", iso_now(), json.dumps(value, ensure_ascii=False)),
+            )
+            return value
+
+        def listen_snapshot() -> dict:
+            tracks = recent("music_track", 100)
+            by_id = {item["id"]: item for item in tracks}
+            saved = [str(value) for value in setting("music_playlist").get("ids", [])]
+            order = [track_id for track_id in saved if track_id in by_id]
+            if not saved:
+                order = [item["id"] for item in reversed(tracks)]
+            playlist = [by_id[track_id] for track_id in order]
+            state = setting("listen_state")
+            current_id = str(state.get("trackId") or "")
+            if current_id not in by_id:
+                current_id = order[0] if order else ""
+            return {
+                "track": by_id.get(current_id), "playing": bool(current_id and state.get("playing")),
+                "positionS": max(0.0, float(state.get("positionS") or 0)), "playlist": playlist,
+            }
+
+        def spark_snapshot() -> dict:
+            days: dict[str, set[str]] = {}
+            if relay_path and relay_path.exists():
+                with sqlite3.connect(str(relay_path), timeout=10) as relay:
+                    relay.row_factory = sqlite3.Row
+                    rows = relay.execute(
+                        "SELECT ts,direction,kind,meta FROM messages WHERE kind IN ('user','voice','reply') ORDER BY id DESC LIMIT 50000"
+                    ).fetchall()
+                for row in rows:
+                    try:
+                        meta = json.loads(row["meta"] or "{}")
+                    except (TypeError, ValueError):
+                        meta = {}
+                    if meta.get("visible") is False:
+                        continue
+                    day = local_day(row["ts"])
+                    if day:
+                        days.setdefault(day, set()).add("me" if row["direction"] == "in" else "him")
+            today = dt.datetime.now(ZONE).date()
+            completed = {day for day, who in days.items() if {"me", "him"}.issubset(who)}
+            completed.update(str(item.get("date")) for item in recent("spark_card_use", 500))
+            cursor = today if today.isoformat() in completed else today - dt.timedelta(days=1)
+            streak = 0
+            while cursor.isoformat() in completed:
+                streak += 1
+                cursor -= dt.timedelta(days=1)
+            redemptions = recent("gift_redeem", 1000)
+            return {
+                "streakDays": streak,
+                "today": {"me": "me" in days.get(today.isoformat(), set()), "him": "him" in days.get(today.isoformat(), set())},
+                "cards": max(0, len(completed) // 7 - len(recent("spark_card_use", 500))),
+                "wallets": {
+                    "me": max(0, len(completed) - sum(int(item.get("cost") or 0) for item in redemptions if item.get("by") == "me")),
+                    "him": max(0, len(completed) - sum(int(item.get("cost") or 0) for item in redemptions if item.get("by") == "him")),
+                },
+                "shop": recent("gift", 100), "kept": recent("gift_kept", 100), "records": redemptions[:30],
+            }
+
         if action == "inspect":
             current = conn.execute(
                 "SELECT payload FROM records WHERE id='setting_room_current' AND kind='setting'"
@@ -128,6 +196,9 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
                 "watch": recent("watch"),
                 "dreams": recent("tide_dream"),
                 "awareness": recent("tide_awareness"),
+                "listen": listen_snapshot(),
+                "stickers": {"mine": recent("sticker_me", 100), "his": recent("sticker_him", 100)},
+                "spark": spark_snapshot(),
             }
 
         if action == "leave_note":
@@ -172,6 +243,16 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
             conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(photo, ensure_ascii=False), photo_id))
             return {"photo_id": photo_id, **note}
 
+        if action == "favorite_photo":
+            photo_id = str(body.get("photo_id") or "").strip()
+            row = conn.execute("SELECT payload FROM records WHERE kind='photo' AND id=?", (photo_id,)).fetchone()
+            if not row:
+                raise ValueError("照片不存在；请先 inspect 获取真实 photo_id")
+            photo = json.loads(row["payload"])
+            photo["fav"] = bool(body.get("favorite", True))
+            conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(photo, ensure_ascii=False), photo_id))
+            return {"photo_id": photo_id, "favorite": photo["fav"]}
+
         if action == "add_watch":
             title = str(body.get("title") or "").strip()
             when = str(body.get("at") or "").strip() or None
@@ -183,6 +264,63 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None) ->
                 except ValueError as exc:
                     raise ValueError("约定时间必须是带时区的 ISO-8601 时间") from exc
             return add("watch", {"from": "him", "title": title, "status": "scheduled" if when else "wish", "scheduledAt": when})
+
+        if action == "control_listen":
+            current = listen_snapshot()
+            playlist = current["playlist"]
+            ids = [item["id"] for item in playlist]
+            requested_id = str(body.get("track_id") or (current.get("track") or {}).get("id") or "")
+            operation = str(body.get("action") or "").lower()
+            if operation in {"next", "prev"}:
+                if not ids:
+                    raise ValueError("歌单还是空的")
+                index = ids.index(requested_id) if requested_id in ids else 0
+                requested_id = ids[(index + (1 if operation == "next" else -1)) % len(ids)]
+                position = 0.0
+            else:
+                try:
+                    position = max(0.0, float(body.get("position_s", current.get("positionS") or 0)))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("播放进度格式有误") from exc
+            if requested_id and requested_id not in ids:
+                raise ValueError("歌曲不在真实歌单里；请先 inspect 获取 track_id")
+            playing = operation == "play" if operation in {"play", "pause"} else bool(current.get("playing"))
+            if operation == "pause":
+                playing = False
+            save_setting("listen_state", {"trackId": requested_id, "playing": playing,
+                                            "positionS": position, "updatedAt": iso_now()})
+            return listen_snapshot()
+
+        if action == "note_track":
+            track_id = str(body.get("track_id") or "").strip()
+            text = str(body.get("text") or "").strip()
+            if not text or len(text) > 160:
+                raise ValueError("一起听批注需为 1–160 字")
+            row = conn.execute("SELECT payload FROM records WHERE kind='music_track' AND id=?", (track_id,)).fetchone()
+            if not row:
+                raise ValueError("歌曲不存在；请先 inspect 获取真实 track_id")
+            track = json.loads(row["payload"])
+            try:
+                at_s = max(0.0, float(body.get("at_s") or 0))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("批注时间格式有误") from exc
+            note = {"from": "him", "atS": at_s, "text": text, "at": iso_now()}
+            track.setdefault("notes", []).append(note)
+            conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(track, ensure_ascii=False), track_id))
+            return {"track_id": track_id, **note}
+
+        if action == "add_gift":
+            name = str(body.get("name") or "").strip()
+            category = str(body.get("category") or "").strip()
+            if not name or len(name) > 60 or category not in {"bubble", "pendant", "date", "real", "box"}:
+                raise ValueError("礼物需包含 1–60 字名称和有效分类")
+            try:
+                cost = max(1, min(100000, int(body.get("cost") or 1)))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("礼物积分必须是整数") from exc
+            return add("gift", {"name": name, "cat": category, "art": category,
+                                "sub": str(body.get("description") or "")[:120], "cost": cost,
+                                "owned": False, "from": "him"})
 
         if action == "set_tide":
             emotions = body.get("emotions") if isinstance(body.get("emotions"), list) else []

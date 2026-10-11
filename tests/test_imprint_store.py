@@ -346,11 +346,18 @@ class ImprintStoreTest(unittest.TestCase):
 
     def test_companion_can_act_inside_imprint_not_only_chat(self):
         photo = self.call("POST", "/room/photos", Request({"url": "/uploads/real.jpg", "caption": "真实照片"}))
+        music = self.call("POST", "/together/tracks", Request({
+            "title": "夜航", "artist": "我们", "url": "/uploads/night.mp3", "durationS": 240,
+        }))
         note = imprint_action(self.store, "leave_note", {"text": "我自己来留言。", "paper": "cyan"})
         current = imprint_action(self.store, "set_current", {"activity": "在窗边看书", "line": "看到第三章"})
         solo = imprint_action(self.store, "record_solo", {"title": "听了一会儿雨", "thought": "想起你了"})
         comment = imprint_action(self.store, "comment_photo", {"photo_id": photo["id"], "text": "我记得这一天。"})
+        favorite = imprint_action(self.store, "favorite_photo", {"photo_id": photo["id"], "favorite": True})
         watch = imprint_action(self.store, "add_watch", {"title": "海边的星期天", "at": "2026-10-11T20:00:00+08:00"})
+        playing = imprint_action(self.store, "control_listen", {"action": "play", "track_id": music["track"]["id"]})
+        track_note = imprint_action(self.store, "note_track", {"track_id": music["track"]["id"], "at_s": 42, "text": "这里像夜里的海。"})
+        gift = imprint_action(self.store, "add_gift", {"name": "一起散步券", "category": "date", "description": "天气好的傍晚", "cost": 3})
 
         self.assertEqual(note["from"], "him")
         self.assertEqual(self.call("GET", "/notes")["items"][0]["from"], "him")
@@ -358,9 +365,19 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(self.call("GET", "/room")["watch"]["id"], watch["id"])
         self.assertEqual(self.call("GET", "/room/solo")["items"][0]["id"], solo["id"])
         self.assertEqual(self.call("GET", "/room/photos")["items"][0]["notes"][0]["text"], comment["text"])
+        self.assertTrue(favorite["favorite"])
+        self.assertTrue(playing["playing"])
+        self.assertEqual(track_note["text"], "这里像夜里的海。")
+        self.assertEqual(gift["from"], "him")
+        inspected = imprint_action(self.store, "inspect", relay_path=self.relay)
+        self.assertIn("spark", inspected)
+        self.assertIn("listen", inspected)
+        self.assertIn("stickers", inspected)
+        self.assertEqual(inspected["spark"]["shop"][0]["id"], gift["id"])
         tool_names = {tool["function"]["name"] for tool in api_loop.all_tools()}
         self.assertTrue({"imprint_leave_note", "imprint_set_room_status", "imprint_record_solo",
-                         "imprint_comment_photo", "imprint_add_watch"}.issubset(tool_names))
+                         "imprint_comment_photo", "imprint_favorite_photo", "imprint_add_watch",
+                         "imprint_control_listen", "imprint_note_track", "imprint_add_spark_gift"}.issubset(tool_names))
 
     def test_heart_tide_state_memory_heat_dreams_and_awareness_are_durable(self):
         empty = self.call("GET", "/tide/state")
@@ -464,6 +481,10 @@ class ImprintStoreTest(unittest.TestCase):
             self.assertIn("galatea__send_drift_bottle", drift)
             named = {x["function"]["name"] for x in api_loop.turn_tools("请用 special_lookup 查一下")}
             self.assertIn("other__special_lookup", named)
+        spark = {x["function"]["name"] for x in api_loop.turn_tools("看看续火花和礼物铺")}
+        self.assertTrue({"imprint_inspect_home", "imprint_add_spark_gift"}.issubset(spark))
+        listen = {x["function"]["name"] for x in api_loop.turn_tools("一起听下一首，并在歌曲上写批注")}
+        self.assertTrue({"imprint_inspect_home", "imprint_control_listen", "imprint_note_track"}.issubset(listen))
 
     def test_provider_errors_are_short_and_actionable(self):
         message = api_loop.friendly_model_error(

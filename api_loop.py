@@ -41,6 +41,7 @@ import mimetypes
 import os
 import random
 import re
+import secrets
 import shutil
 import socket
 import sqlite3
@@ -1905,12 +1906,15 @@ class McpServer:
 
     def public(self) -> dict[str, Any]:
         cfg = dict(self.cfg)
+        oauth = cfg.pop("oauth", None)
         if isinstance(cfg.get("headers"), dict):
             cfg["headers"] = {k: mask_key(v) if "auth" in k.lower() or "key" in k.lower() or "token" in k.lower() else v for k, v in cfg["headers"].items()}
         if isinstance(cfg.get("env"), dict):
             cfg["env"] = {k: mask_key(v) if any(s in k.lower() for s in ("key", "secret", "token", "pass")) else v for k, v in cfg["env"].items()}
         return {
             **cfg,
+            "auth": "oauth" if isinstance(oauth, dict) else ("header" if cfg.get("headers") else "none"),
+            "auth_expires_at": str((oauth or {}).get("expires_at") or "") if isinstance(oauth, dict) else "",
             "name": self.name,
             "transport": self.transport,
             "status": self.status,
@@ -1991,11 +1995,154 @@ class McpManager:
             if s:
                 rows.append(s.public())
             else:
-                rows.append({**cfg, "status": "disabled" if not cfg.get("enabled", True) else "offline", "error": "", "tools": []})
+                public = McpServer(cfg).public()
+                public.update({"status": "disabled" if not cfg.get("enabled", True) else "offline", "error": "", "tools": []})
+                rows.append(public)
         return rows
 
 
 mcp_manager = McpManager()
+
+
+def _oauth_b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _oauth_endpoint(base: str, path: str) -> str:
+    parsed = urllib.parse.urlsplit(base)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def _oauth_safe_redirect_uri(value: str) -> str:
+    """Only allow an HTTPS browser callback; tokens are exchanged by this backend."""
+    parsed = urllib.parse.urlsplit(str(value or "").strip())
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.fragment:
+        raise HTTPException(status_code=400, detail="OAuth redirect_uri must be an HTTPS URL without a fragment")
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.query, ""))
+
+
+async def _oauth_json(client: httpx.AsyncClient, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
+    response = await client.request(method, url, **kwargs)
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
+    if response.is_error:
+        message = data.get("error_description") or data.get("detail") or data.get("error") or response.reason_phrase
+        raise HTTPException(status_code=502, detail=f"OAuth service rejected the request: {message}"[:600])
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="OAuth service returned invalid JSON")
+    return data
+
+
+async def begin_mcp_oauth(name: str, url: str, redirect_uri: str) -> dict[str, Any]:
+    """Discover OAuth, dynamically register a PKCE client and return its authorize URL."""
+    redirect_uri = _oauth_safe_redirect_uri(redirect_uri)
+    if not str(url).startswith("https://"):
+        raise HTTPException(status_code=400, detail="OAuth MCP URL must use HTTPS")
+    timeout = httpx.Timeout(20.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        probe = await client.get(url, headers={"Accept": "application/json, text/event-stream"})
+        challenge = probe.headers.get("www-authenticate", "")
+        match = re.search(r'resource_metadata="([^"]+)"', challenge, re.I)
+        resource_meta_url = match.group(1) if match else _oauth_endpoint(url, "/.well-known/oauth-protected-resource")
+        resource_meta = await _oauth_json(client, "GET", resource_meta_url)
+        authorization_servers = resource_meta.get("authorization_servers") or []
+        if not authorization_servers:
+            raise HTTPException(status_code=400, detail="This MCP did not advertise an OAuth authorization server")
+        issuer = str(authorization_servers[0]).rstrip("/")
+        auth_meta = await _oauth_json(client, "GET", f"{issuer}/.well-known/oauth-authorization-server")
+        registration_endpoint = str(auth_meta.get("registration_endpoint") or "")
+        authorization_endpoint = str(auth_meta.get("authorization_endpoint") or "")
+        token_endpoint = str(auth_meta.get("token_endpoint") or "")
+        if not registration_endpoint or not authorization_endpoint or not token_endpoint:
+            raise HTTPException(status_code=502, detail="OAuth metadata is incomplete")
+        registered = await _oauth_json(client, "POST", registration_endpoint, json={
+            "client_name": "Imprint 心潮念",
+            "redirect_uris": [redirect_uri],
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+            "scope": "mcp",
+        })
+
+    client_id = str(registered.get("client_id") or "")
+    if not client_id:
+        raise HTTPException(status_code=502, detail="OAuth client registration returned no client_id")
+    verifier = _oauth_b64url(secrets.token_bytes(48))
+    state = _oauth_b64url(secrets.token_bytes(32))
+    code_challenge = _oauth_b64url(hashlib.sha256(verifier.encode("ascii")).digest())
+    pending = {
+        "name": name, "url": url, "redirect_uri": redirect_uri, "resource": str(resource_meta.get("resource") or url),
+        "issuer": issuer, "authorization_endpoint": authorization_endpoint, "token_endpoint": token_endpoint,
+        "client_id": client_id, "client_secret": str(registered.get("client_secret") or ""),
+        "token_endpoint_auth_method": str(registered.get("token_endpoint_auth_method") or "none"),
+        "scope": "mcp", "verifier": verifier,
+        "expires_at": int(dt.datetime.now(dt.timezone.utc).timestamp()) + 900,
+    }
+    cfg = load_config()
+    all_pending = cfg.get("mcp_oauth_pending") if isinstance(cfg.get("mcp_oauth_pending"), dict) else {}
+    now_ts = int(dt.datetime.now(dt.timezone.utc).timestamp())
+    all_pending = {k: v for k, v in all_pending.items() if isinstance(v, dict) and int(v.get("expires_at") or 0) > now_ts}
+    all_pending[state] = pending
+    cfg["mcp_oauth_pending"] = all_pending
+    save_config(cfg)
+    query = urllib.parse.urlencode({
+        "response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri, "scope": "mcp",
+        "state": state, "code_challenge": code_challenge, "code_challenge_method": "S256", "resource": pending["resource"],
+    })
+    return {"authorization_url": f"{authorization_endpoint}?{query}", "state": state}
+
+
+async def complete_mcp_oauth(state: str, code: str) -> McpServer:
+    cfg = load_config()
+    all_pending = cfg.get("mcp_oauth_pending") if isinstance(cfg.get("mcp_oauth_pending"), dict) else {}
+    pending = all_pending.get(state)
+    now_ts = int(dt.datetime.now(dt.timezone.utc).timestamp())
+    if not isinstance(pending, dict) or int(pending.get("expires_at") or 0) <= now_ts:
+        raise HTTPException(status_code=400, detail="OAuth authorization expired; please connect again")
+    form = {
+        "grant_type": "authorization_code", "code": code, "redirect_uri": pending["redirect_uri"],
+        "client_id": pending["client_id"], "code_verifier": pending["verifier"], "resource": pending["resource"],
+    }
+    auth = None
+    method = pending.get("token_endpoint_auth_method")
+    if pending.get("client_secret") and method == "client_secret_basic":
+        auth = (pending["client_id"], pending["client_secret"])
+        form.pop("client_id", None)
+    elif pending.get("client_secret") and method == "client_secret_post":
+        form["client_secret"] = pending["client_secret"]
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        token = await _oauth_json(client, "POST", pending["token_endpoint"], data=form, auth=auth)
+    access_token = str(token.get("access_token") or "")
+    if not access_token:
+        raise HTTPException(status_code=502, detail="OAuth token response contained no access_token")
+    expires_in = max(0, int(token.get("expires_in") or 0))
+    entry = {
+        "name": pending["name"], "transport": "http", "url": pending["url"], "enabled": True,
+        "headers": {"Authorization": f"Bearer {access_token}"},
+        "oauth": {
+            "issuer": pending["issuer"], "token_endpoint": pending["token_endpoint"], "client_id": pending["client_id"],
+            "client_secret": pending.get("client_secret", ""), "token_endpoint_auth_method": method or "none",
+            "scope": str(token.get("scope") or pending.get("scope") or "mcp"), "resource": pending["resource"],
+            "access_token": access_token, "refresh_token": str(token.get("refresh_token") or ""),
+            "expires_at": now_ts + expires_in if expires_in else 0,
+        },
+    }
+    rows = [r for r in (cfg.get("mcp_servers") or []) if isinstance(r, dict)]
+    old = next((r for r in rows if r.get("name") == entry["name"]), None)
+    if old:
+        rows[rows.index(old)] = entry
+    else:
+        rows.append(entry)
+    all_pending.pop(state, None)
+    cfg["mcp_oauth_pending"] = all_pending
+    cfg["mcp_servers"] = rows
+    save_config(cfg)
+    server = await mcp_manager.restart(entry["name"], entry)
+    if server is None:
+        raise HTTPException(status_code=500, detail="MCP connection could not be created")
+    return server
 
 
 def mcp_result_text(result: Any, limit: int = 50_000) -> str:
@@ -3706,6 +3853,8 @@ async def loop_mcp_upsert(request: Request):
             for k, v in (prev.get(field) or {}).items():
                 if entry.get(field, {}).get(k, "") and "***" in entry[field][k]:
                     entry[field][k] = v
+        if isinstance(prev.get("oauth"), dict) and "oauth" not in entry:
+            entry["oauth"] = prev["oauth"]
         rows[rows.index(prev)] = entry
     else:
         rows.append(entry)
@@ -3713,6 +3862,26 @@ async def loop_mcp_upsert(request: Request):
     save_config(cfg)
     server = await mcp_manager.restart(name, entry)
     return {"ok": True, "server": server.public() if server else entry, "servers": mcp_manager.public()}
+
+
+@app.post("/loop/mcp/oauth/start")
+async def loop_mcp_oauth_start(request: Request):
+    body = await request.json()
+    name = TOOL_NAME_RE.sub("_", str(body.get("name") or "")).strip("_")[:32]
+    url = str(body.get("url") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required (letters, digits, _ -)")
+    return await begin_mcp_oauth(name, url, str(body.get("redirect_uri") or ""))
+
+
+@app.post("/loop/mcp/oauth/complete")
+async def loop_mcp_oauth_complete(request: Request):
+    body = await request.json()
+    state, code = str(body.get("state") or ""), str(body.get("code") or "")
+    if not state or not code:
+        raise HTTPException(status_code=400, detail="OAuth state and code are required")
+    server = await complete_mcp_oauth(state, code)
+    return {"ok": server.status == "online", "server": server.public(), "servers": mcp_manager.public()}
 
 
 @app.delete("/loop/mcp/{name}")

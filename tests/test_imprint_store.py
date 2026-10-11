@@ -418,6 +418,24 @@ class ImprintStoreTest(unittest.TestCase):
         finally:
             api_loop.LOOP_CONFIG = old_config
 
+    def test_mcp_oauth_secrets_are_redacted_and_redirect_is_https(self):
+        async def public_view():
+            server = api_loop.McpServer({
+                "name": "galatea", "transport": "http", "url": "https://galatea.example/mcp",
+                "headers": {"Authorization": "Bearer very-secret-token"},
+                "oauth": {"access_token": "very-secret-token", "refresh_token": "also-secret", "expires_at": 1234},
+            })
+            return server.public()
+        public = asyncio.run(public_view())
+        self.assertEqual(public["auth"], "oauth")
+        self.assertEqual(public["auth_expires_at"], "1234")
+        self.assertNotIn("oauth", public)
+        self.assertNotIn("very-secret-token", json.dumps(public))
+        self.assertEqual(api_loop._oauth_safe_redirect_uri("https://chat.example/imprint/"), "https://chat.example/imprint/")
+        for unsafe in ("http://chat.example/imprint/", "https://user:pass@chat.example/", "https://chat.example/#fragment"):
+            with self.assertRaises(HTTPException):
+                api_loop._oauth_safe_redirect_uri(unsafe)
+
     def test_public_research_tools_exist_and_block_local_networks(self):
         tool_names = {tool["function"]["name"] for tool in api_loop.all_tools()}
         self.assertTrue({"search_public_web", "read_public_page", "read_public_github_file"}.issubset(tool_names))

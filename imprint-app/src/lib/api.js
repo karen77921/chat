@@ -214,7 +214,19 @@ async function compat(path, opts) {
     const fields = { memory: 'context_compaction', recall: 'ombre_auto_recall', time: 'context_time', backup: 'backup_enabled' };
     return loop('config', { method: 'POST', body: { [fields[key]]: on } });
   }
-  if (method === 'POST' && p === '/api/mcp') return loop('mcp', { method: 'POST', body: { name: opts.body?.name, transport: 'http', url: opts.body?.url, enabled: true } }).then((x) => ({ id: x.server?.name, name: x.server?.name, status: x.server?.status === 'online' ? 'ok' : 'pending', tools: x.server?.tools?.length || 0, on: true }));
+  if (method === 'POST' && p === '/api/mcp') {
+    let target;
+    try { target = new URL(opts.body?.url); } catch { throw new ApiError(400, '请输入完整的 MCP 地址'); }
+    if (target.hostname === 'galatea.abysslumina.com' && target.pathname.replace(/\/$/, '') === '/mcp') {
+      return loop('mcp/oauth/start', { method: 'POST', body: {
+        name: opts.body?.name, url: target.href.replace(/\/$/, ''),
+        redirect_uri: `${window.location.origin}${window.location.pathname}`,
+      }, timeout: 60000 });
+    }
+    return loop('mcp', { method: 'POST', body: { name: opts.body?.name, transport: 'http', url: opts.body?.url, enabled: true } })
+      .then((x) => ({ id: x.server?.name, name: x.server?.name, status: x.server?.status === 'online' ? 'ok' : 'pending', tools: x.server?.tools?.length || 0, on: true }));
+  }
+  if (method === 'POST' && p === '/api/mcp/oauth/complete') return loop('mcp/oauth/complete', { ...opts, timeout: 60000 });
   if (method === 'POST' && (m = /^\/api\/mcp\/([^/]+)\/reconnect$/.exec(p))) return loop(`mcp/${m[1]}/reconnect`, { method: 'POST' }).then((x) => ({ id: m[1], status: x.ok ? 'ok' : 'down', on: true }));
   if (method === 'PUT' && (m = /^\/api\/mcp\/([^/]+)$/.exec(p))) {
     const current = await loop('mcp');

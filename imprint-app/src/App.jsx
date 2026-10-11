@@ -17,7 +17,7 @@ import Tide from './pages/Tide.jsx';
 import Settings from './pages/Settings.jsx';
 import { Grain } from './design/paper.jsx';
 import { useEffect, useState } from 'react';
-import { MOCK, saveToken, savedToken } from './lib/api.js';
+import { api, MOCK, saveToken, savedToken } from './lib/api.js';
 
 const ROUTES = {
   '/': Home,
@@ -39,11 +39,35 @@ export default function App() {
   const { path, query } = useRoute();
   const Page = ROUTES[path];
   const [needsAuth, setNeedsAuth] = useState(() => !MOCK && !savedToken());
+  const [oauthNote, setOauthNote] = useState('');
   useEffect(() => {
     const show = () => { if (!MOCK) setNeedsAuth(true); };
     addEventListener('imprint-auth-required', show);
     return () => removeEventListener('imprint-auth-required', show);
   }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const code = params.get('code'), state = params.get('state'), error = params.get('error');
+    if ((!code || !state) && !error) return;
+    if (needsAuth) return;
+    if (error) {
+      setOauthNote(`MCP 授权失败：${params.get('error_description') || error}`);
+      history.replaceState(null, '', `${location.pathname}#/settings?p=features`);
+      return;
+    }
+    setOauthNote('正在完成 MCP 授权…');
+    api('/api/mcp/oauth/complete', { method: 'POST', body: { code, state }, timeout: 60000 })
+      .then((result) => {
+        setOauthNote(result.ok ? 'MCP 已连接，AI 现在可以使用它的工具。' : '授权已保存，但 MCP 暂时未连上，请点一下重连。');
+        history.replaceState(null, '', `${location.pathname}#/settings?p=features`);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      })
+      .catch((e) => {
+        setOauthNote(`MCP 授权失败：${e?.message || '未知错误'}`);
+        history.replaceState(null, '', `${location.pathname}#/settings?p=features`);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      });
+  }, [needsAuth]);
   return (
     <>
       <div key={path} className="m-turn">
@@ -52,6 +76,7 @@ export default function App() {
       {TAB_PATHS.includes(path) && <TabBar path={path} />}
       <MiniPlayer path={path} tabbar={TAB_PATHS.includes(path)} />
       <Grain />
+      {oauthNote && <button type="button" onClick={() => setOauthNote('')} style={{ position: 'fixed', left: 16, right: 16, bottom: 92, zIndex: 90, maxWidth: 430, margin: 'auto', padding: '12px 16px', borderRadius: 14, border: '1px solid rgba(93,112,134,.25)', background: 'rgba(250,248,242,.96)', color: '#42536a', boxShadow: '0 8px 28px rgba(43,55,70,.14)', textAlign: 'left' }}>{oauthNote}</button>}
       {needsAuth && <AccessGate onConnected={() => setNeedsAuth(false)} />}
     </>
   );

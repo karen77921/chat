@@ -205,6 +205,7 @@ function Features() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', url: '' });
   const [error, setError] = useState('');
+  const [addingBusy, setAddingBusy] = useState(false);
   if (!data) return <div className="card cl-empty">正在看…</div>;
   if (data.available === false) return <div className="card cl-empty">暂时连不上，过一会儿再来看看。</div>;
   const setF = async (key, on) => {
@@ -225,8 +226,12 @@ function Features() {
     setData((d) => ({ ...d, mcps: d.mcps.map((x) => (x.id === id ? { ...x, ...m } : x)) }));
   };
   const add = async () => {
-    const m = await api('/api/mcp', { method: 'POST', body: { name: form.name.trim(), url: form.url.trim() } });
-    setData((d) => ({ ...d, mcps: [...d.mcps, m] })); setAdding(false); setForm({ name: '', url: '' });
+    setError(''); setAddingBusy(true);
+    try {
+      const m = await api('/api/mcp', { method: 'POST', body: { name: form.name.trim(), url: form.url.trim() }, timeout: 60000 });
+      if (m.authorization_url) { window.location.assign(m.authorization_url); return; }
+      setData((d) => ({ ...d, mcps: [...d.mcps, m] })); setAdding(false); setForm({ name: '', url: '' });
+    } catch (e) { setError(e?.message || '连接失败'); setAddingBusy(false); }
   };
   const ST = { ok: '', down: '断开 · 点一下重连', pending: '连接中…' };
   return (
@@ -261,8 +266,8 @@ function Features() {
           <label className="pill nc-in"><span className="sr">名字</span><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="比如：日历" /></label>
           <div className="nc-k">地址</div>
           <label className="pill nc-in"><span className="sr">地址</span><input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} placeholder="MCP 服务的地址" inputMode="url" /></label>
-          <p className="st-tip">加好后由后端写进 Codex 的 MCP 配置，下一轮对话起生效。</p>
-          <button type="button" className="btn-main nc-go" disabled={!form.name.trim() || !form.url.trim()} onClick={add}>加上</button>
+          <p className="st-tip">需要登录的 MCP 会跳转到服务方授权；访问令牌只保存在 VPS，不会暴露给浏览器。</p>
+          <button type="button" className="btn-main nc-go" disabled={addingBusy || !form.name.trim() || !form.url.trim()} onClick={add}>{addingBusy ? '正在检查并连接…' : '加上'}</button>
         </Sheet>
       )}
     </>

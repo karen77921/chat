@@ -358,6 +358,8 @@ class ImprintStoreTest(unittest.TestCase):
         playing = imprint_action(self.store, "control_listen", {"action": "play", "track_id": music["track"]["id"]})
         track_note = imprint_action(self.store, "note_track", {"track_id": music["track"]["id"], "at_s": 42, "text": "这里像夜里的海。"})
         gift = imprint_action(self.store, "add_gift", {"name": "一起散步券", "category": "date", "description": "天气好的傍晚", "cost": 3})
+        sticker = imprint_action(self.store, "manage_space", {"operation": "add_sticker", "url": "https://example.com/him.webp", "name": "挥手"})
+        appearance = imprint_action(self.store, "manage_space", {"operation": "appearance", "him_name": "Ombre", "bubble": "paper", "alpha": 0.66})
 
         self.assertEqual(note["from"], "him")
         self.assertEqual(self.call("GET", "/notes")["items"][0]["from"], "him")
@@ -369,6 +371,8 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertTrue(playing["playing"])
         self.assertEqual(track_note["text"], "这里像夜里的海。")
         self.assertEqual(gift["from"], "him")
+        self.assertEqual(sticker["name"], "挥手")
+        self.assertEqual(appearance["beauty"]["bubble"], "paper")
         inspected = imprint_action(self.store, "inspect", relay_path=self.relay)
         self.assertIn("spark", inspected)
         self.assertIn("listen", inspected)
@@ -377,7 +381,9 @@ class ImprintStoreTest(unittest.TestCase):
         tool_names = {tool["function"]["name"] for tool in api_loop.all_tools()}
         self.assertTrue({"imprint_leave_note", "imprint_set_room_status", "imprint_record_solo",
                          "imprint_comment_photo", "imprint_favorite_photo", "imprint_add_watch",
-                         "imprint_control_listen", "imprint_note_track", "imprint_add_spark_gift"}.issubset(tool_names))
+                         "imprint_control_listen", "imprint_note_track", "imprint_add_spark_gift",
+                         "imprint_manage_space", "imprint_inspect_settings", "imprint_manage_settings",
+                         "imprint_manage_mcp"}.issubset(tool_names))
 
     def test_heart_tide_state_memory_heat_dreams_and_awareness_are_durable(self):
         empty = self.call("GET", "/tide/state")
@@ -485,6 +491,10 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertTrue({"imprint_inspect_home", "imprint_add_spark_gift"}.issubset(spark))
         listen = {x["function"]["name"] for x in api_loop.turn_tools("一起听下一首，并在歌曲上写批注")}
         self.assertTrue({"imprint_inspect_home", "imprint_control_listen", "imprint_note_track"}.issubset(listen))
+        settings = {x["function"]["name"] for x in api_loop.turn_tools("查看设置和模型 API，但不要修改")}
+        self.assertIn("imprint_inspect_settings", settings)
+        mcp = {x["function"]["name"] for x in api_loop.turn_tools("把这个 MCP 重新连接")}
+        self.assertIn("imprint_manage_mcp", mcp)
 
     def test_provider_errors_are_short_and_actionable(self):
         message = api_loop.friendly_model_error(

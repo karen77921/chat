@@ -322,6 +322,96 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                                 "sub": str(body.get("description") or "")[:120], "cost": cost,
                                 "owned": False, "from": "him"})
 
+        if action == "manage_space":
+            operation = str(body.get("operation") or "").strip().lower()
+            rec_id = str(body.get("id") or "").strip()
+            if operation in {"add_photo", "add_sticker", "add_track"}:
+                url = str(body.get("url") or "").strip()
+                if not url or len(url) > 2048 or not (url.startswith("/") or url.startswith("https://")):
+                    raise ValueError("需要真实的站内路径或 HTTPS 文件地址")
+                if operation == "add_photo":
+                    return add("photo", {"url": url, "thumb": url, "caption": str(body.get("text") or "")[:100],
+                                         "from": "him", "source": "ai", "fav": False, "notes": []})
+                if operation == "add_sticker":
+                    return add("sticker_him", {"url": url, "name": str(body.get("name") or "")[:60]})
+                try:
+                    duration = max(0.0, min(86400.0, float(body.get("duration_s") or 0)))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("音频时长格式有误") from exc
+                track = add("music_track", {"title": str(body.get("name") or "")[:160] or "未命名音频",
+                                             "artist": str(body.get("artist") or "他")[:120], "url": url,
+                                             "durationS": duration, "by": "him", "notes": []})
+                ids = [str(value) for value in setting("music_playlist").get("ids", [])]
+                save_setting("music_playlist", {"ids": [*ids, track["id"]]})
+                return track
+            if operation in {"delete_photo", "delete_sticker", "playlist_remove", "watch_delete"}:
+                kind = {"delete_photo": "photo", "delete_sticker": "sticker_him", "watch_delete": "watch"}.get(operation)
+                if operation == "playlist_remove":
+                    ids = [str(value) for value in setting("music_playlist").get("ids", []) if str(value) != rec_id]
+                    save_setting("music_playlist", {"ids": ids})
+                    return listen_snapshot()
+                found = conn.execute("SELECT 1 FROM records WHERE kind=? AND id=?", (kind, rec_id)).fetchone()
+                if not found:
+                    raise ValueError("找不到要删除的真实记录")
+                conn.execute("DELETE FROM records WHERE kind=? AND id=?", (kind, rec_id))
+                return {"ok": True, "deleted": rec_id, "kind": kind}
+            if operation == "playlist_add":
+                if not conn.execute("SELECT 1 FROM records WHERE kind='music_track' AND id=?", (rec_id,)).fetchone():
+                    raise ValueError("找不到这首真实歌曲")
+                ids = [str(value) for value in setting("music_playlist").get("ids", [])]
+                if rec_id not in ids:
+                    ids.append(rec_id)
+                save_setting("music_playlist", {"ids": ids})
+                return listen_snapshot()
+            if operation == "spark_use_card":
+                target = str(body.get("date") or "")
+                state = spark_snapshot()
+                today = dt.datetime.now(ZONE).date()
+                allowed = {(today - dt.timedelta(days=i)).isoformat() for i in range(1, 7)}
+                if target not in allowed or state["cards"] < 1:
+                    raise ValueError("只能在有续火卡时补最近六天已经过去的日期")
+                return add("spark_card_use", {"date": target, "by": "him"})
+            if operation == "spark_redeem":
+                gift = next((item for item in recent("gift", 500) if item["id"] == rec_id), None)
+                state = spark_snapshot()
+                if not gift:
+                    raise ValueError("礼物不存在")
+                if state["wallets"]["him"] < int(gift.get("cost") or 0):
+                    raise ValueError("他的火花积分不够")
+                record = add("gift_redeem", {"itemId": gift["id"], "name": gift["name"], "cost": int(gift["cost"]),
+                                               "by": "him", "status": "given", "note": str(body.get("text") or "")[:120]})
+                if gift.get("cat") in {"bubble", "pendant"}:
+                    add("gift_kept", {"itemId": gift["id"], "name": gift["name"], "cat": gift["cat"],
+                                      "art": gift.get("art") or gift["cat"], "active": False})
+                return record
+            if operation == "spark_activate":
+                found = conn.execute("SELECT payload FROM records WHERE kind='gift_kept' AND id=?", (rec_id,)).fetchone()
+                if not found:
+                    raise ValueError("收藏不存在")
+                category = json.loads(found["payload"]).get("cat")
+                for row in conn.execute("SELECT id,payload FROM records WHERE kind='gift_kept'").fetchall():
+                    item = json.loads(row["payload"])
+                    if item.get("cat") == category:
+                        item["active"] = bool(body.get("active", True)) if row["id"] == rec_id else False
+                        conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(item, ensure_ascii=False), row["id"]))
+                return {"ok": True, "id": rec_id, "active": bool(body.get("active", True))}
+            if operation == "appearance":
+                if body.get("him_name") is not None:
+                    name = str(body.get("him_name") or "").strip()
+                    if not name or len(name) > 24:
+                        raise ValueError("昵称需为 1–24 字")
+                    save_setting("contact", {"himName": name})
+                beauty = setting("beauty")
+                if body.get("bubble") in {"glass", "paper", "cyan"}:
+                    beauty["bubble"] = body["bubble"]
+                if body.get("alpha") is not None:
+                    beauty["alpha"] = max(0.2, min(0.95, float(body["alpha"])))
+                if body.get("wallpaper") is not None:
+                    beauty["wallpaper"] = str(body.get("wallpaper") or "") or None
+                save_setting("beauty", beauty)
+                return {"contact": setting("contact"), "beauty": beauty}
+            raise ValueError("unknown manage_space operation")
+
         if action == "set_tide":
             emotions = body.get("emotions") if isinstance(body.get("emotions"), list) else []
             drives = body.get("drives") if isinstance(body.get("drives"), list) else []

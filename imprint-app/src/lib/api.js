@@ -4,6 +4,8 @@
  * exposes `/relay/app/*` and `/relay/app/loop/*`. This file translates the
  * important chat/session/config/MCP operations without changing the design.
  */
+import { normalizeTideMemories } from './tideMemory.js';
+
 const BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 const RELAY = `${BASE}/relay`;
 // Demo fixtures are available only in the development server and are never
@@ -59,17 +61,6 @@ async function request(path, { method = 'GET', body, form, timeout = 30000, raw 
 }
 
 const loop = (path, opts) => request(`${RELAY}/app/loop/${path}`, opts);
-
-function tideMemoryItems(text, query = '') {
-  const clean = String(text || '').trim();
-  if (!clean) return [];
-  let blocks = clean.split(/\n\s*\n+/).map((x) => x.trim()).filter(Boolean);
-  if (blocks.length === 1 && clean.includes('\n')) blocks = clean.split(/\n+/).map((x) => x.trim()).filter(Boolean);
-  return blocks.slice(0, 120).map((block, index) => {
-    const value = block.replace(/^\s*(?:[-*•]+|\d+[.)])\s*/, '').replace(/^#{1,6}\s*/, '').trim();
-    return { id: `tide-${index}-${value.length}`, no: blocks.length - index, at: null, text: value.slice(0, 2000), tag: query ? '搜索' : '心潮', by: 'him' };
-  });
-}
 
 function quoteParts(text) {
   const m = String(text || '').match(/^> 引用：([^\n]+)\n\n([\s\S]*)$/);
@@ -297,25 +288,7 @@ async function compat(path, opts) {
       loop('memories', { method: 'POST', body: { query } }),
       loop('imprint/tide/memory-meta').catch(() => ({ stats: {}, heat: [], items: [], recent: [] })),
     ]);
-    const remote = tideMemoryItems(result.text, query);
-    const local = (meta.items || []).filter((item) => !query || item.text?.includes(query) || item.tag?.includes(query));
-    const localByText = new Map(local.map((item) => [String(item.text || '').trim(), item]));
-    const seen = new Set();
-    const items = remote.map((item) => {
-      const saved = localByText.get(String(item.text || '').trim());
-      if (!saved) return item;
-      seen.add(saved.id);
-      return { ...item, id: saved.id, at: saved.at, tag: saved.tag || item.tag, by: saved.by || item.by };
-    });
-    items.push(...local.filter((item) => !seen.has(item.id)).map((item, index) => ({ ...item, no: items.length + index + 1 })));
-    return {
-      available: true,
-      now: new Date().toISOString(),
-      stats: { longTerm: items.length, weekWrites: meta.stats?.weekWrites ?? 0, manual: meta.stats?.manual ?? 0 },
-      heat: meta.heat || [],
-      items,
-      recent: meta.recent || [],
-    };
+    return normalizeTideMemories(result, meta, query);
   }
   if (method === 'POST' && p === '/api/tide/memory') {
     const text = String(opts.body?.text || '').trim();

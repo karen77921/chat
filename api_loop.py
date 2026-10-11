@@ -3882,6 +3882,69 @@ async def loop_mcp_list():
     return {"available": MCP_AVAILABLE, "servers": mcp_manager.public()}
 
 
+OMBRE_CATALOG_ROW_RE = re.compile(
+    r"^(?:[-*•]\s*|\d+[.)]\s*)?"
+    r"(?P<date>\d{4}-\d{2}-\d{2})[ T]"
+    r"(?P<hour>\d{2})[-:](?P<minute>\d{2})[-:](?P<second>\d{2})\s+"
+    r"(?P<body>.+)$"
+)
+
+
+def parse_ombre_memory_items(raw: str, query: str = "") -> list[dict[str, Any]]:
+    """Turn Ombre's human-readable catalog/search output into Tide specimens."""
+    clean = str(raw or "").replace("\r", "").strip()
+    if not clean:
+        return []
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for line in clean.splitlines():
+        value = line.strip()
+        match = OMBRE_CATALOG_ROW_RE.match(value)
+        if not match:
+            continue
+        parts = [part.strip() for part in match.group("body").split("|")]
+        text = parts[0].strip(" -—")
+        if not text:
+            continue
+        tag = ""
+        if len(parts) > 1 and not re.fullmatch(r"\d+(?:\.\d+)?", parts[1]):
+            tag = " · ".join(bit.strip() for bit in re.split(r"[,，]", parts[1]) if bit.strip())[:80]
+        stamp = (
+            f'{match.group("date")}T{match.group("hour")}:'
+            f'{match.group("minute")}:{match.group("second")}+08:00'
+        )
+        fingerprint = hashlib.sha256(f"{stamp}\n{text}".encode("utf-8")).hexdigest()[:16]
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        items.append({
+            "id": f"ombre-{fingerprint}", "at": stamp, "text": text,
+            "tag": tag or ("搜索" if query else "心潮"), "by": "him",
+        })
+    if items:
+        return items
+
+    # Older search results can be paragraphs without catalog timestamps. Keep
+    # those results, but never turn catalog headings/instructions into memories.
+    blocks = [block.strip() for block in re.split(r"\n\s*\n+", clean) if block.strip()]
+    if len(blocks) == 1 and "\n" in clean:
+        blocks = [line.strip() for line in clean.splitlines() if line.strip()]
+    skip = ("记忆目录", "先看目录", "breath_search", "动态（", "relation")
+    for block in blocks:
+        value = re.sub(r"^\s*(?:[-*•]+|\d+[.)])\s*", "", block).strip()
+        if not value or any(marker.lower() in value.lower() for marker in skip):
+            continue
+        fingerprint = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        items.append({
+            "id": f"ombre-{fingerprint}", "at": None, "text": value[:2000],
+            "tag": "搜索" if query else "心潮", "by": "him",
+        })
+    return items[:120]
+
+
 @app.get("/loop/tide/pulse")
 async def loop_tide_pulse():
     """Combine a genuine structured self-report with the live Ombre pulse."""
@@ -3929,7 +3992,9 @@ async def loop_memories(request: Request):
             mode = "pulse"
     try:
         result = await server.call(str(getattr(tool, "name", "")), args)
-        return {"ok": True, "mode": mode, "query": query, "text": mcp_result_text(result)}
+        text = mcp_result_text(result)
+        return {"ok": True, "mode": mode, "query": query, "text": text,
+                "items": parse_ombre_memory_items(text, query)}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Heart Tide memory read failed: {type(exc).__name__}: {exc}"[:600]) from exc
 

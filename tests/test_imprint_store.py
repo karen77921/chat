@@ -459,6 +459,18 @@ class ImprintStoreTest(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 api_loop._oauth_safe_redirect_uri(unsafe)
 
+    def test_ombre_catalog_is_structured_for_heart_tide(self):
+        raw = """=== 记忆目录（20 桶）===
+先看目录定位，再 breath_search(query=...) 精准拉取正文。
+2026-10-10 09-15-13 季宁小年糕记忆档案 | 恋爱,数字 | 10 | Footprint
+2026-10-11 12-24-58 互称昵称确认大麻薯与小年糕 | 人际 | 6 | Footprint"""
+        items = api_loop.parse_ombre_memory_items(raw)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["text"], "季宁小年糕记忆档案")
+        self.assertEqual(items[0]["tag"], "恋爱 · 数字")
+        self.assertEqual(items[0]["at"], "2026-10-10T09:15:13+08:00")
+        self.assertNotIn("先看目录", json.dumps(items, ensure_ascii=False))
+
     def test_public_research_tools_exist_and_block_local_networks(self):
         tool_names = {tool["function"]["name"] for tool in api_loop.all_tools()}
         self.assertTrue({"search_public_web", "read_public_page", "read_public_github_file"}.issubset(tool_names))

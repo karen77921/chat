@@ -153,12 +153,14 @@ async function sendMessage(id, body) {
 
 const mcpRow = (x) => ({ id: x.name, name: x.name, url: x.url || '', auth: x.auth || 'none', always: Boolean(x.always), tools: x.tools?.length || 0, status: x.status === 'online' ? 'ok' : x.status === 'connecting' ? 'pending' : 'down', on: x.enabled !== false });
 
+const WAKE_MODE_NAMES = { normal: '正常', 'low-frequency': '低频', silent: '静默', custom: '自定义' };
+
 async function liveFeatures() {
   const [cfg, mcp] = await Promise.all([loop('config'), loop('mcp')]);
   return {
     available: true,
     features: [
-      { key: 'reach', name: '主动找你', desc: `Wake 2.0 · ${cfg.wake?.control?.mode || '低频'}`, last: cfg.wake?.state?.last_opportunity_at || '', on: cfg.wake?.control?.enabled !== false },
+      { key: 'reach', name: '主动找你', desc: `Wake 2.0 · ${WAKE_MODE_NAMES[cfg.wake?.control?.mode] || cfg.wake?.control?.mode || '低频'}`, last: cfg.wake?.state?.last_opportunity_at || '', on: cfg.wake?.control?.enabled !== false },
       { key: 'memory', name: '心潮记忆整理', desc: '上下文压缩后沉入心潮记忆', last: '', on: cfg.context_compaction !== false },
       { key: 'recall', name: '心潮自动回想', desc: '每轮按当前话题读取心潮记忆', last: '', on: cfg.ombre_auto_recall !== false },
       { key: 'time', name: '现实时间感知', desc: cfg.context_timezone || 'Asia/Shanghai', last: '', on: cfg.context_time !== false },
@@ -218,7 +220,8 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/features') return liveFeatures();
   if (method === 'PUT' && (m = /^\/api\/features\/([^/]+)$/.exec(p))) {
     const key = m[1], on = Boolean(opts.body?.on);
-    if (key === 'reach') return loop('wake/config', { method: 'POST', body: { enabled: on, mode: 'low-frequency', make_default: true } });
+    // 只开关，不动他现在的频率模式（正常 / 低频 / 自定义）
+    if (key === 'reach') return loop('wake/config', { method: 'POST', body: { enabled: on, make_default: false } });
     const fields = { memory: 'context_compaction', recall: 'ombre_auto_recall', time: 'context_time', backup: 'backup_enabled' };
     return loop('config', { method: 'POST', body: { [fields[key]]: on } });
   }

@@ -6,6 +6,7 @@ import Sheet from '../../design/Sheet.jsx';
 import { Sticker } from '../chat/stickers.jsx';
 import { api } from '../../lib/api.js';
 import { hm } from '../../lib/chat.js';
+import AuthImg from '../../design/AuthImg.jsx';
 
 /* ---------- 此刻：他现在在做什么 ---------- */
 export function NowCard({ current, now }) {
@@ -68,7 +69,7 @@ export function PhotoWall({ data, filter, setFilter, onOpen, names }) {
         {data?.items?.map((p, i) => (
           <button key={p.id} type="button" className="rm-pol drop" style={{ rotate: `${[-3, 2.5, 1.6, -2, -1, 2][i % 6]}deg` }} onClick={() => onOpen(p)} aria-label={`看照片：${p.caption || '没有说明'}`}>
             <Tape w={50} h={16} seed={i + 7} style={{ left: 'calc(50% - 25px)', top: -7, rotate: `${i % 2 ? 5 : -6}deg` }} />
-            <span className="rm-pol-img">{p.url ? <img src={p.thumb || p.url} alt="" loading="lazy" /> : <Cyanotype w={144} h={128} seed={11 + i * 12} variant={i % 2 ? 'fern' : 'sprig'} />}</span>
+            <span className="rm-pol-img">{p.url ? <AuthImg src={p.thumb || p.url} alt="" loading="lazy" /> : <Cyanotype w={144} h={128} seed={11 + i * 12} variant={i % 2 ? 'fern' : 'sprig'} />}</span>
             <span className="rm-pol-cap"><span className="hand-cn">{p.caption}</span><em>{p.from === 'him' ? '他贴的' : '我贴的'}</em></span>
             {p.fav && <span className="rm-pol-fav" aria-label="收藏了"><Icon name="heart" size={12} stroke={1.6} /></span>}
           </button>
@@ -102,7 +103,7 @@ export function PhotoView({ photo, names, onClose, onChange, onDelete }) {
       <button type="button" className="rm-view-mask" aria-label="关闭" onClick={onClose} />
       <div className="rm-view-in">
         <div className="rm-big drop2 m-settle">
-          <span className="rm-big-img">{photo.url ? <img src={photo.url} alt="" /> : <Cyanotype w={296} h={296} seed={31} />}</span>
+          <span className="rm-big-img">{photo.url ? <AuthImg src={photo.url} alt="" /> : <Cyanotype w={296} h={296} seed={31} />}</span>
           <div className="hand-cn rm-big-cap">{photo.caption}</div>
           <div className="rm-big-meta">{photo.from === 'him' ? '他贴的' : '我贴的'} · {d.getMonth() + 1}月{d.getDate()}日{photo.source === 'chat' ? ' · 来自聊天' : ''}</div>
         </div>

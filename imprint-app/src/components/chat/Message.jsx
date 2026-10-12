@@ -9,6 +9,7 @@ import { Sticker } from './stickers.jsx';
 import { fileSize } from '../../lib/chat.js';
 import { splitByQuery } from '../../lib/notes.js';
 import { stickerToken } from '../../lib/stickerUrls.js';
+import AuthImg from '../../design/AuthImg.jsx';
 
 function useLongPress(onLong) {
   const t = useRef(null);
@@ -63,7 +64,7 @@ function Images({ images, onOpen }) {
     <div className={`cm-imgs glass ${cls}`}>
       {images.slice(0, 9).map((im, i) => (
         <button key={i} type="button" className="cm-img" onClick={() => onOpen(i)} aria-label={`看第 ${i + 1} 张图`}>
-          {im.url ? <img src={im.thumb || im.url} alt="" loading="lazy" /> : <Cyanotype w={n === 1 ? 168 : 120} h={n === 1 ? 120 : 120} seed={20 + i} variant="sprig" develop={false} />}
+          {im.url ? <AuthImg src={im.thumb || im.url} alt="" loading="lazy" /> : <Cyanotype w={n === 1 ? 168 : 120} h={n === 1 ? 120 : 120} seed={20 + i} variant="sprig" develop={false} />}
         </button>
       ))}
     </div>

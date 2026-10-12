@@ -1,5 +1,6 @@
 /** 内置表情：蓝色简笔画。前端自带，不需要后端；发送时只发 id。 */
 import { stickerUrls } from '../../lib/stickerUrls.js';
+import AuthImg from '../../design/AuthImg.jsx';
 const st = { fill: 'none', stroke: 'var(--print-c)', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round' };
 const fl = { fill: 'color-mix(in srgb, var(--l1) 80%, #fff)' };
 const face = <path d="M14 30l4-16 10 10q8-3 16 0l10-10 4 16q4 8 0 16q-8 14-22 14T14 46q-4-8 0-16z" {...st} {...fl} />;
@@ -20,7 +21,7 @@ export const BUILTIN = Object.keys(ART).map((id) => ({ id, name: { 'cat-smile': 
 /** 内置的画 SVG；后端给的（我的 / 他画的）用图片地址 */
 export function Sticker({ sticker, size = 72 }) {
   const url = sticker?.url || (!ART[sticker?.id] && stickerUrls.get(String(sticker?.id))) || '';
-  if (url) return <img src={url} alt={sticker.name || '表情'} width={size} height={size} style={{ objectFit: 'contain' }} />;
+  if (url) return <AuthImg src={url} alt={sticker.name || '表情'} width={size} height={size} style={{ objectFit: 'contain' }} />;
   const art = ART[sticker?.id] || ART['cat-smile'];
   return <svg width={size} height={size} viewBox="0 0 72 72" role="img" aria-label={BUILTIN.find((b) => b.id === sticker?.id)?.name || '表情'}>{art}</svg>;
 }

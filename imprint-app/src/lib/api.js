@@ -36,6 +36,26 @@ function withToken(url) {
   return value ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(value)}` : url;
 }
 
+// 上传的图片在中继里要带登录凭证才能读。<img> 带不了请求头，所以先用 fetch 带上凭证取回来，
+// 再交给 <img> 一个本地地址。同一张图只取一次。
+const blobUrls = new Map();
+export function isRelayUpload(url) {
+  return /\/uploads\//.test(String(url || '')) && !String(url).startsWith('blob:');
+}
+export function authedImageUrl(url) {
+  const clean = String(url || '').replace(/([?&])token=[^&]*&?/, '$1').replace(/[?&]$/, '');
+  if (!blobUrls.has(clean)) {
+    const headers = {};
+    const value = token();
+    if (value) headers.Authorization = `Bearer ${value}`;
+    blobUrls.set(clean, fetch(clean, { headers }).then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.blob();
+    }).then((blob) => URL.createObjectURL(blob)).catch((err) => { blobUrls.delete(clean); throw err; }));
+  }
+  return blobUrls.get(clean);
+}
+
 export function streamUrl() { return withToken(`${RELAY}/app/stream`); }
 
 async function request(path, { method = 'GET', body, form, timeout = 30000, raw } = {}) {

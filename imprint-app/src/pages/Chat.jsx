@@ -16,6 +16,7 @@ import Message from '../components/chat/Message.jsx';
 import InputBar from '../components/chat/InputBar.jsx';
 import MessageMenu from '../components/chat/MessageMenu.jsx';
 import '../components/chat/chat.css';
+import AuthImg from '../design/AuthImg.jsx';
 
 export default function Chat({ query }) {
   const chatId = query.id || 'w1';
@@ -255,7 +256,7 @@ function ChatDetails({ data, upload, onClose, onUpdated }) {
 
 /** 头像：后端给图就用图，没给就画一张小蓝晒；群里的成员用首字 */
 export function Avatar({ m, size = 42 }) {
-  if (m?.avatar) return <img src={m.avatar} alt="" width={size} height={size} style={{ objectFit: 'cover', display: 'block' }} />;
+  if (m?.avatar) return <AuthImg src={m.avatar} alt="" width={size} height={size} style={{ objectFit: 'cover', display: 'block' }} />;
   if (m?.color) return <span className="ch-letter serif" style={{ width: size, height: size, background: m.color, fontSize: size * 0.45 }}>{m.name?.[0]}</span>;
   return <Cyanotype w={size} h={size} seed={3} variant="sprig" develop={false} />;
 }
@@ -282,7 +283,7 @@ function StatusLine({ st, onPause, onRetry }) {
 function ChatBackground({ url }) {
   return (
     <div className="ch-bg" aria-hidden="true">
-      {url ? <img src={url} alt="" /> : (
+      {url ? <AuthImg src={url} alt="" /> : (
         <div className="ch-bg-art">
           <Cyanotype w={430} h={932} seed={7} develop={false} />
         </div>
@@ -297,7 +298,7 @@ function ImageViewer({ images, i, onClose, onGo }) {
   return (
     <div className="ch-viewer" role="dialog" aria-label="看图">
       <button type="button" className="ch-viewer-mask" aria-label="关闭" onClick={onClose} />
-      <div className="ch-viewer-img">{im?.url ? <img src={im.url} alt="" /> : <Cyanotype w={320} h={240} seed={20 + i} variant="sprig" develop={false} />}</div>
+      <div className="ch-viewer-img">{im?.url ? <AuthImg src={im.url} alt="" /> : <Cyanotype w={320} h={240} seed={20 + i} variant="sprig" develop={false} />}</div>
       {images.length > 1 && (
         <div className="ch-viewer-nav">
           <button type="button" className="gbtn" aria-label="上一张" disabled={i === 0} onClick={() => onGo(i - 1)}><Icon name="back" size={18} stroke={1.5} /></button>

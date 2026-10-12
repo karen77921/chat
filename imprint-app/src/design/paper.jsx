@@ -3,6 +3,7 @@
  * 撕边和植物都由随机种子生成，同一个 seed 每次画出来一样。
  */
 import { useId, useMemo } from 'react';
+import AuthImg from './AuthImg.jsx';
 
 /* ---------- 随机 ---------- */
 function rng(seed) {
@@ -183,7 +184,7 @@ export function Cyanotype({ w, h, seed = 2, variant = 'fern', src, alt = '', dev
     <div className={`cyano ${develop ? 'm-develop' : ''} ${className}`} style={{ width: w, height: h, ...style }}>
       {src ? (
         <>
-          <img src={src} alt={alt} className="ink" />
+          <AuthImg src={src} alt={alt} className="ink" />
           <i className="cyano-tint" />
         </>
       ) : (

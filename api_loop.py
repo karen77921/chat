@@ -1587,8 +1587,9 @@ async def _compact_context_locked(session_id: str, before_id: int | None) -> dic
                 [{"role": "system", "content": "只执行对话压缩，不回答对话内容。"},
                  {"role": "user", "content": prompt}],
                 None,
-                stream=False,
+                stream=True,  # a long summary would trip the idle timeout if we waited for one big response
                 session_id=session_id,
+                budget_s=300,  # background job: nobody is waiting, so give it time
             )
             data = json.loads(_strip_json_fence(out.get("text") or ""))
             new_summary = str(data.get("rolling_summary") or "").strip()
@@ -3231,12 +3232,12 @@ def route_credentials(body: dict[str, Any], *, require_model: bool = False) -> d
     return route
 
 
-async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, sink=None, think_sink=None, stream: bool = True, session_id: str = "", patient: bool = False) -> dict[str, Any]:
+async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, sink=None, think_sink=None, stream: bool = True, session_id: str = "", patient: bool = False, budget_s: int | None = None) -> dict[str, Any]:
     """Walk the model chain. Falls back to the next route only if nothing was streamed yet."""
     tried: list[str] = []
     errors: list[str] = []
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + cfg_int("model_chain_timeout_seconds", 30, 600)
+    deadline = loop.time() + (budget_s or cfg_int("model_chain_timeout_seconds", 30, 600))
     t0 = loop.time()
     timing: dict[str, Any] = {"tools": len(tools or []), "dropped_tools": False}
     for route in main_chain():
@@ -3260,7 +3261,7 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
 
         try:
             remaining = max(1.0, deadline - loop.time())
-            route_timeout = min(cfg_int("model_request_timeout_seconds", 30, 300), remaining)
+            route_timeout = min(budget_s or cfg_int("model_request_timeout_seconds", 30, 300), remaining)
             request = stream_chat(route, messages, tools, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, tools, session_id)
             try:
                 # Give a tool-capable attempt a short head start, then retry the

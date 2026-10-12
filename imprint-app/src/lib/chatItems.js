@@ -21,6 +21,19 @@ export function mergeResync(prev, fresh) {
   if (!prev || prev.available === false) return fresh;
   const lastMine = [...prev.items].reverse().find((m) => m.from === 'me');
   const answered = !lastMine || fresh.items.some((m) => m.from !== 'me' && new Date(m.at) >= new Date(lastMine.at));
+  // fresh may hold only the newest messages: fold them into what is already loaded
+  let items = prev.items.filter((m) => !String(m.id).startsWith('tmp-'));
+  for (const message of fresh.items) items = upsertMessage(items, message);
   const pending = prev.items.filter((m) => String(m.id).startsWith('tmp-'));
-  return { ...fresh, items: [...fresh.items, ...pending], replying: answered ? null : prev.replying };
+  return { ...fresh, items: [...items, ...pending], replying: answered ? null : prev.replying };
+}
+
+// The complete history arrived after the quick first view: take it, plus anything
+// newer that landed in the meantime (live replies, rows still being sent).
+export function mergeFull(prev, full) {
+  if (!full || full.available === false) return prev;
+  if (!prev || prev.available === false) return full;
+  const known = new Set(full.items.map((m) => String(m.id)));
+  const extra = prev.items.filter((m) => !known.has(String(m.id)));
+  return { ...prev, items: [...full.items, ...extra] };
 }

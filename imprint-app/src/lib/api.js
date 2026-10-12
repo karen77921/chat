@@ -135,12 +135,21 @@ function chatList(sessions) {
   return { available: true, windows: rows.filter((x) => !x.archived).map(convert), groups: [], archived: rows.filter((x) => x.archived).map(convert) };
 }
 
-async function loadChat(id) {
+function fullHistory(id) {
+  return collectHistory(({ since, limit }) => request(
+    `${RELAY}/app/history?session_id=${encodeURIComponent(id)}&since=${since}&limit=${limit}`,
+  )).then((messages) => ({ messages }));
+}
+
+/**
+ * full=false：只取最近 200 条（一次请求），打开聊天马上能看；full=true：从第一条翻到最后一条。
+ * 旧后端没有「最近」接口时自动退回整段读取。
+ */
+async function loadChat(id, full = false) {
+  const recent = () => loop(`imprint/chat/recent?session_id=${encodeURIComponent(id)}&limit=200`).catch(() => fullHistory(id));
   const [ss, hist, settings, reactions] = await Promise.all([
     request(`${RELAY}/app/sessions`),
-    collectHistory(({ since, limit }) => request(
-      `${RELAY}/app/history?session_id=${encodeURIComponent(id)}&since=${since}&limit=${limit}`,
-    )).then((messages) => ({ messages })),
+    full ? fullHistory(id) : recent(),
     loop('imprint/settings').catch(() => ({ avatars: {} })),
     loop('imprint/chat/reactions').catch(() => ({ items: [] })),
     loop('imprint/stickers').then((x) => rememberStickers(
@@ -201,7 +210,7 @@ async function compat(path, opts) {
     return { id: x.created?.id || x.active_session };
   }
   if (method === 'GET' && p === '/api/connections') return { available: true, items: [{ id: 'main', name: '私人后端', kind: 'window', provider: 'Imprint API loop', note: '现有主窗口', status: 'ok', statusText: '在线', mode: 'OpenAI 兼容 API', workdir: 'VPS 私有目录', sandbox: '只访问已配置目录' }] };
-  if (method === 'GET' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return loadChat(decodeURIComponent(m[1]));
+  if (method === 'GET' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return loadChat(decodeURIComponent(m[1]), /[?&]full=1/.test(query));
   if (method === 'PATCH' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) {
     const body = {};
     if (opts.body?.name !== undefined) body.title = opts.body.name;

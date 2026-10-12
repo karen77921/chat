@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, MOCK, streamUrl, adaptStreamEvent } from './api.js';
-import { upsertMessage, settleSentMessage, mergeResync } from './chatItems.js';
+import { upsertMessage, settleSentMessage, mergeResync, mergeFull } from './chatItems.js';
 
 /** 他那边的状态：回复中 → 超过 30 秒没新动静「仍在等待」→ 超过 2 分钟「卡住了」 */
 export const WAIT_MS = 30000;
@@ -30,8 +30,13 @@ export function useChat(chatId, demo) {
   const tick = useRef(null);
   const temporarySequence = useRef(0);
 
+  // 先拿最近的聊天马上显示，再在后台把更早的记录补进来（给搜索用），不让她干等
   const load = useCallback(() => api(`${base}${demo ? `?demo=${demo}` : ''}`)
-    .then(setData)
+    .then((recent) => {
+      setData(recent);
+      if (MOCK || demo || recent?.available === false) return;
+      api(`${base}?full=1`, { timeout: 120000 }).then((full) => setData((prev) => mergeFull(prev, full))).catch(() => {});
+    })
     .catch((e) => setData({ available: false, reason: e.message })), [base, demo]);
 
   useEffect(() => { load(); }, [load]);

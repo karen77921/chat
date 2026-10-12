@@ -4147,6 +4147,38 @@ async def loop_wake_precise_cancel(wake_id: str):
     return {"ok": cancel_precise_wake(wake_id), "wake_id": wake_id}
 
 
+@app.get("/loop/imprint/chat/recent")
+async def loop_chat_recent(session_id: str = "", limit: int = 200):
+    """The newest messages of one chat window, oldest first, in the relay history shape.
+
+    The relay's own history only pages forward from the first message, so opening a long
+    chat used to fetch everything before anything showed. This returns the tail in one read.
+    """
+    path = Path(RELAY_DB)
+    if not path.exists():
+        return {"messages": []}
+    limit = max(1, min(int(limit), 500))
+    sid = str(session_id or "").strip()
+    where = "json_extract(meta, '$.api_session') = ?" if sid else \
+        "(json_extract(meta, '$.api_session') IS NULL OR json_extract(meta, '$.api_session') = '')"
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, ts, direction, kind, text, meta FROM messages "
+            f"WHERE json_valid(meta) AND {where} ORDER BY id DESC LIMIT ?",
+            ([sid] if sid else []) + [limit],
+        ).fetchall()
+    out = []
+    for row in reversed(rows):
+        try:
+            meta = json.loads(row["meta"] or "{}")
+        except ValueError:
+            meta = {}
+        out.append({"id": row["id"], "ts": row["ts"], "direction": row["direction"], "kind": row["kind"],
+                    "from": "human" if row["direction"] == "in" else "ai", "text": row["text"], "meta": meta})
+    return {"messages": out}
+
+
 @app.get("/loop/garden/status")
 async def loop_garden_status():
     return await garden_status()

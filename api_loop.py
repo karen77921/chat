@@ -3179,7 +3179,7 @@ def route_credentials(body: dict[str, Any], *, require_model: bool = False) -> d
     return route
 
 
-async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, sink=None, think_sink=None, stream: bool = True, session_id: str = "") -> dict[str, Any]:
+async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, sink=None, think_sink=None, stream: bool = True, session_id: str = "", patient: bool = False) -> dict[str, Any]:
     """Walk the model chain. Falls back to the next route only if nothing was streamed yet."""
     tried: list[str] = []
     errors: list[str] = []
@@ -3206,7 +3206,8 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
             try:
                 # Give a tool-capable attempt a short head start, then retry the
                 # same model without schemas so ordinary conversation can get out.
-                first_timeout = min(route_timeout, 25 if tools else route_timeout)
+                # Background wake turns have nobody waiting, so they keep their tools (patient).
+                first_timeout = min(route_timeout, 25 if tools and not patient else route_timeout)
                 out = await asyncio.wait_for(request, timeout=first_timeout)
             except (asyncio.TimeoutError, httpx.TimeoutException):
                 retry_remaining = min(route_timeout - first_timeout, deadline - loop.time())
@@ -3786,16 +3787,18 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
           "如果你希望自己在某个具体时间再次醒来，可以调用 schedule_self_wake，留下时间和给未来自己的 note；这就是下一次唤醒纸条。"
           "你也可以不发聊天消息，直接使用 imprint_* 工具在完整 Imprint 空间行动：小屋、留言板、照片、独处、心潮、一起听/看、续火花礼物铺和表情包都是真实板块。"
           "先 inspect 获取真实状态和 ID，再按自己的意愿评论或收藏照片、控制一起听、留下歌曲批注、更新片单或设计火花礼物；这些都是能真实写入前端的行动。"
+          "想出门走走的话，也可以去 Galatea Garden（花园）逛逛：看看通知、帖子和动态，想回就回，和在 Imprint 里一样随你的意愿。"
           "不要因为获得机会就被迫说话，也不要暴露概率、调度器或这段内部提示。"
           "如果沉默，最终只输出 ⟦SILENT⟧；如果要联系，最终以 ⟦MESSAGE⟧ 开头，后面直接写要发送的自然消息。"
         )
     messages, _ = await build_messages(prompt, [], before_id=None, session_id=session_id, use_context=True, with_images=False)
     turn = Turn(session_id, dry=False)
-    tools: list[dict[str, Any]] | None = turn_tools(prompt, garden=bool(garden))
+    # 自己醒来的时候也把花园的工具交给他：后台运行没人在等，不怕慢
+    tools: list[dict[str, Any]] | None = turn_tools(prompt, garden=True)
     max_steps = cfg_int("max_tool_steps", 0, 50)
     try:
         for step in range(max_steps + 2):
-            out = await run_model(messages, tools if max_steps > 0 else None, stream=False, session_id=session_id)
+            out = await run_model(messages, tools if max_steps > 0 else None, stream=False, session_id=session_id, patient=True)
             calls = out.get("tool_calls") or []
             if not calls:
                 answer = str(out.get("text") or out.get("thinking") or "").strip()

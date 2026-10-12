@@ -1471,6 +1471,22 @@ def _strip_json_fence(text: str) -> str:
     return value.strip()
 
 
+def parse_compaction(text: str) -> dict[str, str]:
+    """Read the summary from <rolling_summary>/<memory_digest> tags, or the older JSON shape.
+
+    Tags survive quotes inside the summary (\"嗯嗯好好\"), which broke strict JSON.
+    """
+    raw = str(text or "")
+    tagged = {
+        key: (m.group(1).strip() if (m := re.search(rf"<{key}>\s*(.*?)\s*</{key}>", raw, flags=re.S)) else None)
+        for key in ("rolling_summary", "memory_digest")
+    }
+    if tagged["rolling_summary"] is not None:
+        return {key: value or "" for key, value in tagged.items()}
+    data = json.loads(_strip_json_fence(raw))
+    return {"rolling_summary": str(data.get("rolling_summary") or ""), "memory_digest": str(data.get("memory_digest") or "")}
+
+
 def _history_text(rows: list[dict[str, Any]]) -> str:
     lines = []
     for row in rows:
@@ -1574,12 +1590,12 @@ async def _compact_context_locked(session_id: str, before_id: int | None) -> dic
             break
         source = _history_text(batch)
         prompt = (
-            "你是私密聊天的上下文压缩器。请返回严格 JSON，不要代码围栏：\n"
-            '{"rolling_summary":"...","memory_digest":"..."}\n'
+            "你是私密聊天的上下文压缩器。只按下面的格式输出两段，不要别的内容：\n"
+            "<rolling_summary>\n...\n</rolling_summary>\n<memory_digest>\n...\n</memory_digest>\n"
             "rolling_summary：合并旧摘要和本批对话，保留具体日期、时间、人物、地点、数字、"
             "承诺、待办、关系变化和未解决事项；删除寒暄与重复，控制在4000字以内。\n"
             "memory_digest：只整理本批新出现、适合长期记忆的稳定偏好、重要经历、约定、承诺和"
-            "关系变化；没有就返回空字符串。不要把普通闲聊或临时任务写入长期记忆。\n\n"
+            "关系变化；没有就留空。不要把普通闲聊或临时任务写入长期记忆。\n\n"
             f"旧摘要：\n{summary or '（无）'}\n\n本批对话：\n{source}"
         )
         try:
@@ -1591,7 +1607,7 @@ async def _compact_context_locked(session_id: str, before_id: int | None) -> dic
                 session_id=session_id,
                 budget_s=300,  # background job: nobody is waiting, so give it time
             )
-            data = json.loads(_strip_json_fence(out.get("text") or ""))
+            data = parse_compaction(out.get("text") or "")
             new_summary = str(data.get("rolling_summary") or "").strip()
             digest = str(data.get("memory_digest") or "").strip()
             if not new_summary:

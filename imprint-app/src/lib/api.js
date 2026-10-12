@@ -92,7 +92,10 @@ export function relayMessage(raw) {
     status: raw?.meta?.api?.error ? 'failed' : (mine && raw?.meta?.deferred && !raw?.meta?.reply_requested ? 'queued' : 'sent'),
     thinking: raw?.meta?.thinking || '', edited: Boolean(raw?.meta?.edited_at),
   };
-  if (images.length) {
+  if (raw.kind === 'thinking') {
+    // 思考过程只显示成一个可以折叠的「想了一下」，不当成一条正式回复
+    out.type = 'thinking'; out.thinking = String(raw.text || '').trim(); out.text = ''; out.quote = undefined;
+  } else if (images.length) {
     out.type = 'images';
     out.images = images.map((a) => ({ url: attachmentUrl(a), thumb: attachmentUrl(a), w: a.w, h: a.h }));
   } else if (file) {
@@ -126,7 +129,7 @@ async function loadChat(id) {
     members: [{ id: 'him', name: settings.contact?.himName || 'Ombre', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
     presence: { online: true }, replying: null, beauty: settings.beauty || {},
     wallpaper: settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
-    items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && m.kind !== 'thinking')
+    items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && (m.kind !== 'thinking' || String(m.text || '').trim()))
       .map((message) => ({ ...relayMessage(message), reaction: reactionById.get(String(message.id)) || null })),
   };
 }
@@ -340,6 +343,9 @@ export function adaptStreamEvent(raw, chatId) {
     const iso = new Date().toISOString();
     return { type: 'status', chatId, replying: raw.done ? null : { startedAt: iso, lastEventAt: iso } };
   }
-  if (raw.id != null) return { type: 'message', chatId, message: relayMessage(raw) };
+  if (raw.id != null) {
+    const message = relayMessage(raw);
+    return message.type === 'thinking' && !message.thinking ? null : { type: 'message', chatId, message };
+  }
   return null;
 }

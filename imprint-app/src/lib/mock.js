@@ -103,6 +103,7 @@ const chats = {
       { id: 'c2', from: 'me', type: 'images', images: [{ url: '', w: 4, h: 3 }], at: C('22:41') },
       { id: 'c3', from: 'me', type: 'text', text: '下班路上拍的，云好低', at: C('22:41') },
       { id: 'c4', from: 'him', type: 'command', thinking: '她说云很低，先看看今晚会不会下雪。', command: { title: '查了一下天气', cmd: 'weather --city 苏州 --hours 6', output: '23:00  阴    12°\n02:00  小雪  ☁ 40%', exitCode: 0, ms: 400 }, at: C('22:53') },
+      { id: 'c4t', from: 'him', type: 'thinking', thinking: 'The weather says light snow around 2am. She is probably still standing outside taking photos — remind her gently.', at: C('22:54') },
       { id: 'c5', from: 'him', type: 'text', text: '凌晨真的可能下雪。\n拍照又站在路中间了吧？', at: C('22:54') },
       { id: 'c6', from: 'me', type: 'text', text: '没有！站在路边的！', quote: { id: 'c5', from: 'him', text: '拍照又站在路中间了吧？' }, status: 'queued', at: C('22:57') },
       { id: 'c7', from: 'me', type: 'voice', voice: { url: '', durationS: 6, transcript: '周六的电影订好位置了，第七排中间' }, status: 'queued', at: C('22:58') },

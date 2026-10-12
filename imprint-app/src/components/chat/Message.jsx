@@ -122,6 +122,17 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
   const [thinkOpen, setThinkOpen] = useState(false);
   const press = useLongPress((rect) => onMenu?.(m, rect));
 
+  if (m.type === 'thinking') {
+    return (
+      <div className="cm-row him">
+        <div className="cm-think">
+          <button type="button" className="glass cm-think-b" onClick={() => setThinkOpen((o) => !o)} aria-expanded={thinkOpen}>想了一下<Icon name="down" size={14} stroke={1.5} className={thinkOpen ? 'up' : ''} /></button>
+          {thinkOpen && <div className="cm-think-t">{m.thinking}</div>}
+        </div>
+      </div>
+    );
+  }
+
   if (m.status === 'failed') {
     return (
       <div className="cm-row him">

@@ -3796,13 +3796,20 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     # 自己醒来的时候也把花园的工具交给他：后台运行没人在等，不怕慢
     tools: list[dict[str, Any]] | None = turn_tools(prompt, garden=True)
     max_steps = cfg_int("max_tool_steps", 0, 50)
+    nudged = False
     try:
         for step in range(max_steps + 2):
             out = await run_model(messages, tools if max_steps > 0 else None, stream=False, session_id=session_id, patient=True)
             calls = out.get("tool_calls") or []
             if not calls:
-                answer = str(out.get("text") or out.get("thinking") or "").strip()
-                break
+                answer = str(out.get("text") or "").strip()
+                if "⟦SILENT⟧" in answer or "⟦MESSAGE⟧" in answer or nudged:
+                    break
+                # 没写结论标记（常见是自言自语「我先去看看…」就停了）：提醒一次，别把内心独白发给她
+                nudged = True
+                messages.append({"role": "assistant", "content": answer or "（想了一下）"})
+                messages.append({"role": "user", "content": "（内部提示：还要用工具就直接调用；做完了就只输出 ⟦SILENT⟧，或者以 ⟦MESSAGE⟧ 开头写要发给她的话。）"})
+                continue
             messages.append({"role": "assistant", "content": out.get("text") or None, "tool_calls": [
                 {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["arguments"]}}
                 for call in calls
@@ -3827,10 +3834,12 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
         return "error"
     with contextlib.suppress(Exception):
         mark_missed_wakes_informed()
-    if answer.startswith("⟦SILENT⟧") or not answer:
-        wake_audit(kind, "silent", f"{wake_id} {note}".strip())
+    if "⟦MESSAGE⟧" not in answer:
+        # 只有明确写了 ⟦MESSAGE⟧ 才发给她；没标记的一律当作安静，免得把内心独白发出去
+        wake_audit(kind, "silent", f"{wake_id} {note}".strip() if "⟦SILENT⟧" in answer or not answer
+                   else f"{wake_id} unmarked: {answer}"[:2000])
         return "silent"
-    text = answer.removeprefix("⟦MESSAGE⟧").strip()
+    text = answer.split("⟦MESSAGE⟧", 1)[1].strip()
     if not text:
         wake_audit(kind, "silent", f"{wake_id} empty message")
         return "silent"

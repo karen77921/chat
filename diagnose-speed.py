@@ -43,6 +43,8 @@ for mid, ts, direction, kind, meta in reversed(rows):
         if t:
             calls = " | ".join("tools=%s first=%ss done=%ss%s" % (m.get("tools"), m.get("first_chunk_s", "-"), m.get("total_s"),
                                                                 " DROPPED-TOOLS" if m.get("dropped_tools") else "") for m in t.get("model") or [])
-            out.append("      timing: context=%ss  model[%s]  tools_run=%ss  total=%ss" % (t.get("context_s"), calls, t.get("tool_s"), t.get("total_s")))
+            out.append("      timing: context=%ss (memory=%ss%s, compaction=%s)  model[%s]  tools_run=%ss  total=%ss" % (
+                t.get("context_s"), t.get("recall_s", "?"), " TIMED-OUT" if t.get("recall_timed_out") else "",
+                t.get("compaction", "?"), calls, t.get("tool_s"), t.get("total_s")))
         asked = None
 print("\n".join(out[-24:]))

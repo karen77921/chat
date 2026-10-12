@@ -138,6 +138,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "model_request_timeout_seconds": 60, # hard ceiling for one model route, including long reasoning
     "model_chain_timeout_seconds": 90,   # all configured fallbacks together
     "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
+    "ombre_recall_timeout_seconds": 8,   # automatic memory recall before a reply; skipped if slower
     "vision": "auto",           # auto | on | off — send images as image_url parts
     "backup_enabled": True,
     "backup_interval_hours": 24,
@@ -1615,6 +1616,36 @@ async def maybe_compact_context(session_id: str, before_id: int | None) -> dict[
         return await _compact_context_locked(session_id, before_id)
 
 
+CONTEXT_TIMING: dict[str, dict[str, Any]] = {}
+_compaction_tasks: dict[str, asyncio.Task] = {}
+_compaction_failed_at: dict[str, float] = {}
+
+
+def schedule_compaction(session_id: str, before_id: int | None) -> str:
+    """Run context compaction in the background, at most one per session at a time."""
+    key = session_id or "__default__"
+    running = _compaction_tasks.get(key)
+    if running is not None and not running.done():
+        return "running"
+    loop = asyncio.get_running_loop()
+    if loop.time() - _compaction_failed_at.get(key, -1e9) < 1800:
+        return "backoff"  # it failed recently; each try is a large request, so wait a while
+
+    async def _run() -> None:
+        try:
+            result = await maybe_compact_context(session_id, before_id)
+            if result.get("error"):
+                _compaction_failed_at[key] = loop.time()
+            elif result.get("compacted"):
+                print(f"[context] compacted {key} in the background", flush=True)
+        except Exception as exc:  # never let a background job crash anything
+            _compaction_failed_at[key] = loop.time()
+            print(f"[context] background compaction failed for {key}: {type(exc).__name__}: {exc}", flush=True)
+
+    _compaction_tasks[key] = asyncio.create_task(_run())
+    return "scheduled"
+
+
 def relay_message_attachments(msg_id: int | None) -> list[dict[str, Any]]:
     """Fallback for relays that forward only {id,text}: read the attachments off the stored row."""
     if not msg_id:
@@ -1675,8 +1706,14 @@ async def build_messages(
     if injected:
         volatile_parts.append(injected)
     compacted = {"summary": "", "last_id": 0, "compacted": False}
+    timing = CONTEXT_TIMING.setdefault(session_id or "__default__", {})
+    timing.clear()
     if use_context:
-        compacted = await maybe_compact_context(session_id, before_id)
+        # 压缩旧聊天是一次很大的模型请求：放到后台做，这一轮先用现有的摘要，不让她等
+        t0 = asyncio.get_running_loop().time()
+        summary, last_id = context_summary(session_id)
+        compacted = {"summary": summary, "last_id": last_id, "compacted": False}
+        timing["compaction"] = schedule_compaction(session_id, before_id)
         summary = str(compacted.get("summary") or "").strip()
         if summary:
             volatile_parts.append(
@@ -1684,7 +1721,16 @@ async def build_messages(
                 + summary
                 + "\n以上是早期对话的压缩记录，请把它当作真实上下文，并与下面的近期原文结合。"
             )
-        recalled = await ombre_recall_text(text)
+        t1 = asyncio.get_running_loop().time()
+        timing["summary_s"] = round(t1 - t0, 1)
+        try:
+            # 心潮回想只是锦上添花：最多等几秒，等不到就先不带
+            recalled = await asyncio.wait_for(ombre_recall_text(text), timeout=cfg_int("ombre_recall_timeout_seconds", 2, 60))
+        except asyncio.TimeoutError:
+            recalled = ""
+            timing["recall_timed_out"] = True
+            print(f"[context] Ombre recall timed out for {session_id or 'default'}", flush=True)
+        timing["recall_s"] = round(asyncio.get_running_loop().time() - t1, 1)
         if recalled:
             volatile_parts.append(
                 "【心潮记忆（底层由 Ombre 提供，所有聊天窗口共享）】\n"
@@ -3290,7 +3336,8 @@ async def handle_turn(
     with_images = vision_enabled()
     turn_t0 = asyncio.get_running_loop().time()
     messages, had_images = await build_messages(text, atts, before_id=msg_id, session_id=session_id, use_context=use_context, with_images=with_images)
-    timing: dict[str, Any] = {"context_s": round(asyncio.get_running_loop().time() - turn_t0, 1), "model": [], "tool_s": 0.0}
+    timing: dict[str, Any] = {"context_s": round(asyncio.get_running_loop().time() - turn_t0, 1), "model": [], "tool_s": 0.0,
+                              **CONTEXT_TIMING.get(session_id or "__default__", {})}
     tools = turn_tools(tool_context_text(text, messages))
     max_steps = cfg_int("max_tool_steps", 0, 50)
     texts: list[str] = []

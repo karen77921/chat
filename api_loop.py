@@ -3185,17 +3185,24 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
     errors: list[str] = []
     loop = asyncio.get_running_loop()
     deadline = loop.time() + cfg_int("model_chain_timeout_seconds", 30, 600)
+    t0 = loop.time()
+    timing: dict[str, Any] = {"tools": len(tools or []), "dropped_tools": False}
     for route in main_chain():
         tried.append(route.get("model", ""))
         started = {"v": False}
 
-        async def _sink(chunk: str) -> None:
+        def _first() -> None:
+            if not started["v"]:
+                timing.setdefault("first_chunk_s", round(loop.time() - t0, 1))
             started["v"] = True
+
+        async def _sink(chunk: str) -> None:
+            _first()
             if sink:
                 await sink(chunk)
 
         async def _think(chunk: str) -> None:
-            started["v"] = True
+            _first()
             if think_sink:
                 await think_sink(chunk)
 
@@ -3213,10 +3220,12 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
                 retry_remaining = min(route_timeout - first_timeout, deadline - loop.time())
                 if not tools or started["v"] or retry_remaining < 5:
                     raise
+                timing["dropped_tools"] = True  # 带工具的请求超时，去掉工具重问
                 request = stream_chat(route, messages, None, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, None, session_id)
                 out = await asyncio.wait_for(request, timeout=retry_remaining)
             out["model"] = route.get("model")
             out["tried"] = tried[:-1]
+            out["timing"] = {**timing, "total_s": round(loop.time() - t0, 1)}
             return out
         except ModelError as exc:
             err = f"{route.get('model')} @ {route.get('url')}: HTTP {exc.status} {exc.detail[:160]}"
@@ -3279,7 +3288,9 @@ async def handle_turn(
         think_state["id"] = ""
 
     with_images = vision_enabled()
+    turn_t0 = asyncio.get_running_loop().time()
     messages, had_images = await build_messages(text, atts, before_id=msg_id, session_id=session_id, use_context=use_context, with_images=with_images)
+    timing: dict[str, Any] = {"context_s": round(asyncio.get_running_loop().time() - turn_t0, 1), "model": [], "tool_s": 0.0}
     tools = turn_tools(tool_context_text(text, messages))
     max_steps = cfg_int("max_tool_steps", 0, 50)
     texts: list[str] = []
@@ -3301,6 +3312,8 @@ async def handle_turn(
                     messages, had_images = await build_messages(text, atts, before_id=msg_id, session_id=session_id, use_context=use_context, with_images=False)
                     continue
                 raise
+            if isinstance(out.get("timing"), dict):
+                timing["model"].append(out["timing"])
             calls = out.get("tool_calls") or []
             step_text = out.get("text") or ""
             thinking = out.get("thinking") or ""
@@ -3348,7 +3361,9 @@ async def handle_turn(
                 {"id": c["id"], "type": "function", "function": {"name": c["name"], "arguments": c["arguments"]}} for c in calls]})
             steps_meta = []
             for c in calls:
+                tool_t0 = asyncio.get_running_loop().time()
                 result = await turn.run_tool(c["name"], c["arguments"])
+                timing["tool_s"] = round(timing["tool_s"] + asyncio.get_running_loop().time() - tool_t0, 1)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
                 real = mcp_manager.index.get(c["name"], ("", c["name"]))[1]
                 steps_meta.append({"tool": real, "cmd": c["arguments"][:600], "result": result[:1200]})
@@ -3393,6 +3408,7 @@ async def handle_turn(
         "tool_steps": step,
         "cancelled": cancelled,
         "prompt_cache": cache_meta,
+        "timing": {**timing, "total_s": round(asyncio.get_running_loop().time() - turn_t0, 1)},
     }
     if error:
         meta["error"] = error

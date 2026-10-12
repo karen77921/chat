@@ -39,5 +39,10 @@ for mid, ts, direction, kind, meta in reversed(rows):
             mid, str(ts)[11:19], "?" if took is None else int(took), str(api.get("model") or "?").encode("ascii", "replace").decode(),
             api.get("tool_steps"), api.get("fallback_from"), u.get("prompt_tokens", "?"), u.get("completion_tokens", "?"),
             "  ERROR=" + str(api.get("error"))[:120] if api.get("error") else ""))
+        t = api.get("timing") or {}
+        if t:
+            calls = " | ".join("tools=%s first=%ss done=%ss%s" % (m.get("tools"), m.get("first_chunk_s", "-"), m.get("total_s"),
+                                                                " DROPPED-TOOLS" if m.get("dropped_tools") else "") for m in t.get("model") or [])
+            out.append("      timing: context=%ss  model[%s]  tools_run=%ss  total=%ss" % (t.get("context_s"), calls, t.get("tool_s"), t.get("total_s")))
         asked = None
 print("\n".join(out[-24:]))

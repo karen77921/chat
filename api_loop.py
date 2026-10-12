@@ -1692,6 +1692,15 @@ BUILTIN_STICKERS = {
 }
 STICKER_TOKEN_RE = re.compile(r"\[表情：([^\]\s]{1,80})\]")
 REACTION_TOKEN_RE = re.compile(r"\s*\[回应：([^\]\s]{1,80})\]\s*")
+def garden_action_minutes(actions: list[tuple[str, str]]) -> int:
+    """When a Garden action resolves: the first 'N 分钟/minutes' in its result, else 10 minutes."""
+    for _, result in actions:
+        found = re.search(r"(\d{1,3})\s*(?:分钟|min)", str(result))
+        if found and 0 < int(found.group(1)) <= 180:
+            return int(found.group(1)) + 1  # a minute of slack so the result is surely out
+    return 10
+
+
 FOLLOWUP_TOKEN_RE = re.compile(r"\s*⟦稍后继续(?:\s*(\d{1,3})\s*分钟)?\s*[:：]\s*([^⟧]{1,300})⟧\s*")
 FOLLOWUP_NOTE = ("【接着做】你之前跟她说过要去做这件事，现在到时间了：需要的话用工具去做或查看结果，"
                  "然后以 ⟦MESSAGE⟧ 开头把结果告诉她。如果这段时间里你已经把结果告诉过她，就只输出 ⟦SILENT⟧。要做的事：")
@@ -3388,6 +3397,7 @@ async def handle_turn(
     cache_meta: dict[str, Any] = {}
     step = 0
     empty_retry = False
+    garden_actions: list[tuple[str, str]] = []
     try:
         while True:
             try:
@@ -3452,8 +3462,11 @@ async def handle_turn(
                 result = await turn.run_tool(c["name"], c["arguments"])
                 timing["tool_s"] = round(timing["tool_s"] + asyncio.get_running_loop().time() - tool_t0, 1)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
-                real = mcp_manager.index.get(c["name"], ("", c["name"]))[1]
+                server_name, real = mcp_manager.index.get(c["name"], ("", c["name"]))
                 steps_meta.append({"tool": real, "cmd": c["arguments"][:600], "result": result[:1200]})
+                garden_server = getattr(mcp_manager, "servers", {}).get(server_name)
+                if garden_server and is_garden_url(garden_server.cfg.get("url")) and "act" in str(real).lower():
+                    garden_actions.append((str(real), result))
             act = {"type": "act", "text": _step_label(calls), "glyph": act_glyph(steps_meta[0]["tool"]), "steps": steps_meta, "api_session": session_id, "runtime": "api_loop"}
             turn.acts.append(act)
             if not dry:
@@ -3483,6 +3496,17 @@ async def handle_turn(
                     dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=delay),
                     FOLLOWUP_NOTE + follow.group(2).strip(),
                 )
+    if garden_actions and not follow and not dry and not cancelled and session_id:
+        # 他在花园游戏里做了行动：不靠他记得写标记，到点自动回来看结果
+        with contextlib.suppress(Exception):
+            minutes = garden_action_minutes(garden_actions)
+            names = "、".join(sorted({name for name, _ in garden_actions}))
+            create_precise_wake(
+                session_id,
+                dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=minutes),
+                FOLLOWUP_NOTE + f"你刚才在花园游戏里做了行动（{names}），去看看结果出来没。"
+                "出来了就把结果告诉她；还没好就写 ⟦稍后继续 N分钟：去看结果⟧ 再定个时间。",
+            )
     reaction: dict[str, Any] = {}
     react_match = REACTION_TOKEN_RE.search(reply)
     if react_match:
@@ -4065,6 +4089,13 @@ app = FastAPI(title="companion-api-loop", lifespan=lifespan)
 from imprint_store import empty_tide_state, imprint_action, register_imprint_routes
 
 register_imprint_routes(app, LOOP_CACHE_DIR / "imprint.db", Path(RELAY_DB))
+
+
+@app.get("/loop/busy")
+async def loop_busy():
+    """How many replies are being written right now; deploys wait for 0 before restarting."""
+    active = sum(len([t for t in tasks if not t.done()]) for tasks in _active_turns.values())
+    return {"busy": active}
 
 
 @app.get("/healthz")

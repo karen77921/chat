@@ -139,6 +139,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "model_chain_timeout_seconds": 90,   # all configured fallbacks together
     "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
     "ombre_recall_timeout_seconds": 8,   # automatic memory recall before a reply; skipped if slower
+    "followup_delay_seconds": 60,        # ⟦稍后继续⟧: how soon he comes back to finish what he promised
     "vision": "auto",           # auto | on | off — send images as image_url parts
     "backup_enabled": True,
     "backup_interval_hours": 24,
@@ -1687,6 +1688,9 @@ BUILTIN_STICKERS = {
 }
 STICKER_TOKEN_RE = re.compile(r"\[表情：([^\]\s]{1,80})\]")
 REACTION_TOKEN_RE = re.compile(r"\s*\[回应：([^\]\s]{1,80})\]\s*")
+FOLLOWUP_TOKEN_RE = re.compile(r"\s*⟦稍后继续[:：]\s*([^⟧]{1,300})⟧\s*")
+FOLLOWUP_NOTE = "【接着做】你刚才跟她说要去做，现在去做：需要的话用工具，做完以 ⟦MESSAGE⟧ 开头把结果告诉她。要做的事："
+
 
 
 def sticker_guide_text() -> str:
@@ -1798,6 +1802,10 @@ async def build_messages(
             "必须如实说明还缺少哪项授权或连接，不能假装已经完成。"
         )
     system_text += (
+        "\n\n【说到做到】\n"
+        "需要查看或去做的事，能在这一轮用工具做完的，就先做完再回复她，不要只说「等我看看」然后停下。"
+        "确实要花时间、这一轮做不完的，在回复末尾单独写一次 ⟦稍后继续：要做的事⟧（她看不到这个标记），"
+        "系统约一分钟后会让你接着做，做完记得把结果告诉她。"
         "\n\n【Imprint 聊天气泡排版】\n"
         "日常聊天尽量像真人发消息：自然、简短，通常每条气泡一到三句话。"
         "如果一次回复适合连续发两条以上消息，请在两段之间单独一行写 ⟦气泡⟧，"
@@ -3454,6 +3462,16 @@ async def handle_turn(
         reply = (reply + "\n\n" if reply else "") + "（已停止生成）"
     if error:
         reply = (reply + "\n\n" if reply else "") + f"⚠️ {friendly_model_error(error)}"
+    follow = FOLLOWUP_TOKEN_RE.search(reply)
+    if follow:
+        reply = FOLLOWUP_TOKEN_RE.sub(" ", reply).strip()
+        if not dry and session_id:
+            with contextlib.suppress(Exception):
+                create_precise_wake(
+                    session_id,
+                    dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=cfg_int("followup_delay_seconds", 20, 600)),
+                    FOLLOWUP_NOTE + follow.group(1).strip(),
+                )
     reaction: dict[str, Any] = {}
     react_match = REACTION_TOKEN_RE.search(reply)
     if react_match:
@@ -3955,7 +3973,11 @@ async def wake_worker() -> None:
                 session_id = str(item.get("session_id") or active_session_id())
                 _, last_user = previous_user_times(session_id, None)
                 silence_minutes = cfg_int("wake_precise_silence_minutes", 0, 1440)
-                if last_user and silence_minutes and now - last_user < dt.timedelta(minutes=silence_minutes):
+                followup = str(item.get("note") or "").startswith(FOLLOWUP_NOTE)
+                promised_at = parse_message_time(item.get("created_at"))
+                if followup and last_user and promised_at and last_user <= promised_at:
+                    pass  # 他答应过的事：她还没再说话，就照常去做
+                elif last_user and silence_minutes and now - last_user < dt.timedelta(minutes=silence_minutes):
                     detail = f"{item.get('wake_id', '')} user returned at {last_user.isoformat()}"
                     wake_audit("precise", "user-active", detail)
                     finish_precise_wake(str(item["wake_id"]), "user-active")

@@ -4,6 +4,7 @@
  * exposes `/relay/app/*` and `/relay/app/loop/*`. This file translates the
  * important chat/session/config/MCP operations without changing the design.
  */
+import { rememberStickers, stickerToken } from './stickerUrls.js';
 import { normalizeTideMemories } from './tideMemory.js';
 import { collectHistory } from './chatHistory.js';
 
@@ -95,6 +96,8 @@ export function relayMessage(raw) {
   if (raw.kind === 'thinking') {
     // 思考过程只显示成一个可以折叠的「想了一下」，不当成一条正式回复
     out.type = 'thinking'; out.thinking = String(raw.text || '').trim(); out.text = ''; out.quote = undefined;
+  } else if (!q.quote && stickerToken(q.text)) {
+    out.type = 'sticker'; out.sticker = { id: stickerToken(q.text) };
   } else if (images.length) {
     out.type = 'images';
     out.images = images.map((a) => ({ url: attachmentUrl(a), thumb: attachmentUrl(a), w: a.w, h: a.h }));
@@ -120,6 +123,9 @@ async function loadChat(id) {
     )).then((messages) => ({ messages })),
     loop('imprint/settings').catch(() => ({ avatars: {} })),
     loop('imprint/chat/reactions').catch(() => ({ items: [] })),
+    loop('imprint/stickers').then((x) => rememberStickers(
+      (x.mine || []).map((s) => ({ ...s, url: attachmentUrl(s) })), (x.his || []).map((s) => ({ ...s, url: attachmentUrl(s) })),
+    )).catch(() => null),
   ]);
   const s = (ss.sessions || []).find((x) => x.id === id) || { id, title: '新对话' };
   const reactionById = new Map((reactions.items || []).map((item) => [String(item.messageId), item.stickerId]));
@@ -189,6 +195,7 @@ async function compat(path, opts) {
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)\/regenerate$/.exec(p))) return loop('regenerate', { method: 'POST', body: { session_id: decodeURIComponent(m[1]), reply_message_id: Number(m[2]) } });
   if (method === 'PUT' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)$/.exec(p))) return loop(`messages/${m[2]}`, { method: 'PATCH', body: { text: opts.body?.text } });
   if (method === 'DELETE' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)$/.exec(p))) return loop(`messages/${m[2]}/delete`, { method: 'POST', body: { session_id: decodeURIComponent(m[1]) } });
+  if (method === 'GET' && /^\/api\/chats\/[^/]+\/reactions$/.test(p)) return loop('imprint/chat/reactions');
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)\/react$/.exec(p))) {
     return loop(`imprint/chat/messages/${m[2]}/reaction`, { method: 'POST', body: { stickerId: opts.body?.stickerId } });
   }
@@ -199,7 +206,9 @@ async function compat(path, opts) {
   }
   if (method === 'GET' && p === '/api/stickers') {
     const data = await loop('imprint/stickers');
-    return { ...data, mine: data.mine.map((s) => ({ ...s, url: attachmentUrl(s) })), his: data.his.map((s) => ({ ...s, url: attachmentUrl(s) })) };
+    const out = { ...data, mine: data.mine.map((s) => ({ ...s, url: attachmentUrl(s) })), his: data.his.map((s) => ({ ...s, url: attachmentUrl(s) })) };
+    rememberStickers(out.mine, out.his);
+    return out;
   }
   if (method === 'POST' && p === '/api/stickers') {
     const sticker = await loop('imprint/stickers', opts);

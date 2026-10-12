@@ -201,6 +201,19 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 "spark": spark_snapshot(),
             }
 
+        if action == "stickers":
+            return {"mine": recent("sticker_me", 100), "his": recent("sticker_him", 100)}
+
+        if action == "react":
+            message_id = int(body.get("message_id") or 0)
+            sticker = str(body.get("sticker_id") or "").strip()[:80]
+            if message_id < 1 or not sticker:
+                raise ValueError("消息和表情不能为空")
+            values = setting("chat_reactions")
+            values[str(message_id)] = sticker
+            save_setting("chat_reactions", values)
+            return {"messageId": message_id, "stickerId": sticker}
+
         if action == "leave_note":
             text = str(body.get("text") or "").strip()
             if not text or len(text) > 300:
@@ -401,6 +414,11 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                     if not name or len(name) > 24:
                         raise ValueError("昵称需为 1–24 字")
                     save_setting("contact", {"himName": name})
+                if body.get("avatar"):
+                    avatar = str(body.get("avatar") or "").strip()
+                    if len(avatar) > 2048 or not (avatar.startswith("/") or avatar.startswith("https://")):
+                        raise ValueError("头像需要站内路径或 HTTPS 图片地址")
+                    save_setting("avatars", {**setting("avatars"), "him": avatar})  # 只改他自己的头像
                 beauty = setting("beauty")
                 if body.get("bubble") in {"glass", "paper", "cyan"}:
                     beauty["bubble"] = body["bubble"]
@@ -409,7 +427,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 if body.get("wallpaper") is not None:
                     beauty["wallpaper"] = str(body.get("wallpaper") or "") or None
                 save_setting("beauty", beauty)
-                return {"contact": setting("contact"), "beauty": beauty}
+                return {"contact": setting("contact"), "beauty": beauty, "avatars": setting("avatars")}
             raise ValueError("unknown manage_space operation")
 
         if action == "set_tide":

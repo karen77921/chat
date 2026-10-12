@@ -39,13 +39,22 @@ export function useChat(chatId, demo) {
   // 每 5 秒刷新一次「现在」，让「仍在等待」「卡住了」能自己变
   useEffect(() => { tick.current = setInterval(() => setNow(Date.now()), 5000); return () => clearInterval(tick.current); }, []);
 
+  // 他可能顺手给她的消息贴了表情：他的新消息一到，就重新读一次表情回应
+  const refreshReactions = () => api(`${base}/reactions`).then((r) => {
+    const byId = new Map((r.items || []).map((x) => [String(x.messageId), x.stickerId]));
+    setData((d) => (d?.items ? { ...d, items: d.items.map((m) => (byId.has(String(m.id)) && byId.get(String(m.id)) !== m.reaction ? { ...m, reaction: byId.get(String(m.id)) } : m)) } : d));
+  }).catch(() => {});
+
   useEffect(() => {
     const on = (ev) => {
       if (ev.chatId && ev.chatId !== chatId) return;
       setNow(Date.now());
       setData((d) => {
         if (!d || d.available === false) return d;
-        if (ev.type === 'message') return { ...d, items: upsertMessage(d.items, ev.message) };
+        if (ev.type === 'message') {
+          if (ev.message.from !== 'me' && !MOCK) refreshReactions();
+          return { ...d, items: upsertMessage(d.items, ev.message) };
+        }
         if (ev.type === 'status') {
           const items = ev.read ? d.items.map((m) => (m.status === 'queued' ? { ...m, status: 'sent' } : m)) : d.items;
           return { ...d, items, replying: ev.replying };

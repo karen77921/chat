@@ -8,6 +8,7 @@ import { Cyanotype } from '../../design/paper.jsx';
 import { Sticker } from './stickers.jsx';
 import { fileSize } from '../../lib/chat.js';
 import { splitByQuery } from '../../lib/notes.js';
+import { stickerToken } from '../../lib/stickerUrls.js';
 
 function useLongPress(onLong) {
   const t = useRef(null);
@@ -168,13 +169,15 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
         const parts = bubbleParts(m.text);
       body = (
         <div className="cm-bubble-stack">
-          {parts.map((part, index) => (
+          {parts.map((part, index) => (stickerToken(part) && !(index === 0 && m.quote) ? (
+            <div key={index} className="cm-sticker"><Sticker sticker={{ id: stickerToken(part) }} size={88} /></div>
+          ) : (
             <div key={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
               {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
               <Text text={part} q={q} />
               {index === parts.length - 1 && m.edited && <span className="cm-edited">（改过）</span>}
             </div>
-          ))}
+          )))}
         </div>
       );
       }

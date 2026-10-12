@@ -522,6 +522,14 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertLessEqual(api_loop.CONFIG_DEFAULTS["model_chain_timeout_seconds"], 90)
         self.assertLessEqual(api_loop.CONFIG_DEFAULTS["mcp_tool_timeout_seconds"], 45)
 
+    def test_companion_reacts_and_changes_only_his_avatar(self):
+        imprint_action(self.store, "react", {"message_id": 7, "sticker_id": "cat-heart"})
+        self.assertEqual(self.call("GET", "/chat/reactions")["items"], [{"messageId": "7", "stickerId": "cat-heart"}])
+        imprint_action(self.store, "manage_space", {"operation": "appearance", "avatar": "https://example.com/him.png"})
+        self.assertEqual(self.call("GET", "/settings")["avatars"], {"him": "https://example.com/him.png"})
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "manage_space", {"operation": "appearance", "avatar": "javascript:alert(1)"})
+
 
 if __name__ == "__main__":
     unittest.main()

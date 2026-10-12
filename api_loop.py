@@ -1475,7 +1475,7 @@ async def _archive_digest_to_ombre(digest: str) -> str:
         return "skipped"
     for public_name, (server_name, tool_name) in mcp_manager.index.items():
         if tool_name == "grow" and "ombre" in server_name.lower():
-            server = mcp_manager.servers.get(server_name)
+            server = getattr(mcp_manager, "servers", {}).get(server_name)
             if server is None:
                 return "offline"
             result = await server.call(tool_name, {"content": digest.strip()})
@@ -1622,6 +1622,31 @@ def relay_message_attachments(msg_id: int | None) -> list[dict[str, Any]]:
         return []
 
 
+BUILTIN_STICKERS = {
+    "cat-smile": "笑", "cat-heart": "喜欢", "cat-sleep": "困了", "cat-cry": "哭哭",
+    "paw": "爪爪", "cloud": "云", "star": "星星", "moon": "晚安",
+}
+STICKER_TOKEN_RE = re.compile(r"\[表情：([^\]\s]{1,80})\]")
+REACTION_TOKEN_RE = re.compile(r"\s*\[回应：([^\]\s]{1,80})\]\s*")
+
+
+def sticker_guide_text() -> str:
+    """Stickers he can send or react with; ids only change when a sticker is added."""
+    rows = [f"{sid}（{name}）" for sid, name in BUILTIN_STICKERS.items()]
+    with contextlib.suppress(Exception):
+        found = imprint_action(LOOP_CACHE_DIR / "imprint.db", "stickers")
+        for who, label in (("his", "你的"), ("mine", "她的")):
+            for item in (found.get(who) or [])[:30]:
+                rows.append(f"{item['id']}（{label}{('：' + item['name']) if item.get('name') else '表情'}）")
+    return (
+        "\n\n【表情】\n"
+        "想发表情时，把 [表情：id] 单独作为一条气泡（前后用 ⟦气泡⟧ 隔开），界面会显示成表情图。"
+        "想给她刚发的最新一条消息贴表情回应时，在回复里任意位置写一次 [回应：id]，它不会显示成文字。"
+        "表情要用得自然，别每句都发。她发来的 [表情：id] 是她发给你的表情。可用的 id："
+        + "、".join(rows)
+    )
+
+
 async def build_messages(
     text: str,
     atts: list[dict[str, Any]],
@@ -1702,6 +1727,7 @@ async def build_messages(
         "代码块、引用、步骤说明及需要完整结构的长回答不必强行拆开；"
         "不要把分隔标记写进代码块。"
     )
+    system_text += sticker_guide_text()
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_text}]
     had_images = False
     if use_context:
@@ -2210,7 +2236,7 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
         "name": "imprint_manage_space",
-        "description": "Manage remaining real Imprint UI actions. Destructive, scarce-card, point-spending, activation and appearance operations require the user's explicit current request. Inspect first for real IDs.",
+        "description": "Manage remaining real Imprint UI actions. Destructive, scarce-card, point-spending, activation and appearance operations require the user's explicit current request, except changing your own avatar (appearance with avatar), which is your own choice. Inspect first for real IDs.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -2219,7 +2245,8 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
                 "text": {"type": "string"}, "artist": {"type": "string"}, "duration_s": {"type": "number"},
                 "date": {"type": "string"}, "active": {"type": "boolean"}, "him_name": {"type": "string"},
                 "bubble": {"type": "string", "enum": ["glass", "paper", "cyan"]},
-                "alpha": {"type": "number"}, "wallpaper": {"type": "string"}
+                "alpha": {"type": "number"}, "wallpaper": {"type": "string"},
+                "avatar": {"type": "string", "description": "appearance only: your own new avatar, an HTTPS image URL or an uploaded /relay path"}
             },
             "required": ["operation"]
         }
@@ -2569,7 +2596,7 @@ def turn_tools(text: str = "") -> list[dict[str, Any]]:
             if len(str(token)) >= 4
         )
         core_requested = (real_name in {"hold", "grow"} and memory_intent) or (real_name == "send_drift_bottle" and drift_intent)
-        server = mcp_manager.servers.get(server_name)
+        server = getattr(mcp_manager, "servers", {}).get(server_name)
         always = bool(server and server.cfg.get("always"))  # 「常驻」：每一轮都交给他，不看话题
         if core_requested or named or always:
             selected.append(spec)
@@ -2800,7 +2827,7 @@ class Turn:
         server_name, tool = target
         if not mcp_tool_permitted(server_name, tool) or (self.dry and "ombre" in server_name.lower() and tool in OMBRE_WRITE_TOOLS):
             return "ERROR: this memory write is disabled for this turn"
-        server = mcp_manager.servers.get(server_name)
+        server = getattr(mcp_manager, "servers", {}).get(server_name)
         if not server:
             return f"ERROR: MCP server {server_name} is not running"
         try:
@@ -3329,6 +3356,19 @@ async def handle_turn(
         reply = (reply + "\n\n" if reply else "") + "（已停止生成）"
     if error:
         reply = (reply + "\n\n" if reply else "") + f"⚠️ {friendly_model_error(error)}"
+    reaction: dict[str, Any] = {}
+    react_match = REACTION_TOKEN_RE.search(reply)
+    if react_match:
+        reply = REACTION_TOKEN_RE.sub(" ", reply).strip()
+        if not dry:
+            with contextlib.suppress(Exception):
+                mine = [r for r in relay_rows(msg_id + 1 if msg_id else None, session_id, 20) if r.get("direction") == "in"]
+                if mine:
+                    target = max(int(r["id"]) for r in mine)
+                    reaction = imprint_action(LOOP_CACHE_DIR / "imprint.db", "react",
+                                              {"message_id": target, "sticker_id": react_match.group(1)})
+        if not reply and reaction:
+            reply = f"[表情：{reaction['stickerId']}]"  # 只贴了回应没说话时，顺手把同一个表情也发出来
     if not reply:
         reply = "(The API loop did not produce a reply.)"
     meta: dict[str, Any] = {
@@ -3349,6 +3389,8 @@ async def handle_turn(
     if dry:
         return {"ok": not error, "reply": reply, "api": meta, "acts": turn.acts, "attachments": turn.attachments}
     payload: dict[str, Any] = {"api": meta, "api_session": session_id}
+    if reaction:
+        payload["reaction"] = reaction
     if turn.attachments:
         payload["attachments"] = turn.attachments
     if emit:

@@ -4147,12 +4147,13 @@ async def loop_wake_precise_cancel(wake_id: str):
     return {"ok": cancel_precise_wake(wake_id), "wake_id": wake_id}
 
 
-@app.get("/loop/imprint/chat/recent")
-async def loop_chat_recent(session_id: str = "", limit: int = 200):
+@app.get("/loop/imprint/chat/recent/{session_id}")
+async def loop_chat_recent(session_id: str, limit: int = 200):
     """The newest messages of one chat window, oldest first, in the relay history shape.
 
     The relay's own history only pages forward from the first message, so opening a long
     chat used to fetch everything before anything showed. This returns the tail in one read.
+    The window id is in the path: the relay proxy does not reliably forward query strings.
     """
     path = Path(RELAY_DB)
     if not path.exists():

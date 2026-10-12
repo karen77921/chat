@@ -146,7 +146,10 @@ function fullHistory(id) {
  * 旧后端没有「最近」接口时自动退回整段读取。
  */
 async function loadChat(id, full = false) {
-  const recent = () => loop(`imprint/chat/recent?session_id=${encodeURIComponent(id)}&limit=200`).catch(() => fullHistory(id));
+  // 窗口编号放在路径里：中继转发时不一定带上问号后面的参数
+  const recent = () => loop(`imprint/chat/recent/${encodeURIComponent(id)}`)
+    .then((data) => (data.messages || []).every((m) => String(m?.meta?.api_session || '') === id) ? data : fullHistory(id))
+    .catch(() => fullHistory(id));
   const [ss, hist, settings, reactions] = await Promise.all([
     request(`${RELAY}/app/sessions`),
     full ? fullHistory(id) : recent(),

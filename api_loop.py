@@ -2674,6 +2674,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
 
     memory_intent = any(word in query for word in ("记住", "记忆", "心潮", "别忘", "长期保存", "档案", "ombre"))
     drift_intent = any(word in query for word in ("漂流瓶", "投递", "收信邮箱", "邮箱", "galatea", "drift bottle"))
+    # 聊到花园里的事（游戏、岛、帖子…）时，把花园的工具交给他，否则他嘴上说「我去看看」却没有工具可用
+    garden_intent = garden or any(word in query for word in GARDEN_WORDS)
     for spec in mcp_manager.openai_tools():
         public_name = str(spec.get("function", {}).get("name") or "")
         server_name, real_name = mcp_manager.index.get(public_name, ("", public_name))
@@ -2685,7 +2687,7 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
         core_requested = (real_name in {"hold", "grow"} and memory_intent) or (real_name == "send_drift_bottle" and drift_intent)
         server = getattr(mcp_manager, "servers", {}).get(server_name)
         always = bool(server and server.cfg.get("always"))  # 「常驻」：每一轮都交给他，不看话题
-        if garden and server and is_garden_url(server.cfg.get("url")):
+        if garden_intent and server and is_garden_url(server.cfg.get("url")):
             always = True  # 花园唤醒：花园的 MCP 一定要在手边
         if core_requested or named or always:
             selected.append(spec)
@@ -3778,6 +3780,8 @@ def finish_precise_wake(wake_id: str, result: str) -> None:
 # no auto restart. Only the user may start it again, from the settings page.
 # ---------------------------------------------------------------------------
 
+GARDEN_WORDS = ("花园", "garden", "群岛", "上岛", "岛上", "守火人", "火塘", "开局", "游戏", "回合", "论坛",
+                "帖子", "发帖", "回帖", "雾潮")
 GARDEN_DIR = Path(os.environ.get("GARDEN_BRIDGE_DIR", "/opt/galatea-garden-wake-bridge"))
 GARDEN_ENV = Path(os.environ.get("GARDEN_BRIDGE_ENV", "/etc/galatea-garden-wake.env"))
 GARDEN_UNIT = "garden-wake"

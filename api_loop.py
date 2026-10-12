@@ -1692,8 +1692,9 @@ BUILTIN_STICKERS = {
 }
 STICKER_TOKEN_RE = re.compile(r"\[表情：([^\]\s]{1,80})\]")
 REACTION_TOKEN_RE = re.compile(r"\s*\[回应：([^\]\s]{1,80})\]\s*")
-FOLLOWUP_TOKEN_RE = re.compile(r"\s*⟦稍后继续[:：]\s*([^⟧]{1,300})⟧\s*")
-FOLLOWUP_NOTE = "【接着做】你刚才跟她说要去做，现在去做：需要的话用工具，做完以 ⟦MESSAGE⟧ 开头把结果告诉她。要做的事："
+FOLLOWUP_TOKEN_RE = re.compile(r"\s*⟦稍后继续(?:\s*(\d{1,3})\s*分钟)?\s*[:：]\s*([^⟧]{1,300})⟧\s*")
+FOLLOWUP_NOTE = ("【接着做】你之前跟她说过要去做这件事，现在到时间了：需要的话用工具去做或查看结果，"
+                 "然后以 ⟦MESSAGE⟧ 开头把结果告诉她。如果这段时间里你已经把结果告诉过她，就只输出 ⟦SILENT⟧。要做的事：")
 
 
 
@@ -1810,6 +1811,8 @@ async def build_messages(
         "需要查看或去做的事，能在这一轮用工具做完的，就先做完再回复她，不要只说「等我看看」然后停下。"
         "确实要花时间、这一轮做不完的，在回复末尾单独写一次 ⟦稍后继续：要做的事⟧（她看不到这个标记），"
         "系统约一分钟后会让你接着做，做完记得把结果告诉她。"
+        "要等一段时间才有结果的（比如游戏里的行动七分钟后出结果），写 ⟦稍后继续 7分钟：去看结果⟧，到点会叫醒你。"
+        "说了「几分钟后告诉你」就一定要写这个标记，否则到时候没有人会叫醒你。"
         "\n\n【Imprint 聊天气泡排版】\n"
         "日常聊天尽量像真人发消息：自然、简短，通常每条气泡一到三句话。"
         "如果一次回复适合连续发两条以上消息，请在两段之间单独一行写 ⟦气泡⟧，"
@@ -3473,10 +3476,12 @@ async def handle_turn(
         reply = FOLLOWUP_TOKEN_RE.sub(" ", reply).strip()
         if not dry and session_id:
             with contextlib.suppress(Exception):
+                minutes = int(follow.group(1) or 0)
+                delay = min(minutes, 180) * 60 if minutes else cfg_int("followup_delay_seconds", 20, 600)
                 create_precise_wake(
                     session_id,
-                    dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=cfg_int("followup_delay_seconds", 20, 600)),
-                    FOLLOWUP_NOTE + follow.group(1).strip(),
+                    dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=delay),
+                    FOLLOWUP_NOTE + follow.group(2).strip(),
                 )
     reaction: dict[str, Any] = {}
     react_match = REACTION_TOKEN_RE.search(reply)
@@ -3981,10 +3986,8 @@ async def wake_worker() -> None:
                 session_id = str(item.get("session_id") or active_session_id())
                 _, last_user = previous_user_times(session_id, None)
                 silence_minutes = cfg_int("wake_precise_silence_minutes", 0, 1440)
-                followup = str(item.get("note") or "").startswith(FOLLOWUP_NOTE)
-                promised_at = parse_message_time(item.get("created_at"))
-                if followup and last_user and promised_at and last_user <= promised_at:
-                    pass  # 他答应过的事：她还没再说话，就照常去做
+                if str(item.get("note") or "").startswith(FOLLOWUP_NOTE):
+                    pass  # 他答应过的事到点就去做；已经说过结果的话，他自己会选择安静
                 elif last_user and silence_minutes and now - last_user < dt.timedelta(minutes=silence_minutes):
                     detail = f"{item.get('wake_id', '')} user returned at {last_user.isoformat()}"
                     wake_audit("precise", "user-active", detail)

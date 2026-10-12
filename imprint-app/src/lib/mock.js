@@ -514,7 +514,7 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
       if ((m = /^DELETE \/api\/together\/playlist\/([^/]+)$/.exec(key))) { listen.playlist = listen.playlist.filter((p) => p.trackId !== m[1]); return listenState(); }
       if ((m = /^PATCH \/api\/together\/watch\/list\/([^/]+)$/.exec(key))) { const it = watch.list.find((x) => x.id === m[1]); Object.assign(it, body); return it; }
       if ((m = /^PUT \/api\/features\/([^/]+)$/.exec(key))) { const f = features.find((x) => x.key === m[1]); if (f) f.on = !!body.on; return f; }
-      if ((m = /^PATCH \/api\/mcp\/([^/]+)$/.exec(key))) { await sleep(600); const x = mcps.find((y) => y.id === m[1]); if (x) Object.assign(x, { name: body.name, url: body.url, status: 'ok' }); return x; }
+      if ((m = /^PATCH \/api\/mcp\/([^/]+)$/.exec(key))) { await sleep(600); const x = mcps.find((y) => y.id === m[1]); if (x) Object.assign(x, { name: body.name, url: body.url, always: !!body.always, status: 'ok' }); return x; }
       if ((m = /^DELETE \/api\/mcp\/([^/]+)$/.exec(key))) { const i = mcps.findIndex((y) => y.id === m[1]); if (i >= 0) mcps.splice(i, 1); return { ok: true }; }
       if ((m = /^PUT \/api\/mcp\/([^/]+)$/.exec(key))) { const x = mcps.find((y) => y.id === m[1]); if (x) x.on = !!body.on; return x; }
       if ((m = /^POST \/api\/mcp\/([^/]+)\/reconnect$/.exec(key))) { await sleep(600); const x = mcps.find((y) => y.id === m[1]); if (x) x.status = 'ok'; return x; }

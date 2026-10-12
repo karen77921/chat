@@ -2139,6 +2139,7 @@ async def complete_mcp_oauth(state: str, code: str) -> McpServer:
     rows = [r for r in (cfg.get("mcp_servers") or []) if isinstance(r, dict)]
     old = next((r for r in rows if r.get("name") == entry["name"]), None)
     if old:
+        entry["always"] = bool(old.get("always"))  # re-authorizing keeps the 常驻 choice
         rows[rows.index(old)] = entry
     else:
         rows.append(entry)
@@ -2521,7 +2522,8 @@ def turn_tools(text: str = "") -> list[dict[str, Any]]:
     casual message makes gateways slower, costs context tokens and has caused
     vendor-side schema errors. Built-in Imprint/research actions remain available;
     durable memory writes and the configured drift-bottle action remain available.
-    Other MCP tools are exposed when their server/tool is named explicitly.
+    Other MCP tools are exposed when their server/tool is named explicitly, or on
+    every turn when the server is marked "always" (常驻) in settings.
     """
     query = str(text or "").casefold()
     builtin_by_name = {t["function"]["name"]: t for t in BUILTIN_TOOLS}
@@ -2567,7 +2569,9 @@ def turn_tools(text: str = "") -> list[dict[str, Any]]:
             if len(str(token)) >= 4
         )
         core_requested = (real_name in {"hold", "grow"} and memory_intent) or (real_name == "send_drift_bottle" and drift_intent)
-        if core_requested or named:
+        server = mcp_manager.servers.get(server_name)
+        always = bool(server and server.cfg.get("always"))  # 「常驻」：每一轮都交给他，不看话题
+        if core_requested or named or always:
             selected.append(spec)
     return selected
 
@@ -4067,7 +4071,8 @@ async def loop_mcp_upsert(request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="name required (letters, digits, _ -)")
     transport = "http" if str(body.get("transport") or "stdio").lower() in {"http", "streamable-http", "streamable_http"} else "stdio"
-    entry: dict[str, Any] = {"name": name, "transport": transport, "enabled": bool(body.get("enabled", True))}
+    entry: dict[str, Any] = {"name": name, "transport": transport, "enabled": bool(body.get("enabled", True)),
+                             "always": bool(body.get("always", False))}
     if transport == "http":
         url = str(body.get("url") or "").strip()
         if not url.startswith(("http://", "https://")):

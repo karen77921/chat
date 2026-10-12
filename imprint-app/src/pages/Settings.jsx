@@ -236,11 +236,11 @@ function Features() {
       setData((d) => ({ ...d, mcps: [...d.mcps, m] })); setAdding(false); setForm({ name: '', url: '' });
     } catch (e) { setError(e?.message || '连接失败'); setAddingBusy(false); }
   };
-  const openEdit = (x) => { setError(''); setConfirmDel(false); setEditing({ id: x.id, auth: x.auth || 'none', name: x.name, url: x.url || '' }); };
+  const openEdit = (x) => { setError(''); setConfirmDel(false); setEditing({ id: x.id, auth: x.auth || 'none', name: x.name, url: x.url || '', always: Boolean(x.always), tools: x.tools || 0 }); };
   const saveEdit = async () => {
     setError(''); setEditBusy(true);
     try {
-      const m = await api(`/api/mcp/${encodeURIComponent(editing.id)}`, { method: 'PATCH', body: { name: editing.name.trim(), url: editing.url.trim() }, timeout: 60000 });
+      const m = await api(`/api/mcp/${encodeURIComponent(editing.id)}`, { method: 'PATCH', body: { name: editing.name.trim(), url: editing.url.trim(), always: editing.always }, timeout: 60000 });
       setData((d) => ({ ...d, mcps: d.mcps.map((x) => (x.id === editing.id ? { ...x, ...m } : x)) })); setEditing(null);
     } catch (e) { setError(e?.message || '保存失败'); }
     setEditBusy(false);
@@ -272,7 +272,7 @@ function Features() {
         {data.mcps.map((x) => (
           <div key={x.id} className="st-row">
             <i className={`st-mdot ${x.on ? x.status : 'off'}`} />
-            <span><b>{x.name}</b> <code>{x.id}</code>
+            <span><b>{x.name}</b> <code>{x.id}</code>{x.always && <span className="st-pin">常驻</span>}
               {x.on && x.status === 'down' ? <button type="button" className="st-retry" onClick={() => retry(x.id)}>{ST.down}</button> : <em>{x.on ? ST[x.status] || `${x.tools} 个工具` : '已关'}</em>}
             </span>
             <button type="button" className="st-edit" onClick={() => openEdit(x)} aria-label={`编辑 MCP ${x.name}`}><Icon name="pen" size={15} stroke={1.5} /></button>
@@ -301,9 +301,11 @@ function Features() {
           <div className="nc-k">地址</div>
           <label className="pill nc-in"><span className="sr">地址</span><input value={editing.url} disabled={editing.auth !== 'none'} onChange={(e) => setEditing((f) => ({ ...f, url: e.target.value }))} placeholder="MCP 服务的地址" inputMode="url" /></label>
           <p className="st-tip">{editing.auth !== 'none' ? '这个 MCP 带授权，名字和地址改不了；想换的话删掉后重新加一次。' : '保存后会用新地址重新连接一次。'}</p>
-          {editing.auth === 'none' && (
-            <button type="button" className="btn-main nc-go" disabled={editBusy || !editing.name.trim() || !editing.url.trim()} onClick={saveEdit}>{editBusy && !confirmDel ? '正在保存并重连…' : '保存'}</button>
-          )}
+          <label className="st-row st-always">
+            <span><b>常驻</b><em>每一轮都把它的 {editing.tools} 个工具交给他，不用聊到它的名字；会多花一些 token</em></span>
+            <input type="checkbox" className="switch" checked={editing.always} onChange={(e) => setEditing((f) => ({ ...f, always: e.target.checked }))} aria-label="常驻" />
+          </label>
+          <button type="button" className="btn-main nc-go" disabled={editBusy || !editing.name.trim() || !editing.url.trim()} onClick={saveEdit}>{editBusy && !confirmDel ? '正在保存并重连…' : '保存'}</button>
           <button type="button" className={`cl-link st-delmcp${confirmDel ? ' on' : ''}`} disabled={editBusy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />{confirmDel ? '再点一下，确定删除' : '删除这个 MCP'}</button>
         </Sheet>
       )}

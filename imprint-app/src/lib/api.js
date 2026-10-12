@@ -145,7 +145,7 @@ async function sendMessage(id, body) {
   return relayMessage({ id: result.id, from: 'human', kind: 'user', text, ts: new Date().toISOString(), meta: result.meta || { api_session: id, deferred: true, reply_requested: false, attachments } });
 }
 
-const mcpRow = (x) => ({ id: x.name, name: x.name, url: x.url || '', auth: x.auth || 'none', tools: x.tools?.length || 0, status: x.status === 'online' ? 'ok' : x.status === 'connecting' ? 'pending' : 'down', on: x.enabled !== false });
+const mcpRow = (x) => ({ id: x.name, name: x.name, url: x.url || '', auth: x.auth || 'none', always: Boolean(x.always), tools: x.tools?.length || 0, status: x.status === 'online' ? 'ok' : x.status === 'connecting' ? 'pending' : 'down', on: x.enabled !== false });
 
 async function liveFeatures() {
   const [cfg, mcp] = await Promise.all([loop('config'), loop('mcp')]);
@@ -237,7 +237,7 @@ async function compat(path, opts) {
     // 授权（OAuth / 请求头里的密钥）跟着名字和地址走，改了就得重新授权，所以这类只能删掉重加
     if (server.auth !== 'none' && (renamed || moved)) throw new ApiError(400, '这个 MCP 带授权，改名字或地址请删掉后重新加');
     if (renamed && (current.servers || []).some((row) => row.name === name)) throw new ApiError(400, '已经有一个同名的 MCP 了');
-    const saved = await loop('mcp', { method: 'POST', body: { ...server, name, url }, timeout: 60000 });
+    const saved = await loop('mcp', { method: 'POST', body: { ...server, name, url, always: Boolean(opts.body?.always) }, timeout: 60000 });
     if (renamed && saved.server?.name && saved.server.name !== server.name) await loop(`mcp/${encodeURIComponent(server.name)}`, { method: 'DELETE' });
     return mcpRow(saved.server || {});
   }

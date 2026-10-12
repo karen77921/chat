@@ -309,6 +309,69 @@ function Features() {
           <button type="button" className={`cl-link st-delmcp${confirmDel ? ' on' : ''}`} disabled={editBusy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />{confirmDel ? '再点一下，确定删除' : '删除这个 MCP'}</button>
         </Sheet>
       )}
+      <GardenWake />
+    </>
+  );
+}
+
+/* ---------- Galatea 花园唤醒桥 ---------- */
+// 桥是「断了就停」的设计：不自动重连、不自动拉起。这里只有她亲手点的「检查」「启动」。
+const GARDEN_STATE = { active: ['ok', '在线 · 花园有事会叫醒他'], activating: ['pending', '正在连接…'], inactive: ['off', '没在运行'], failed: ['down', '已断开（出错停下了）'] };
+function GardenWake() {
+  const { data, setData, reload } = useLoad('/api/garden');
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  const [showLog, setShowLog] = useState(false);
+  if (!data || data.available === false) return null;
+  const run = async (what, fn) => {
+    setBusy(what); setNote('');
+    try { await fn(); } catch (e) { setNote(e?.message || '没成功'); }
+    setBusy('');
+  };
+  const saveToken = () => run('token', async () => { setData(await api('/api/garden/token', { method: 'POST', body: { token: token.trim() } })); setToken(''); setNote('令牌已保存在 VPS 上。'); });
+  const check = () => run('check', async () => { const r = await api('/api/garden/check', { method: 'POST', timeout: 45000 }); setNote(r.ok ? '握手成功，令牌和花园都没问题。' : `检查没通过：${r.output || r.code}`); });
+  const start = () => run('start', async () => { setData(await api('/api/garden/start', { method: 'POST', timeout: 45000 })); });
+  const stop = () => run('stop', async () => { setData(await api('/api/garden/stop', { method: 'POST', timeout: 45000 })); });
+  const [dot, label] = GARDEN_STATE[data.state] || ['off', '状态未知'];
+  const RESULT = { received: '收到', message: '他去处理了，还跟你说了话', silent: '他去处理了，没打扰你', error: '这次没处理成功', skipped: '跳过' };
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>garden</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>花园唤醒</h2><span className="go">Galatea Garden</span></div>
+      <div className="card st-list st-garden">
+        {!data.installed || !data.node ? (
+          <p className="st-tip">{!data.installed ? '服务器上还没装唤醒桥，先跑一次部署脚本。' : '服务器上没有 Node 20+，唤醒桥跑不起来。'}</p>
+        ) : (
+          <>
+            <div className="st-row">
+              <i className={`st-mdot ${dot}`} />
+              <span><b>{label}</b><em>{data.configured ? '机器令牌已设置' : '还没填机器令牌'}{data.node ? ` · Node ${data.node}` : ''}</em></span>
+              <button type="button" className="mini-btn st-gbtn" onClick={() => reload()}>刷新</button>
+            </div>
+            <label className="pill nc-in st-gtoken"><span className="sr">机器令牌</span><input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={data.configured ? '换一个新令牌（留空不改）' : '粘贴花园给这台机器的令牌'} autoComplete="off" /></label>
+            <div className="st-gacts">
+              <button type="button" className="mini-btn" disabled={!token.trim() || !!busy} onClick={saveToken}>{busy === 'token' ? '保存中…' : '保存令牌'}</button>
+              <button type="button" className="mini-btn" disabled={!data.configured || !!busy} onClick={check}>{busy === 'check' ? '检查中…' : '检查连接'}</button>
+              {data.state === 'active' || data.state === 'activating'
+                ? <button type="button" className="mini-btn" disabled={!!busy} onClick={stop}>{busy === 'stop' ? '停止中…' : '停止'}</button>
+                : <button type="button" className="mini-btn" disabled={!data.configured || !!busy} onClick={start}>{busy === 'start' ? '启动中…' : '启动'}</button>}
+            </div>
+            {note && <p className="st-tip st-gnote" role="status">{note}</p>}
+            <p className="st-tip">唤醒桥断开后不会自己重连，这是花园要求的。看到「已断开」时，先看下面的记录找原因，再点「检查连接」，没问题了再点「启动」。</p>
+            {data.wakes?.length > 0 && (
+              <div className="st-gwakes">
+                {data.wakes.map((w, i) => <div key={i}><time>{hm(w.at)}</time>{RESULT[w.result] || w.result}{w.result === 'received' ? `：${w.detail}` : ''}</div>)}
+              </div>
+            )}
+            {data.log?.length > 0 && (
+              <>
+                <button type="button" className="st-retry" onClick={() => setShowLog((v) => !v)}>{showLog ? '收起运行记录' : '看运行记录'}</button>
+                {showLog && <pre className="st-glog">{data.log.join('\n')}</pre>}
+              </>
+            )}
+          </>
+        )}
+      </div>
     </>
   );
 }

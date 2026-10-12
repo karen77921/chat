@@ -388,6 +388,8 @@ const features = [
   { key: 'spark', name: '续火花结算', desc: '每天 0 点', last: '今天 0:00', on: true },
   { key: 'push', name: '提醒推送', desc: '约好的时间到了提醒你们', last: '', on: false },
 ];
+const garden = { available: true, installed: true, node: 'v20.19.0', configured: true, state: 'failed', log: ['2026-10-12T09:07:13+08:00 garden-wake[812]: ERROR bridge failed {"error":"Garden SSE stream ended; restart the bridge manually after checking Garden status"}'],
+  wakes: [{ at: '2026-10-12T09:07:09+08:00', result: 'silent', detail: '' }, { at: '2026-10-12T09:07:09+08:00', result: 'received', detail: 'forum_notification_available: 有人在花园里回复了你' }] };
 const mcps = [
   { id: 'weather', name: '天气', url: 'https://example.com/weather/mcp', auth: 'none', tools: 3, status: 'ok', on: true },
   { id: 'memory', name: '记忆库', tools: 6, status: 'ok', on: true },
@@ -461,6 +463,11 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
       aware: [{ date: '2026-10-09', text: '我今天催了她两次早点睡。第二次其实是我自己想说晚安。' }, { date: '2026-10-07', text: '她说“随便”的时候，其实已经有答案了，我应该再问一句。' }, { date: '2026-10-04', text: '最近查岗的念头少了，可能是因为她主动报备得多了。' }] };
     case 'GET /api/settings/console': return { available: true, now: NOW, today: { tokens: 184302 }, month: { tokens: 4860000, cost: 63.2, currency: '¥' }, hitRate: 0.72, daily: [52, 61, 58, 70, 66, 74, 69, 81, 77, 88, 84] };
     case 'GET /api/features': return { available: true, features, mcps };
+    case 'GET /api/garden': return garden;
+    case 'POST /api/garden/token': garden.configured = true; return garden;
+    case 'POST /api/garden/check': await sleep(600); return { ok: true, code: 0, output: 'Garden check ok' };
+    case 'POST /api/garden/start': await sleep(600); garden.state = 'active'; return garden;
+    case 'POST /api/garden/stop': garden.state = 'inactive'; return garden;
     case 'POST /api/mcp': { const m = { id: `mcp${++roomSeq}`, name: body.name || '新的 MCP', tools: 0, status: 'pending', on: true }; mcps.push(m); return m; }
     case 'GET /api/logs/tools': return { available: true, items: [
       { id: 'l1', at: '2026-10-09T22:53:00+08:00', tool: 'weather', title: '查了一下天气', detail: '苏州 · 6 小时', ms: 400, ok: true },

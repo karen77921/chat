@@ -530,6 +530,18 @@ class ImprintStoreTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             imprint_action(self.store, "manage_space", {"operation": "appearance", "avatar": "javascript:alert(1)"})
 
+    def test_garden_token_is_written_privately_and_garden_tools_follow_the_wake(self):
+        env = Path(tempfile.mkdtemp()) / "garden.env"
+        with mock.patch.object(api_loop, "GARDEN_ENV", env):
+            self.assertFalse(api_loop.garden_token_set())
+            api_loop.garden_write_env("tok_123")
+            self.assertTrue(api_loop.garden_token_set())
+            self.assertEqual(oct(env.stat().st_mode)[-3:], "600")
+            self.assertEqual(api_loop.garden_env()["GARDEN_INJECTOR_ARGS_JSON"],
+                             f'["{api_loop.GARDEN_DIR / "inject-imprint.py"}"]')
+        self.assertTrue(api_loop.is_garden_url("https://galatea.abysslumina.com/mcp"))
+        self.assertFalse(api_loop.is_garden_url("https://abysslumina.com.evil.example/mcp"))
+
 
 if __name__ == "__main__":
     unittest.main()

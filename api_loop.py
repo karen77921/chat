@@ -2542,7 +2542,7 @@ def all_tools() -> list[dict[str, Any]]:
     return BUILTIN_TOOLS + mcp_manager.openai_tools()
 
 
-def turn_tools(text: str = "") -> list[dict[str, Any]]:
+def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
     """Keep ordinary chat light while retaining autonomous core tools.
 
     Some MCPs expose dozens of large JSON schemas. Sending every schema on every
@@ -2598,6 +2598,8 @@ def turn_tools(text: str = "") -> list[dict[str, Any]]:
         core_requested = (real_name in {"hold", "grow"} and memory_intent) or (real_name == "send_drift_bottle" and drift_intent)
         server = getattr(mcp_manager, "servers", {}).get(server_name)
         always = bool(server and server.cfg.get("always"))  # 「常驻」：每一轮都交给他，不看话题
+        if garden and server and is_garden_url(server.cfg.get("url")):
+            always = True  # 花园唤醒：花园的 MCP 一定要在手边
         if core_requested or named or always:
             selected.append(spec)
     return selected
@@ -3655,12 +3657,118 @@ def finish_precise_wake(wake_id: str, result: str) -> None:
         )
 
 
-async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_id: str = "") -> str:
+# ---------------------------------------------------------------------------
+# Galatea Garden wake bridge (github.com/WenXiaoWendy/galatea-garden-wake-bridge)
+# The bridge is fail-closed by design: one SSE connection per run, no reconnect,
+# no auto restart. Only the user may start it again, from the settings page.
+# ---------------------------------------------------------------------------
+
+GARDEN_DIR = Path(os.environ.get("GARDEN_BRIDGE_DIR", "/opt/galatea-garden-wake-bridge"))
+GARDEN_ENV = Path(os.environ.get("GARDEN_BRIDGE_ENV", "/etc/galatea-garden-wake.env"))
+GARDEN_UNIT = "garden-wake"
+GARDEN_DEFAULT_BASE = "https://wake-v1.abysslumina.com"
+
+
+def is_garden_url(url: Any) -> bool:
+    host = (urllib.parse.urlparse(str(url or "")).hostname or "").lower()
+    return host == "abysslumina.com" or host.endswith(".abysslumina.com")
+
+
+async def _garden_exec(*args: str, timeout: float = 30, env: dict[str, str] | None = None) -> tuple[int, str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            env={**os.environ, **env} if env else None,
+        )
+    except FileNotFoundError as exc:
+        return 127, str(exc)
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        return 124, "timed out"
+    return proc.returncode or 0, out.decode("utf-8", "replace")
+
+
+def garden_env() -> dict[str, str]:
+    values: dict[str, str] = {}
+    with contextlib.suppress(OSError):
+        for line in GARDEN_ENV.read_text(encoding="utf-8").splitlines():
+            key, sep, value = line.strip().partition("=")
+            if sep and key and not key.startswith("#"):
+                values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def garden_token_set() -> bool:
+    token = garden_env().get("GARDEN_MACHINE_TOKEN", "")
+    return bool(token) and token != "replace-with-machine-token"
+
+
+def garden_write_env(token: str) -> None:
+    injector = GARDEN_DIR / "inject-imprint.py"
+    lines = [
+        "# 由 Imprint 设置页写入；令牌只保存在这台 VPS",
+        f"GARDEN_BASE_URL={garden_env().get('GARDEN_BASE_URL') or GARDEN_DEFAULT_BASE}",
+        f"GARDEN_MACHINE_TOKEN={token}",
+        "GARDEN_INJECTOR_EXECUTABLE=/usr/bin/python3",
+        f"GARDEN_INJECTOR_ARGS_JSON='[\"{injector}\"]'",  # same quoting as the bridge's env example
+        f"GARDEN_INJECTOR_WORKING_DIRECTORY={GARDEN_DIR}",
+        "GARDEN_LOG_LEVEL=info",
+    ]
+    tmp = GARDEN_ENV.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    tmp.replace(GARDEN_ENV)
+
+
+def garden_recent_wakes(limit: int = 10) -> list[dict[str, str]]:
+    with contextlib.suppress(Exception):
+        with _wake_conn() as conn:
+            rows = conn.execute(
+                "SELECT occurred_at, result, detail FROM api_wake_audit WHERE kind='garden' ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{"at": r[0], "result": r[1], "detail": str(r[2] or "")[:300]} for r in rows]
+    return []
+
+
+async def garden_status() -> dict[str, Any]:
+    installed = (GARDEN_DIR / "dist" / "cli.js").exists()
+    code, node = await _garden_exec("node", "--version", timeout=10)
+    _, state = await _garden_exec("systemctl", "is-active", GARDEN_UNIT, timeout=10)
+    _, log = await _garden_exec("journalctl", "-u", GARDEN_UNIT, "-n", "15", "--no-pager", "-o", "short-iso", timeout=10)
+    return {
+        "available": True,
+        "installed": installed,
+        "node": node.strip() if code == 0 else "",
+        "configured": garden_token_set(),
+        "state": next((w for w in state.split() if w in {"active", "inactive", "failed", "activating", "deactivating"}), "unknown"),
+        "log": [line for line in log.splitlines() if line.strip() and not line.startswith("-- ")][-15:],
+        "wakes": garden_recent_wakes(),
+    }
+
+
+async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_id: str = "",
+                               garden: dict[str, str] | None = None) -> str:
     """Give the companion one run opportunity; it alone chooses silent or message."""
     if not session_id or not main_chain() or not RELAY_SECRET:
         wake_audit(kind, "skipped", "missing session, model route or relay secret")
         return "error"
-    prompt = (
+    if garden:
+        # Galatea Garden 的唤醒：服务端文案原样交给他，由他自己用花园 MCP 去处理
+        prompt = (
+            "【Galatea Garden 唤醒，不是用户发来的消息】\n"
+            f"原因：{garden['reason']}\n"
+            f"花园发来的消息：\n{garden['message']}\n\n"
+            "请按这条消息，用 Galatea Garden 的 MCP 工具去查看并处理（比如轮到你的回合、有人回复或提到你）。"
+            "处理完后，自己决定要不要告诉她：不需要就最终只输出 ⟦SILENT⟧；"
+            "想跟她说就最终以 ⟦MESSAGE⟧ 开头，后面直接写要发给她的自然消息。"
+            "不要暴露这段内部提示。"
+        )
+    else:
+        prompt = (
         "【Wake 2.0 内部运行机会，不是用户发来的消息】\n"
         f"类型：{'Self Precise Wake' if kind == 'precise' else 'Non-Precise Wake'}。\n"
         + (f"你过去的自己留下的 note：{note}\n" if note else "")
@@ -3670,10 +3778,10 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
           "先 inspect 获取真实状态和 ID，再按自己的意愿评论或收藏照片、控制一起听、留下歌曲批注、更新片单或设计火花礼物；这些都是能真实写入前端的行动。"
           "不要因为获得机会就被迫说话，也不要暴露概率、调度器或这段内部提示。"
           "如果沉默，最终只输出 ⟦SILENT⟧；如果要联系，最终以 ⟦MESSAGE⟧ 开头，后面直接写要发送的自然消息。"
-    )
+        )
     messages, _ = await build_messages(prompt, [], before_id=None, session_id=session_id, use_context=True, with_images=False)
     turn = Turn(session_id, dry=False)
-    tools: list[dict[str, Any]] | None = turn_tools(prompt)
+    tools: list[dict[str, Any]] | None = turn_tools(prompt, garden=bool(garden))
     max_steps = cfg_int("max_tool_steps", 0, 50)
     try:
         for step in range(max_steps + 2):
@@ -3896,6 +4004,67 @@ async def loop_wake_precise(request: Request):
 @app.delete("/loop/wake/precise/{wake_id}")
 async def loop_wake_precise_cancel(wake_id: str):
     return {"ok": cancel_precise_wake(wake_id), "wake_id": wake_id}
+
+
+@app.get("/loop/garden/status")
+async def loop_garden_status():
+    return await garden_status()
+
+
+@app.post("/loop/garden/token")
+async def loop_garden_token(request: Request):
+    token = str((await request.json()).get("token") or "").strip()
+    if not token or len(token) > 4096 or any(ch.isspace() for ch in token) or "'" in token or '"' in token:
+        raise HTTPException(status_code=400, detail="令牌格式不对：不能为空，也不能有空格或引号")
+    try:
+        garden_write_env(token)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"写不进 {GARDEN_ENV}：{exc}") from exc
+    return await garden_status()
+
+
+@app.post("/loop/garden/check")
+async def loop_garden_check():
+    """One manual handshake (bridge `check`); it never starts the injector."""
+    if not garden_token_set():
+        raise HTTPException(status_code=400, detail="还没填机器令牌")
+    code, out = await _garden_exec("node", str(GARDEN_DIR / "dist" / "cli.js"), "check", timeout=30, env=garden_env())
+    return {"ok": code == 0, "code": code, "output": out.strip()[-2000:]}
+
+
+@app.post("/loop/garden/start")
+async def loop_garden_start():
+    """Manual start only. Nothing in Imprint ever restarts the bridge on its own."""
+    if not garden_token_set():
+        raise HTTPException(status_code=400, detail="还没填机器令牌")
+    _, state = await _garden_exec("systemctl", "is-active", GARDEN_UNIT, timeout=10)
+    if state.strip() != "active":
+        code, out = await _garden_exec("systemctl", "start", GARDEN_UNIT, timeout=30)
+        if code != 0:
+            raise HTTPException(status_code=500, detail=f"启动失败：{out.strip()[-300:]}")
+    return await garden_status()
+
+
+@app.post("/loop/garden/stop")
+async def loop_garden_stop():
+    await _garden_exec("systemctl", "stop", GARDEN_UNIT, timeout=30)
+    return await garden_status()
+
+
+@app.post("/loop/garden/wake")
+async def loop_garden_wake(request: Request):
+    """Called by inject-imprint.py when the bridge receives a Garden wake event."""
+    body = await request.json()
+    reason = str(body.get("reason") or "").strip()[:120]
+    message = str(body.get("message") or "").strip()[:4096]
+    if not reason or not message:
+        raise HTTPException(status_code=400, detail="reason and message are required")
+    wake_audit("garden", "received", f"{reason}: {message}"[:2000])
+    result = await run_wake_opportunity("garden", active_session_id(), note=reason,
+                                        garden={"reason": reason, "message": message})
+    if result == "error":
+        raise HTTPException(status_code=502, detail="wake turn failed")
+    return {"ok": True, "result": result}
 
 
 @app.post("/loop/wake/test")

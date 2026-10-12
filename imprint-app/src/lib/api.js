@@ -260,6 +260,8 @@ async function compat(path, opts) {
     if (!server) throw new ApiError(404, '找不到这个 MCP');
     return loop('mcp', { method: 'POST', body: { ...server, enabled: Boolean(opts.body?.on) } });
   }
+  if (method === 'GET' && p === '/api/garden') return loop('garden/status');
+  if (method === 'POST' && (m = /^\/api\/garden\/(token|check|start|stop)$/.exec(p))) return loop(`garden/${m[1]}`, { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/settings/console') return loop('imprint/usage');
   if (method === 'GET' && p === '/api/logs/cache') return loop(`imprint/usage/cache${query}`);
   if (method === 'GET' && p === '/api/logs/tools') return loop('imprint/logs/tools');

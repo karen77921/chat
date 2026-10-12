@@ -123,3 +123,11 @@
 .ma-cache-note{margin:7px 2px;color:var(--muted);font-size:10px;line-height:1.6}
 .st-always { border-bottom: 0; margin: 4px 0 6px; }
 .st-pin { margin-left: 6px; font-size: 10px; color: var(--accent); border: 1px solid currentColor; border-radius: 8px; padding: 0 6px; vertical-align: 1px; }
+.st-garden { padding-bottom: 12px; }
+.st-gbtn { margin-left: auto; }
+.st-gtoken { margin: 6px 0 8px; }
+.st-gacts { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.st-gnote { color: var(--accent); }
+.st-gwakes { font-size: 11px; color: var(--muted); line-height: 1.8; margin: 4px 0 8px; }
+.st-gwakes time { font-family: ui-monospace, Menlo, monospace; margin-right: 8px; }
+.st-glog { font-size: 10px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: var(--muted); max-height: 220px; overflow: auto; margin: 6px 0 0; }

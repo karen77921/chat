@@ -3245,6 +3245,7 @@ async def handle_turn(
     cancelled = False
     cache_meta: dict[str, Any] = {}
     step = 0
+    empty_retry = False
     try:
         while True:
             try:
@@ -3279,6 +3280,15 @@ async def handle_turn(
                         turn.usage[key] = merged
             if step_text:
                 texts.append(step_text)
+            if not calls and not texts and step > 0 and not empty_retry:
+                # Some gateways occasionally return a completely empty message right after a
+                # tool result. Ask once more instead of showing "did not produce a reply".
+                empty_retry = True
+                print(f"[turn] empty answer after {step} tool step(s) for {session_id or 'default'}; retrying once", flush=True)
+                messages.append({"role": "user", "content": "（工具结果已经在上面了。请直接用文字回复她，不要再调用工具。）"})
+                tools = None
+                max_steps = 0
+                continue
             if not calls:
                 break
             if step >= max_steps:

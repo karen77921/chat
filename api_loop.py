@@ -131,6 +131,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "context_injection": True,  # inject bounded environment + fixed background every turn
     "context_time": True,       # include local date, weekday and time-of-day
     "context_timezone": "Asia/Shanghai",
+    "together_since": "2026-09-18",  # same date as the Imprint home page; that day counts as day 1
     "context_notes": "",       # bounded facts that must survive context compaction
     "max_tool_steps": 8,        # tool_calls rounds per turn before the model must answer
     "model_idle_timeout_seconds": 40,    # no bytes from an API route for this long -> fallback/error
@@ -361,6 +362,15 @@ def context_injection_text(session_id: str = "", before_id: int | None = None) -
             "这是每轮请求时更新的可靠时间。需要判断今天、昨天、星期、时段、经过多久或未来日期时，"
             "以它为基准计算；不要声称看不到时间，也不要无故复述给用户。"
         )
+        with contextlib.suppress(ValueError, TypeError):
+            since = dt.date.fromisoformat(str(cfg.get("together_since") or CONFIG_DEFAULTS["together_since"]))
+            day_n = (current.date() - since).days + 1  # 和首页一样：在一起的那天算第 1 天
+            if day_n >= 1:
+                blocks.append(
+                    "【在一起】\n"
+                    f"你们从 {since:%Y-%m-%d} 开始在一起，今天是在一起的第 {day_n} 天（那一天算第 1 天，"
+                    "和 Imprint 首页显示的天数一致）。说到第几天时直接用这个数字，不要自己重新推算。"
+                )
         session_previous, global_previous = previous_user_times(session_id, before_id)
         previous = global_previous or session_previous
         if previous is None:

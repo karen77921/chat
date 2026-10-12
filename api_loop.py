@@ -1617,6 +1617,7 @@ async def maybe_compact_context(session_id: str, before_id: int | None) -> dict[
 
 
 CONTEXT_TIMING: dict[str, dict[str, Any]] = {}
+_RECALL_CACHE: dict[str, str] = {}
 _compaction_tasks: dict[str, asyncio.Task] = {}
 _compaction_failed_at: dict[str, float] = {}
 
@@ -1723,13 +1724,18 @@ async def build_messages(
             )
         t1 = asyncio.get_running_loop().time()
         timing["summary_s"] = round(t1 - t0, 1)
+        # 心潮回想最多等几秒；等不到就先用上一轮搜到的记忆，这次的搜索在后台跑完，结果留给下一轮
+        key = session_id or "__default__"
+        search = asyncio.ensure_future(ombre_recall_text(text))
+        search.add_done_callback(lambda task: _RECALL_CACHE.__setitem__(key, task.result())
+                                 if not task.cancelled() and task.exception() is None and task.result() else None)
         try:
-            # 心潮回想只是锦上添花：最多等几秒，等不到就先不带
-            recalled = await asyncio.wait_for(ombre_recall_text(text), timeout=cfg_int("ombre_recall_timeout_seconds", 2, 60))
+            recalled = await asyncio.wait_for(asyncio.shield(search), timeout=cfg_int("ombre_recall_timeout_seconds", 2, 60))
         except asyncio.TimeoutError:
-            recalled = ""
+            recalled = _RECALL_CACHE.get(key, "")
             timing["recall_timed_out"] = True
-            print(f"[context] Ombre recall timed out for {session_id or 'default'}", flush=True)
+            timing["recall_from_last_turn"] = bool(recalled)
+            print(f"[context] Ombre recall timed out for {key}; using the previous recall", flush=True)
         timing["recall_s"] = round(asyncio.get_running_loop().time() - t1, 1)
         if recalled:
             volatile_parts.append(

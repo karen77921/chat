@@ -142,6 +142,8 @@ async function sendMessage(id, body) {
   return relayMessage({ id: result.id, from: 'human', kind: 'user', text, ts: new Date().toISOString(), meta: result.meta || { api_session: id, deferred: true, reply_requested: false, attachments } });
 }
 
+const mcpRow = (x) => ({ id: x.name, name: x.name, url: x.url || '', auth: x.auth || 'none', tools: x.tools?.length || 0, status: x.status === 'online' ? 'ok' : x.status === 'connecting' ? 'pending' : 'down', on: x.enabled !== false });
+
 async function liveFeatures() {
   const [cfg, mcp] = await Promise.all([loop('config'), loop('mcp')]);
   return {
@@ -153,7 +155,7 @@ async function liveFeatures() {
       { key: 'time', name: '现实时间感知', desc: cfg.context_timezone || 'Asia/Shanghai', last: '', on: cfg.context_time !== false },
       { key: 'backup', name: '自动备份', desc: `每 ${cfg.backup_interval_hours || 24} 小时`, last: '', on: cfg.backup_enabled !== false },
     ],
-    mcps: (mcp.servers || []).map((x) => ({ id: x.name, name: x.name, tools: x.tools?.length || 0, status: x.status === 'online' ? 'ok' : x.status === 'connecting' ? 'pending' : 'down', on: x.enabled !== false })),
+    mcps: (mcp.servers || []).map(mcpRow),
   };
 }
 
@@ -222,6 +224,21 @@ async function compat(path, opts) {
   }
   if (method === 'POST' && p === '/api/mcp/oauth/complete') return loop('mcp/oauth/complete', { ...opts, timeout: 60000 });
   if (method === 'POST' && (m = /^\/api\/mcp\/([^/]+)\/reconnect$/.exec(p))) return loop(`mcp/${m[1]}/reconnect`, { method: 'POST' }).then((x) => ({ id: m[1], status: x.ok ? 'ok' : 'down', on: true }));
+  if (method === 'PATCH' && (m = /^\/api\/mcp\/([^/]+)$/.exec(p))) {
+    const current = await loop('mcp');
+    const server = (current.servers || []).find((row) => row.name === decodeURIComponent(m[1]));
+    if (!server) throw new ApiError(404, '找不到这个 MCP');
+    const name = String(opts.body?.name || '').trim(), url = String(opts.body?.url || '').trim();
+    try { new URL(url); } catch { throw new ApiError(400, '请输入完整的 MCP 地址'); }
+    const renamed = name !== server.name, moved = url.replace(/\/$/, '') !== String(server.url || '').replace(/\/$/, '');
+    // 授权（OAuth / 请求头里的密钥）跟着名字和地址走，改了就得重新授权，所以这类只能删掉重加
+    if (server.auth !== 'none' && (renamed || moved)) throw new ApiError(400, '这个 MCP 带授权，改名字或地址请删掉后重新加');
+    if (renamed && (current.servers || []).some((row) => row.name === name)) throw new ApiError(400, '已经有一个同名的 MCP 了');
+    const saved = await loop('mcp', { method: 'POST', body: { ...server, name, url }, timeout: 60000 });
+    if (renamed && saved.server?.name && saved.server.name !== server.name) await loop(`mcp/${encodeURIComponent(server.name)}`, { method: 'DELETE' });
+    return mcpRow(saved.server || {});
+  }
+  if (method === 'DELETE' && (m = /^\/api\/mcp\/([^/]+)$/.exec(p))) return loop(`mcp/${m[1]}`, { method: 'DELETE' });
   if (method === 'PUT' && (m = /^\/api\/mcp\/([^/]+)$/.exec(p))) {
     const current = await loop('mcp');
     const server = (current.servers || []).find((row) => row.name === decodeURIComponent(m[1]));

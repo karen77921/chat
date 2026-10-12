@@ -387,7 +387,7 @@ const features = [
   { key: 'push', name: '提醒推送', desc: '约好的时间到了提醒你们', last: '', on: false },
 ];
 const mcps = [
-  { id: 'weather', name: '天气', tools: 3, status: 'ok', on: true },
+  { id: 'weather', name: '天气', url: 'https://example.com/weather/mcp', auth: 'none', tools: 3, status: 'ok', on: true },
   { id: 'memory', name: '记忆库', tools: 6, status: 'ok', on: true },
   { id: 'music', name: '音乐', tools: 4, status: 'ok', on: true },
   { id: 'web', name: '网页', tools: 2, status: 'down', on: true },
@@ -513,6 +513,8 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
       if ((m = /^DELETE \/api\/together\/playlist\/([^/]+)$/.exec(key))) { listen.playlist = listen.playlist.filter((p) => p.trackId !== m[1]); return listenState(); }
       if ((m = /^PATCH \/api\/together\/watch\/list\/([^/]+)$/.exec(key))) { const it = watch.list.find((x) => x.id === m[1]); Object.assign(it, body); return it; }
       if ((m = /^PUT \/api\/features\/([^/]+)$/.exec(key))) { const f = features.find((x) => x.key === m[1]); if (f) f.on = !!body.on; return f; }
+      if ((m = /^PATCH \/api\/mcp\/([^/]+)$/.exec(key))) { await sleep(600); const x = mcps.find((y) => y.id === m[1]); if (x) Object.assign(x, { name: body.name, url: body.url, status: 'ok' }); return x; }
+      if ((m = /^DELETE \/api\/mcp\/([^/]+)$/.exec(key))) { const i = mcps.findIndex((y) => y.id === m[1]); if (i >= 0) mcps.splice(i, 1); return { ok: true }; }
       if ((m = /^PUT \/api\/mcp\/([^/]+)$/.exec(key))) { const x = mcps.find((y) => y.id === m[1]); if (x) x.on = !!body.on; return x; }
       if ((m = /^POST \/api\/mcp\/([^/]+)\/reconnect$/.exec(key))) { await sleep(600); const x = mcps.find((y) => y.id === m[1]); if (x) x.status = 'ok'; return x; }
       if ((m = /^DELETE \/api\/stickers\/([^/]+)$/.exec(key))) { room.stickers.mine = room.stickers.mine.filter((x) => x.id !== m[1]); return { ok: true }; }

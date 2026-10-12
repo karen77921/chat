@@ -206,6 +206,9 @@ function Features() {
   const [form, setForm] = useState({ name: '', url: '' });
   const [error, setError] = useState('');
   const [addingBusy, setAddingBusy] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
   if (!data) return <div className="card cl-empty">正在看…</div>;
   if (data.available === false) return <div className="card cl-empty">暂时连不上，过一会儿再来看看。</div>;
   const setF = async (key, on) => {
@@ -233,6 +236,24 @@ function Features() {
       setData((d) => ({ ...d, mcps: [...d.mcps, m] })); setAdding(false); setForm({ name: '', url: '' });
     } catch (e) { setError(e?.message || '连接失败'); setAddingBusy(false); }
   };
+  const openEdit = (x) => { setError(''); setConfirmDel(false); setEditing({ id: x.id, auth: x.auth || 'none', name: x.name, url: x.url || '' }); };
+  const saveEdit = async () => {
+    setError(''); setEditBusy(true);
+    try {
+      const m = await api(`/api/mcp/${encodeURIComponent(editing.id)}`, { method: 'PATCH', body: { name: editing.name.trim(), url: editing.url.trim() }, timeout: 60000 });
+      setData((d) => ({ ...d, mcps: d.mcps.map((x) => (x.id === editing.id ? { ...x, ...m } : x)) })); setEditing(null);
+    } catch (e) { setError(e?.message || '保存失败'); }
+    setEditBusy(false);
+  };
+  const remove = async () => {
+    if (!confirmDel) { setConfirmDel(true); return; }
+    setError(''); setEditBusy(true);
+    try {
+      await api(`/api/mcp/${encodeURIComponent(editing.id)}`, { method: 'DELETE' });
+      setData((d) => ({ ...d, mcps: d.mcps.filter((x) => x.id !== editing.id) })); setEditing(null);
+    } catch (e) { setError(e?.message || '删除失败'); }
+    setEditBusy(false); setConfirmDel(false);
+  };
   const ST = { ok: '', down: '断开 · 点一下重连', pending: '连接中…' };
   return (
     <>
@@ -254,6 +275,7 @@ function Features() {
             <span><b>{x.name}</b> <code>{x.id}</code>
               {x.on && x.status === 'down' ? <button type="button" className="st-retry" onClick={() => retry(x.id)}>{ST.down}</button> : <em>{x.on ? ST[x.status] || `${x.tools} 个工具` : '已关'}</em>}
             </span>
+            <button type="button" className="st-edit" onClick={() => openEdit(x)} aria-label={`编辑 MCP ${x.name}`}><Icon name="pen" size={15} stroke={1.5} /></button>
             <input type="checkbox" className="switch" checked={x.on} onChange={(e) => setM(x.id, e.target.checked)} aria-label={`MCP ${x.name}`} />
           </div>
         ))}
@@ -268,6 +290,21 @@ function Features() {
           <label className="pill nc-in"><span className="sr">地址</span><input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} placeholder="MCP 服务的地址" inputMode="url" /></label>
           <p className="st-tip">需要登录的 MCP 会跳转到服务方授权；访问令牌只保存在 VPS，不会暴露给浏览器。</p>
           <button type="button" className="btn-main nc-go" disabled={addingBusy || !form.name.trim() || !form.url.trim()} onClick={add}>{addingBusy ? '正在检查并连接…' : '加上'}</button>
+        </Sheet>
+      )}
+      {editing && (
+        <Sheet open onClose={() => setEditing(null)} label="编辑 MCP" seed={88}>
+          <div className="sec-head"><span className="en">edit mcp</span><h2 className="zh" style={{ margin: 0 }}>编辑 MCP</h2></div>
+          {error && <p className="ws-err" role="alert">{error}</p>}
+          <div className="nc-k">名字</div>
+          <label className="pill nc-in"><span className="sr">名字</span><input value={editing.name} disabled={editing.auth !== 'none'} onChange={(e) => setEditing((f) => ({ ...f, name: e.target.value }))} /></label>
+          <div className="nc-k">地址</div>
+          <label className="pill nc-in"><span className="sr">地址</span><input value={editing.url} disabled={editing.auth !== 'none'} onChange={(e) => setEditing((f) => ({ ...f, url: e.target.value }))} placeholder="MCP 服务的地址" inputMode="url" /></label>
+          <p className="st-tip">{editing.auth !== 'none' ? '这个 MCP 带授权，名字和地址改不了；想换的话删掉后重新加一次。' : '保存后会用新地址重新连接一次。'}</p>
+          {editing.auth === 'none' && (
+            <button type="button" className="btn-main nc-go" disabled={editBusy || !editing.name.trim() || !editing.url.trim()} onClick={saveEdit}>{editBusy && !confirmDel ? '正在保存并重连…' : '保存'}</button>
+          )}
+          <button type="button" className={`cl-link st-delmcp${confirmDel ? ' on' : ''}`} disabled={editBusy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />{confirmDel ? '再点一下，确定删除' : '删除这个 MCP'}</button>
         </Sheet>
       )}
     </>

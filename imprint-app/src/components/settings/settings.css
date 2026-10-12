@@ -50,6 +50,10 @@
 .st-mdot.off { background: rgba(47, 74, 102, 0.25); }
 .st-retry { display: block; font-size: 10.5px; color: #b5847d; margin-top: 2px; text-decoration: underline; text-underline-offset: 3px; }
 .st-addmcp { justify-content: center; margin-top: 14px; }
+.st-edit { margin-left: auto; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: var(--muted); }
+.st-edit + .switch { margin-left: 4px; }
+.st-delmcp { justify-content: center; margin-top: 12px; color: #b5847d; border-color: color-mix(in srgb, #b5847d 45%, transparent); }
+.st-delmcp.on { font-weight: 500; }
 
 /* 美化 */
 .st-themes { display: flex; gap: 10px; }

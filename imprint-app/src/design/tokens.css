@@ -7,7 +7,9 @@
  */
 @font-face {
   font-family: 'Imprint PingFang TC';
-  src: url('../assets/pingfang-tc-regular.woff2') format('woff2');
+  /* 苹果设备自带苹方，先用本机的，省掉 5.6 MB 的下载；其他设备才下载 */
+  src: local('PingFangTC-Regular'), local('.PingFangTC-Regular'), local('PingFang TC'),
+       url('../assets/pingfang-tc-regular.woff2') format('woff2');
   font-style: normal;
   font-weight: 400;
   font-display: swap;

@@ -5,6 +5,7 @@
  * important chat/session/config/MCP operations without changing the design.
  */
 import { normalizeTideMemories } from './tideMemory.js';
+import { collectHistory } from './chatHistory.js';
 
 const BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 const RELAY = `${BASE}/relay`;
@@ -111,7 +112,9 @@ function chatList(sessions) {
 async function loadChat(id) {
   const [ss, hist, settings, reactions] = await Promise.all([
     request(`${RELAY}/app/sessions`),
-    request(`${RELAY}/app/history?session_id=${encodeURIComponent(id)}&since=0&limit=500`),
+    collectHistory(({ since, limit }) => request(
+      `${RELAY}/app/history?session_id=${encodeURIComponent(id)}&since=${since}&limit=${limit}`,
+    )).then((messages) => ({ messages })),
     loop('imprint/settings').catch(() => ({ avatars: {} })),
     loop('imprint/chat/reactions').catch(() => ({ items: [] })),
   ]);

@@ -100,6 +100,26 @@ class ImprintStoreTest(unittest.TestCase):
         result = self.app.routes[(method, "/loop/imprint" + path)](*args, **kwargs)
         return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
+    def test_piggy_bank_only_she_writes_and_balance_adds_up(self):
+        self.call("POST", "/piggy", Request({"kind": "save", "amount": 20, "reason": "让我开心了"}))
+        taken = self.call("POST", "/piggy", Request({"kind": "take", "amount": "5.5", "reason": "惹我生气"}))
+        self.assertEqual(taken["delta"], -5.5)
+        with self.assertRaises(HTTPException):
+            self.call("POST", "/piggy", Request({"kind": "save", "amount": 3, "reason": ""}))
+        data = self.call("GET", "/piggy")
+        self.assertEqual(data["balance"], 14.5)
+        self.assertEqual([x["reason"] for x in data["items"]], ["惹我生气", "让我开心了"])
+        # 他的工具里只有看的份，没有改钱的入口
+        names = {t["function"]["name"] for t in api_loop.BUILTIN_TOOLS}
+        self.assertIn("imprint_view_piggy", names)
+        self.assertFalse(any("piggy" in n and n != "imprint_view_piggy" for n in names))
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            text = api_loop.piggy_context_text()
+        self.assertIn("余额 ¥14.5", text)
+        self.assertIn("扣了 ¥5.5：惹我生气", text)
+        self.call("DELETE", "/piggy/{rec_id}", taken["id"])
+        self.assertEqual(self.call("GET", "/piggy")["balance"], 20)
+
     def test_purchase_request_review_and_withdraw_keep_a_timeline(self):
         item = imprint_action(self.store, "purchase_create", {"title": "冰淇淋", "price": "5", "reason": "想吃"})
         self.assertEqual((item["status"], item["price"]), ("pending", 5.0))

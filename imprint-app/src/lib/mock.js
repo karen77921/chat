@@ -446,6 +446,11 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/home': return home();
     case 'GET /api/chats/w1/reply-options': return { mode: state.replyMode || 'off' };
     case 'PUT /api/chats/w1/reply-options': state.replyMode = body.mode; return { mode: body.mode };
+    case 'GET /api/piggy': { const items = state.piggy ?? (state.piggy = [
+      { id: 'p2', delta: -10, reason: '昨晚又熬夜不睡，惹我生气', by: 'me', at: '2026-10-12T23:40:00+08:00' },
+      { id: 'p1', delta: 20, reason: '陪我练完肩，还给我讲题', by: 'me', at: '2026-10-11T21:00:00+08:00' },
+    ]); return { available: true, names: { me: 'Lumi', him: 'Ash' }, balance: items.reduce((n, x) => n + x.delta, 0), items }; }
+    case 'POST /api/piggy': { const it = { id: `p${Date.now()}`, delta: body.kind === 'take' ? -Number(body.amount) : Number(body.amount), reason: body.reason, by: 'me', at: new Date().toISOString() }; state.piggy.unshift(it); return it; }
     case 'GET /api/purchases': return { available: true, names: { me: 'Lumi', him: 'Ash' }, avatars: {}, items: state.purchases ?? (state.purchases = [
       { id: 'a1', no: '202610100001', category: '想买的东西', title: '冰淇淋', price: 5, reason: '我要吃冰淇淋 (>ᴗ<)', status: 'rejected', comment: '夫人这个太便宜，选一个贵的重新申请。', at: '2026-10-10T10:00:00+08:00',
         timeline: [{ at: '2026-10-10T10:00:00+08:00', kind: 'submit', by: 'me', text: '我要吃冰淇淋 (>ᴗ<)' }, { at: '2026-10-10T10:01:00+08:00', kind: 'reject', by: 'him', text: '夫人这个太便宜，选一个贵的重新申请。' }] },
@@ -529,6 +534,7 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     default: {
       // 带 id 的聊天接口：/api/chats/{id}/...
       let m;
+      if ((m = /^DELETE \/api\/piggy\/(.+)$/.exec(key))) { state.piggy = state.piggy.filter((x) => x.id !== m[1]); return { ok: true }; }
       if ((m = /^GET \/api\/chats\/([^/]+)$/.exec(key))) return chatState(m[1], qs);
       if ((m = /^PATCH \/api\/chats\/([^/]+)$/.exec(key))) { Object.assign(chats[m[1]], body); return { ok: true }; }
       if ((m = /^DELETE \/api\/chats\/([^/]+)$/.exec(key))) { delete chats[m[1]]; return { ok: true }; }

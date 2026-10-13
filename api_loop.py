@@ -502,6 +502,27 @@ def persona_full() -> str:
     return f"{text}\n\n【她额外交代给你的】\n以下是她另外写给你的提示，和上面的人设一样要遵守：\n\n{blocks}"
 
 
+def piggy_context_text() -> str:
+    """存钱罐：每一轮都让他知道余额和最近几笔（谁也别想瞒着他，但他也改不了）。"""
+    with contextlib.suppress(Exception):
+        data = imprint_action(LOOP_CACHE_DIR / "imprint.db", "piggy_list")
+        if not data["items"]:
+            return ""
+        zone = context_zone()
+        lines = []
+        for item in data["items"][:5]:
+            when = parse_message_time(item.get("at"))
+            stamp = when.astimezone(zone).strftime("%m-%d %H:%M") if when else ""
+            delta = float(item.get("delta") or 0)
+            lines.append(f"- {stamp} {'存了' if delta > 0 else '扣了'} ¥{abs(delta):g}：{item.get('reason')}")
+        return (
+            "【存钱罐】\n她给你存的存钱罐，现在余额 ¥" + f"{data['balance']:g}" + "。最近几笔：\n" + "\n".join(lines)
+            + "\n存钱罐只有她能存、能扣，你只能看（imprint_view_piggy 能看全部记录）。"
+              "可以对存了扣了有反应、可以撒娇求她存，但不要说你自己加了或扣了钱。"
+        )
+    return ""
+
+
 def persona_public() -> dict[str, Any]:
     path = persona_path()
     text = persona_text()
@@ -1813,6 +1834,9 @@ async def build_messages(
     injected = context_injection_text(session_id, before_id)
     if injected:
         volatile_parts.append(injected)
+    piggy = piggy_context_text()
+    if piggy:
+        volatile_parts.append(piggy)
     compacted = {"summary": "", "last_id": 0, "compacted": False}
     timing = CONTEXT_TIMING.setdefault(session_id or "__default__", {})
     timing.clear()
@@ -2400,6 +2424,13 @@ def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
+        "name": "imprint_view_piggy",
+        "description": "Look at the 存钱罐 (piggy bank) she keeps for you: balance and every deposit/deduction with her reason. Read-only: only she can add or deduct money.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_list_purchases",
         "description": "List her purchase requests in Imprint's 买买申请 (what she wants, price, her reason, status pending/approved/rejected/withdrawn, your earlier comments). Use before reviewing or when she asks about them.",
         "parameters": {"type": "object", "properties": {}},
@@ -2785,6 +2816,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
                     "imprint_record_solo", "imprint_leave_note", "schedule_self_wake")
     if any(word in query for word in ("之前", "上次", "那天", "记得", "说过", "聊过", "什么时候", "翻一下")):
         add_builtin("search_chat_history")
+    if any(word in query for word in ("存钱罐", "小金库", "存了", "扣了", "扣钱", "存钱", "余额", "攒钱")):
+        add_builtin("imprint_view_piggy")
     if any(word in query for word in ("申请", "审批", "批准", "批一下", "批了", "想买", "买买")):
         add_builtin("imprint_list_purchases", "imprint_review_purchase")
     if any(word in query for word in ("附件", "文件", "发给我", "传给我", "下载", "attach")):
@@ -3000,6 +3033,7 @@ class Turn:
             "imprint_record_dream": "record_dream",
             "imprint_record_awareness": "record_awareness",
             "imprint_list_purchases": "purchase_list",
+            "imprint_view_piggy": "piggy_list",
             "imprint_review_purchase": "purchase_review",
         }
         if public_name in imprint_actions:

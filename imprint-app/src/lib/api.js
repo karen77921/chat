@@ -332,6 +332,9 @@ async function compat(path, opts) {
   if ((method === 'GET' || method === 'PUT') && (m = /^\/api\/chats\/([^/]+)\/reply-options$/.exec(p))) {
     return loop(`reply-options/${m[1]}`, method === 'PUT' ? { ...opts, method: 'POST' } : undefined);
   }
+  if (method === 'GET' && p === '/api/piggy') return loop('imprint/piggy');
+  if (method === 'POST' && p === '/api/piggy') return loop('imprint/piggy', opts);
+  if (method === 'DELETE' && (m = /^\/api\/piggy\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/piggy/${m[1]}`, { method: 'DELETE' });
   if (method === 'GET' && p === '/api/purchases') {
     const [list, settings] = await Promise.all([loop('imprint/purchases'), loop('imprint/settings').catch(() => ({}))]);
     return { ...list, avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) } };

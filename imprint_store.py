@@ -233,6 +233,12 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             )
             return value
 
+        if action == "piggy_list":
+            # 存钱罐：只有她能存、能扣；他只能看
+            rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='piggy' ORDER BY at DESC").fetchall()
+            items = [{**json.loads(r["payload"]), "id": r["id"], "at": r["at"]} for r in rows]
+            return {"balance": round(sum(float(x.get("delta") or 0) for x in items), 2), "items": items[:300]}
+
         if action.startswith("purchase_"):
             # 买买申请：她申请，他审批；每一步都记进轨迹
             def load(rec_id: str) -> dict:
@@ -910,6 +916,29 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         month = dt.datetime.now(ZONE).strftime("%Y-%m")
         return {"available": True, "now": iso_now(), "monthCount": sum(local_day(x["at"]).startswith(month) for x in items),
                 "items": items, "nextCursor": None}
+
+    @router.get("/piggy")
+    def piggy():
+        return {"available": True, "names": public_names(), **imprint_action(data_path, "piggy_list")}
+
+    @router.post("/piggy")
+    async def piggy_add(request: Request):
+        """只有她在前端能调到这里；他的工具里没有改钱的口子。"""
+        body = await request.json()
+        try:
+            amount = round(float(body.get("amount")), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "金额要填数字")
+        kind = str(body.get("kind") or "save")
+        reason = str(body.get("reason") or "").strip()
+        if kind not in {"save", "take"} or not (0 < amount <= 10_000_000) or not reason or len(reason) > 200:
+            raise HTTPException(400, "金额要大于 0，原因 1–200 字")
+        return put("piggy", {"delta": amount if kind == "save" else -amount, "reason": reason, "by": "me"})
+
+    @router.delete("/piggy/{rec_id}")
+    def piggy_remove(rec_id: str):
+        delete("piggy", rec_id)
+        return {"ok": True}
 
     @router.get("/purchases")
     def purchases():

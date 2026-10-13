@@ -3390,6 +3390,7 @@ async def handle_turn(
     tools = turn_tools(tool_context_text(text, messages))
     max_steps = cfg_int("max_tool_steps", 0, 50)
     texts: list[str] = []
+    narration: list[str] = []
     model_used = ""
     fallback_from: list[str] = []
     error = ""
@@ -3433,7 +3434,8 @@ async def handle_turn(
                             merged[sub] = previous.get(sub, 0) + amount if isinstance(amount, (int, float)) else amount
                         turn.usage[key] = merged
             if step_text:
-                texts.append(step_text)
+                # 调工具前的自言自语（「我先去看看…」）单独放，最后没别的话可说时才用
+                (narration if calls else texts).append(step_text)
             if not calls and not texts and step > 0 and not empty_retry:
                 # Some gateways occasionally return a completely empty message right after a
                 # tool result. Ask once more instead of showing "did not produce a reply".
@@ -3479,7 +3481,7 @@ async def handle_turn(
     except Exception as exc:  # never leave the PWA stuck on "typing"
         error = f"{type(exc).__name__}: {exc}"
 
-    reply = "\n\n".join(t for t in texts if t).strip()
+    reply = "\n\n".join(t for t in (texts or narration) if t).strip()
     if cancelled:
         reply = (reply + "\n\n" if reply else "") + "（已停止生成）"
     if error:
@@ -3940,7 +3942,8 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     nudged = False
     try:
         for step in range(max_steps + 2):
-            out = await run_model(messages, tools if max_steps > 0 else None, stream=False, session_id=session_id, patient=True)
+            # 和聊天一样边写边回：这个中转在一次性返回时会把工具调用弄丢，只剩一句「我去看看」
+            out = await run_model(messages, tools if max_steps > 0 else None, stream=True, session_id=session_id, patient=True)
             calls = out.get("tool_calls") or []
             if not calls:
                 answer = str(out.get("text") or "").strip()

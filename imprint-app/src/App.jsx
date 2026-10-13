@@ -6,20 +6,22 @@ import { useRoute } from './lib/router.js';
 import Home from './pages/Home.jsx';
 import ComingSoon from './pages/ComingSoon.jsx';
 import TabBar, { TAB_PATHS } from './components/TabBar.jsx';
-import Notes from './pages/Notes.jsx';
-import Chat from './pages/Chat.jsx';
-import Room from './pages/Room.jsx';
-import ChatList from './pages/ChatList.jsx';
-import Spark from './pages/Spark.jsx';
-import Approvals from './pages/Approvals.jsx';
-import Piggy from './pages/Piggy.jsx';
-import Together from './pages/Together.jsx';
 import MiniPlayer from './components/together/MiniPlayer.jsx';
-import Tide from './pages/Tide.jsx';
-import Settings from './pages/Settings.jsx';
 import { Grain } from './design/paper.jsx';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { api, MOCK, saveToken, savedToken } from './lib/api.js';
+
+// 首页之外的页面点进去才下载，打开 App 时少解析一大块代码
+const Notes = lazy(() => import('./pages/Notes.jsx'));
+const Chat = lazy(() => import('./pages/Chat.jsx'));
+const Room = lazy(() => import('./pages/Room.jsx'));
+const ChatList = lazy(() => import('./pages/ChatList.jsx'));
+const Spark = lazy(() => import('./pages/Spark.jsx'));
+const Approvals = lazy(() => import('./pages/Approvals.jsx'));
+const Piggy = lazy(() => import('./pages/Piggy.jsx'));
+const Together = lazy(() => import('./pages/Together.jsx'));
+const Tide = lazy(() => import('./pages/Tide.jsx'));
+const Settings = lazy(() => import('./pages/Settings.jsx'));
 
 const ROUTES = {
   '/': Home,
@@ -75,7 +77,9 @@ export default function App() {
   return (
     <>
       <div key={path} className="m-turn">
-        {Page ? <Page query={query} /> : <ComingSoon title={TITLES[path] || ['还没做好', 'soon']} />}
+        <Suspense fallback={<div className="page-wait" aria-label="加载中" />}>
+          {Page ? <Page query={query} /> : <ComingSoon title={TITLES[path] || ['还没做好', 'soon']} />}
+        </Suspense>
       </div>
       {TAB_PATHS.includes(path) && <TabBar path={path} />}
       <MiniPlayer path={path} tabbar={TAB_PATHS.includes(path)} />

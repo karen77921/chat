@@ -175,3 +175,31 @@
 [data-theme='cream'] .sheet-bg { display: none; }
 /* iOS 上可滚动的面板偶尔只画第一屏的底：内容本身也铺一层，滚到哪都有底 */
 [data-theme='cream'] .sheet-in { background: #fbf8f4; }
+
+/* ---- 流畅优先 ----
+ * 模糊（backdrop-filter）在 iPhone 上很吃性能：每张卡片、每个聊天气泡都要实时把后面糊一遍，一滚动就卡。
+ * 底是一片安静的渐变，糊不糊看不出差别，所以内容上的玻璃都换成更实一点的奶油色，
+ * 只给浮在最上面的几样（底部导航、聊天顶栏和输入框、弹出面板的遮罩）留着模糊。 */
+[data-theme='cream'] .card,
+[data-theme='cream'] .glass,
+[data-theme='cream'] .sheet,
+[data-theme='cream'] .pill,
+[data-theme='cream'] .rbtn,
+[data-theme='cream'] .chip,
+[data-theme='cream'] .gbtn,
+[data-theme='cream'] .cm-term-b,
+[data-theme='cream'] .drop > [style*='clip-path'],
+[data-theme='cream'] .drop2 > [style*='clip-path'] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+[data-theme='cream'] .card,
+[data-theme='cream'] .glass { background: rgba(255, 251, 247, 0.8); }
+[data-theme='cream'] .pill,
+[data-theme='cream'] .rbtn,
+[data-theme='cream'] .chip,
+[data-theme='cream'] .gbtn { background: rgba(255, 252, 248, 0.82); }
+[data-theme='cream'] .chip.on { background: rgba(240, 214, 209, 0.95); }
+[data-theme='cream'] .cl-row.card { background: #fdf9f5; }
+/* 叠很多层的页面里，屏幕外的卡片先不画 */
+[data-theme='cream'] .ch-list > div, [data-theme='cream'] .hm-list, [data-theme='cream'] .pg-list, [data-theme='cream'] .ap-list { content-visibility: auto; contain-intrinsic-size: auto 80px; }

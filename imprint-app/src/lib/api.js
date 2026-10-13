@@ -330,7 +330,9 @@ async function compat(path, opts) {
   if (method === 'PUT' && p === '/api/settings/avatar') return loop('imprint/settings/avatar', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/home') {
     const [notes, activity, settings, tide, listen, watch] = await Promise.all([
-      loop('imprint/notes'), loop('imprint/activity'), loop('imprint/settings'), loop('tide/pulse').catch(() => null),
+      loop('imprint/notes'), loop('imprint/activity'), loop('imprint/settings'),
+      // 他的心情要去问记忆系统，有时候很慢：最多等 2.5 秒，等不到首页先出来
+      Promise.race([loop('tide/pulse').catch(() => null), new Promise((ok) => setTimeout(() => ok(null), 2500))]),
       loop('imprint/together/listen').catch(() => null), loop('imprint/together/watch').catch(() => null),
     ]);
     const track = listen?.track;

@@ -229,3 +229,6 @@ mark { background: linear-gradient(transparent 55%, color-mix(in srgb, var(--pri
   .reveal { transform: none; }
   .m-breeze, .m-breeze-tape { animation: none !important; }
 }
+
+/* 页面代码还在下载时的占位：只占住高度，不闪 */
+.page-wait { min-height: 100vh; }

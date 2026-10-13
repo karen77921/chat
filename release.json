@@ -1,18 +1,18 @@
 {
- "rev": "710aa154540c59a39f9d7faa3277c299c514fdec",
+ "rev": "4c8ab68ddf40a3ce62c1bffe3b217864215e642d",
  "backend": {
   "api_loop.py": "895157160c4bb5bd4241ef3e8f3081ade671c295b48561651758cb068ee2c0d7",
   "imprint_store.py": "e899fb6dcfe9aeb4ac60cf62a9cf6fb2226f9742d5eb431699acbb2d9c7f47d7"
  },
  "dist": {
+  "assets/index-DiBJ9eTX.js": "99798338d382cecbd8ce4ebc49e096de9841f24da6375d034fddba2bdae0ca6e",
   "assets/index-KN2K_d5Y.css": "4b513d8a03d6dc9074c7470265a38c30312850fd6f19101f8f65c29740f48550",
-  "assets/index-h6x-3fpM.js": "ac1ca71a2f2512e8144c8a4287844d8b37f1d775483825b460775916b5734c22",
   "assets/mochi-her-Ad_7i-uI.png": "0a3b2370e8df313df0cb7a37a1337ad917d9ef93c7defbf20d5acd5a9b8874e3",
   "assets/mochi-him-CTN2MkxZ.png": "cb316cd430ab0763287ea5ff93a7225160b92493185c6b1c219cb70e847958c6",
   "assets/pingfang-tc-regular-hSesd6OW.woff2": "450776b87c26d7893bfb42852174afb17549513137ad0855801024da1d72c0b3",
-  "index.html": "adf27a1e20d3ee672cd78d7244a046fce35faac62c419b04bd1e66f61750cd80"
+  "index.html": "26335a87d0a49dc9e587ddc10abf14c5e31083c9099ef5f450f9beabc5f5c0bf"
  },
- "entry_js": "assets/index-h6x-3fpM.js",
+ "entry_js": "assets/index-DiBJ9eTX.js",
  "known": [
   "0163b00010bea6c1c5d26ccfb4418abe4dcff9f290689b3f78098901b659649b",
   "018a055e4781ae1fc5686632f29ea8dd73ae79986fd8277ab74fe70c6b6c92e8",

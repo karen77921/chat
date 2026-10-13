@@ -7,7 +7,7 @@
 .nt-head h1 span:last-child { font-size: 17px; letter-spacing: 0.16em; font-weight: 400; }
 
 .nt-tools { display: flex; gap: 10px; align-items: center; padding: 16px var(--pad) 0; }
-.nt-search { flex: 1; color: var(--muted); padding-right: 10px; }
+.nt-search { flex: 1; min-width: 0; color: var(--muted); padding-right: 10px; }
 .nt-search.on { background: rgba(255, 255, 255, 0.85); border-color: color-mix(in srgb, var(--print-c) 40%, transparent); color: var(--accent); }
 .nt-search input { flex: 1; min-width: 0; height: 42px; border: 0; outline: 0; background: none; font-size: 13.5px; letter-spacing: 0.04em; color: var(--ink); -webkit-appearance: none; }
 .nt-search input::placeholder { color: var(--muted); font-size: 12.5px; }

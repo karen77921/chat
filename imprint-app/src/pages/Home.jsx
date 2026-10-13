@@ -10,6 +10,8 @@ import { nowOf } from '../lib/home.js';
 import { Band } from '../design/paper.jsx';
 import Hero, { BrandMark } from '../components/home/Hero.jsx';
 import { SecHead, Weather, HisNow, TodayNote, Together, Lately, Contents } from '../components/home/Sections.jsx';
+import HomeCream from '../components/home/HomeCream.jsx';
+import { useTheme } from '../theme/theme.js';
 import '../components/home/home.css';
 
 function Reveal({ children }) {
@@ -19,6 +21,7 @@ function Reveal({ children }) {
 
 export default function Home() {
   const { data, setData, reload } = useLoad('/api/home');
+  const [theme] = useTheme();
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 60000);
@@ -41,6 +44,10 @@ export default function Home() {
       .then(() => setData((x) => ({ ...x, activity: x.activity.map((a) => ({ ...a, unread: 0 })) })))
       .catch(() => {});
   };
+
+  if (theme === 'cream') {
+    return <HomeCream data={data} d={d} now={now} unread={unread} onReadAll={readAll} latelyRef={latelyRef} />;
+  }
 
   return (
     <main className="home">

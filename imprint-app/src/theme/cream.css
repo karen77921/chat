@@ -111,11 +111,17 @@
   border: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow: 0 16px 40px rgba(120, 100, 90, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
-[data-theme='cream'] .tab.on { color: var(--accent); }
-[data-theme='cream'] .tab .mc {
-  background: linear-gradient(150deg, #f4dcd6, #dcb2ab 55%, #c3918a);
-  box-shadow: 0 10px 22px rgba(185, 128, 121, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+/* 五个入口一样高，不再有凸起的圆钮；选中项是一块柔柔浮起的乳白小垫子 */
+[data-theme='cream'] .tabbar { height: 72px; border-radius: 36px; padding: 0 8px; }
+[data-theme='cream'] .tab { width: 62px; min-height: 58px; border-radius: 26px; gap: 4px; letter-spacing: 0.1em; transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease; }
+[data-theme='cream'] .tab.on {
+  color: #b0716a;
+  background: rgba(255, 253, 249, 0.86);
+  box-shadow: 0 6px 16px rgba(185, 128, 121, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
+[data-theme='cream'] .tab.mid { transform: none; }
+[data-theme='cream'] .tab .mc { width: auto; height: auto; background: none; box-shadow: none; color: inherit; border-radius: 0; }
+[data-theme='cream'] .tab .mc svg { width: 22px; height: 22px; }
 
 /* ---- 底部弹出的纸 → 玻璃面板 ---- */
 [data-theme='cream'] .sheet-mask { background: rgba(120, 100, 90, 0.18); }
@@ -141,3 +147,19 @@
 [data-theme='cream'] .deco { display: none; }
 /* 中文手写 → 现代宋体 */
 [data-theme='cream'] .hand-cn { font-family: 'Songti SC', 'STSong', 'Noto Serif SC', 'Source Han Serif SC', serif; font-weight: 400; letter-spacing: 0.04em; }
+
+/* ---- 各页标题：杂志式大衬线 + 小字中文（首页之外的页面都是 <h1><span.hand>英文</span><span>中文</span></h1>） ---- */
+[data-theme='cream'] h1:has(> .hand) { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+[data-theme='cream'] h1 > .hand {
+  font-family: var(--serif); font-style: normal; font-weight: 400; font-size: 46px; line-height: 0.95;
+  letter-spacing: -0.01em; color: #4e4442; text-transform: capitalize;
+}
+[data-theme='cream'] h1 > .hand + span { font-size: 12.5px; font-weight: 400; letter-spacing: 0.32em; color: var(--muted); }
+
+/* 聊天列表：行底下藏着滑动按钮，玻璃太透会透出来，这里把行做得更实一点 */
+[data-theme='cream'] .cl-row.card { background: #fdf9f5; }
+[data-theme='cream'] .cl-swipe, [data-theme='cream'] .cl-acts { border-radius: var(--r-md); }
+[data-theme='cream'] .cl-acts { top: 1px; bottom: 1px; right: 1px; }
+[data-theme='cream'] .cl-acts button { background: #d9aea8; }
+[data-theme='cream'] .cl-acts button:nth-child(2) { background: #c4918a; }
+[data-theme='cream'] .cl-acts .danger { background: #a9746d; }

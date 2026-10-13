@@ -226,7 +226,8 @@ async function compat(path, opts) {
   const query = path.slice(p.length);
   let m;
   if (method === 'GET' && p === '/api/chats') {
-    const [x, settings] = await Promise.all([request(`${RELAY}/app/sessions`), loop('imprint/settings').catch(() => ({}))]);
+    // 他的名字只是锦上添花：后端慢的时候最多等 3 秒，聊天列表不能被它拖住
+    const [x, settings] = await Promise.all([request(`${RELAY}/app/sessions`), Promise.race([loop('imprint/settings', { timeout: 3000 }).catch(() => ({})), new Promise((ok) => setTimeout(() => ok({}), 3000))])]);
     return chatList(x.sessions, settings.contact?.himName || '他');
   }
   if (method === 'POST' && p === '/api/chats') {

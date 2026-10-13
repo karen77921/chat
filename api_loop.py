@@ -139,6 +139,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "model_chain_timeout_seconds": 90,   # all configured fallbacks together
     "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
     "ombre_recall_timeout_seconds": 8,   # automatic memory recall before a reply; skipped if slower
+    "wake_always_message": True,         # every wake ends with a chat message to her about what he did
     "followup_delay_seconds": 60,        # ⟦稍后继续⟧: how soon he comes back to finish what he promised
     "vision": "auto",           # auto | on | off — send images as image_url parts
     "backup_enabled": True,
@@ -3934,6 +3935,13 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
           "不要因为获得机会就被迫说话，也不要暴露概率、调度器或这段内部提示。"
           "如果沉默，最终只输出 ⟦SILENT⟧；如果要联系，最终以 ⟦MESSAGE⟧ 开头，后面直接写要发送的自然消息。"
         )
+    # 她希望他每次醒来，不管做了什么都在聊天里说一声（已经汇报过的「接着做」除外）
+    must_tell = cfg_bool("wake_always_message") and not note.startswith(FOLLOWUP_NOTE)
+    if must_tell:
+        prompt += (
+            "\n她希望你每次醒来都在聊天里告诉她：无论这次做了什么（在花园干活、看了通知、更新小屋、写了心潮），"
+            "还是只是醒来想她了，最后都要以 ⟦MESSAGE⟧ 开头，用中文像发微信一样跟她说一两句。这一次不要输出 ⟦SILENT⟧。"
+        )
     messages, _ = await build_messages(prompt, [], before_id=None, session_id=session_id, use_context=True, with_images=False)
     turn = Turn(session_id, dry=False)
     # 自己醒来的时候也把花园的工具交给他：后台运行没人在等，不怕慢
@@ -3947,12 +3955,15 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
             calls = out.get("tool_calls") or []
             if not calls:
                 answer = str(out.get("text") or "").strip()
-                if "⟦SILENT⟧" in answer or "⟦MESSAGE⟧" in answer or nudged:
+                if "⟦MESSAGE⟧" in answer or nudged or ("⟦SILENT⟧" in answer and not must_tell):
                     break
                 # 没写结论标记（常见是自言自语「我先去看看…」就停了）：提醒一次，别把内心独白发给她
                 nudged = True
                 messages.append({"role": "assistant", "content": answer or "（想了一下）"})
-                messages.append({"role": "user", "content": "（内部提示：还要用工具就直接调用；做完了就只输出 ⟦SILENT⟧，或者以 ⟦MESSAGE⟧ 开头写要发给她的话。）"})
+                messages.append({"role": "user", "content": (
+                    "（内部提示：还要用工具就直接调用；做完了就以 ⟦MESSAGE⟧ 开头，用中文跟她说说你这次做了什么。）"
+                    if must_tell else
+                    "（内部提示：还要用工具就直接调用；做完了就只输出 ⟦SILENT⟧，或者以 ⟦MESSAGE⟧ 开头写要发给她的话。）")})
                 continue
             messages.append({"role": "assistant", "content": out.get("text") or None, "tool_calls": [
                 {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["arguments"]}}

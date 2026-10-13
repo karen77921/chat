@@ -1,18 +1,18 @@
 {
- "rev": "2c76eb38e0b72c612807cf8342e6fbd4ca89fa19",
+ "rev": "237d5e9bc514ee30ed5c832f75a19bf09171e4e7",
  "backend": {
   "api_loop.py": "83d0590182478ef1bc5bdae3e4d2d8e5e0c53799385a2871bdb7b14a0e7a9bed",
   "imprint_store.py": "ef401a31509bded0d37c9bf99004b23eb19ac764612df359857ee0c0618686f6"
  },
  "dist": {
-  "assets/index-BUBMLL7_.js": "3bd976267f01bea32a5fc83f5dcd89d0de81fffd76443b763b3571e299de753e",
-  "assets/index-Cxc-TLmT.css": "521d68badcb4b9118b69ffbdfe3e564cf8c1c3c0a12e70d42b6f66a57495c04b",
+  "assets/index-0X87QX8o.js": "3bd976267f01bea32a5fc83f5dcd89d0de81fffd76443b763b3571e299de753e",
+  "assets/index-C26p3319.css": "e89ea5629a9dd8a9f7ef7f6811ffa4dc64bf8986903d64328c2b145714bc04f0",
   "assets/mochi-her-Ad_7i-uI.png": "0a3b2370e8df313df0cb7a37a1337ad917d9ef93c7defbf20d5acd5a9b8874e3",
   "assets/mochi-him-CTN2MkxZ.png": "cb316cd430ab0763287ea5ff93a7225160b92493185c6b1c219cb70e847958c6",
   "assets/pingfang-tc-regular-hSesd6OW.woff2": "450776b87c26d7893bfb42852174afb17549513137ad0855801024da1d72c0b3",
-  "index.html": "b2c6db2d86c182cdfcfdfe45ea8e7fa6583f6e3917cfc085bdeb8abe7ce5ced5"
+  "index.html": "03410bffcb940861f8c18ff4d736cc87aa06c5fc377c2cc00903297e2b5d745e"
  },
- "entry_js": "assets/index-BUBMLL7_.js",
+ "entry_js": "assets/index-0X87QX8o.js",
  "known": [
   "0163b00010bea6c1c5d26ccfb4418abe4dcff9f290689b3f78098901b659649b",
   "018a055e4781ae1fc5686632f29ea8dd73ae79986fd8277ab74fe70c6b6c92e8",

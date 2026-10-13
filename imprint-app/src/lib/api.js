@@ -48,24 +48,30 @@ export function authedImageUrl(url) {
     const headers = {};
     const value = token();
     if (value) headers.Authorization = `Bearer ${value}`;
-    // 中继里的图有两种写法（/relay/uploads/… 和 /uploads/…），哪个能取到用哪个；
-    // 只认真正的图片，免得取回一张网页当成图片，显示成一片空白
+    // 中继里的图有两种写法（/relay/uploads/… 和 /uploads/…）；头像这种不挂在聊天消息上的图，中转可能根本不给手机取，
+    // 最后就请后端用自己的钥匙取回来。每一路取回来都先真的当图片打开一次，打不开就换下一路——
+    // 免得把一张网页、一段报错当成图片，显示成问号。
     const other = clean.includes('/relay/uploads/') ? clean.replace('/relay/uploads/', '/uploads/') : clean.replace('/uploads/', '/relay/uploads/');
-    const tryOne = (target) => fetch(target, { headers }).then((res) => {
-      const type = res.headers.get('content-type') || '';
-      if (!res.ok || (type && !type.startsWith('image/') && !type.startsWith('application/octet-stream'))) throw new Error(`HTTP ${res.status} ${type}`);
+    const name = clean.split('?')[0].split('/').pop();
+    const direct = (target) => () => fetch(target, { headers }).then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.blob();
     });
-    // 最后一招：让后端用自己的钥匙取回来（头像这种不挂在聊天消息上的图，中转可能不给手机直接取）
-    const viaBackend = () => {
-      const name = clean.split('?')[0].split('/').pop();
-      return loop(`media/${encodeURIComponent(name)}`).then(({ type, data }) => {
-        const bytes = Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
-        return new Blob([bytes], { type });
-      });
-    };
-    blobUrls.set(clean, tryOne(clean).catch(() => tryOne(other)).catch(viaBackend)
-      .then((blob) => URL.createObjectURL(blob)).catch((err) => { blobUrls.delete(clean); throw err; }));
+    const viaBackend = () => loop(`media/${encodeURIComponent(name)}`).then(({ type, data }) => {
+      const bytes = Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
+      return new Blob([bytes], { type });
+    });
+    const opens = (blob) => new Promise((ok, fail) => {
+      const objectUrl = URL.createObjectURL(blob);
+      if (typeof Image === 'undefined') { ok(objectUrl); return; }
+      const img = new Image();
+      img.onload = () => ok(objectUrl);
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); fail(new Error('not an image')); };
+      img.src = objectUrl;
+    });
+    const attempts = [direct(clean), direct(other), viaBackend];
+    const run = (i) => attempts[i]().then(opens).catch((err) => (i + 1 < attempts.length ? run(i + 1) : Promise.reject(err)));
+    blobUrls.set(clean, run(0).catch((err) => { blobUrls.delete(clean); throw err; }));
   }
   return blobUrls.get(clean);
 }

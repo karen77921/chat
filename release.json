@@ -1,18 +1,18 @@
 {
- "rev": "891cdf8f840744ada1919d48be5c62bd2994e5b6",
+ "rev": "ab1052690b8f12281bb2274f38b3d53cc2620016",
  "backend": {
-  "api_loop.py": "cb5f30c0ccd1e45af8e912305e14635be757945fd6dc54fe3d4889c201675070",
+  "api_loop.py": "83d0590182478ef1bc5bdae3e4d2d8e5e0c53799385a2871bdb7b14a0e7a9bed",
   "imprint_store.py": "ef401a31509bded0d37c9bf99004b23eb19ac764612df359857ee0c0618686f6"
  },
  "dist": {
-  "assets/index-CyrzwbJx.css": "f149dd9693717575f3b0725318c6ee0200a50ecddadff6f6a14de978d46342bd",
-  "assets/index-gT_M6zWj.js": "ac34a8182ecdf7f2385fa4db150e081ec146f341b109c112d0dae63b10310d66",
+  "assets/index-C62MvBWJ.css": "df81bda1d2382c66762dbe839c2a05fb0310b7ca451276cd881469263bf696c5",
+  "assets/index-Dek0m9pm.js": "3bd976267f01bea32a5fc83f5dcd89d0de81fffd76443b763b3571e299de753e",
   "assets/mochi-her-Ad_7i-uI.png": "0a3b2370e8df313df0cb7a37a1337ad917d9ef93c7defbf20d5acd5a9b8874e3",
   "assets/mochi-him-CTN2MkxZ.png": "cb316cd430ab0763287ea5ff93a7225160b92493185c6b1c219cb70e847958c6",
   "assets/pingfang-tc-regular-hSesd6OW.woff2": "450776b87c26d7893bfb42852174afb17549513137ad0855801024da1d72c0b3",
-  "index.html": "54f8d51d201c3a885dbe67ed2dd2ddeb5178e509c79165df8a8fd87123d6ea70"
+  "index.html": "cd2ed891ca84493dc2abc4b9ab49058404e099b33783017d38d8830ae5d3fcb8"
  },
- "entry_js": "assets/index-gT_M6zWj.js",
+ "entry_js": "assets/index-Dek0m9pm.js",
  "known": [
   "0163b00010bea6c1c5d26ccfb4418abe4dcff9f290689b3f78098901b659649b",
   "018a055e4781ae1fc5686632f29ea8dd73ae79986fd8277ab74fe70c6b6c92e8",
@@ -65,6 +65,7 @@
   "7d059ac8c2d672e6da7902ebcd9c963818ce5cf6d0906bb176171a1064e2c208",
   "7d20a8823bce7ebe7b5e7b037f25e9f2dbe166e2ba7482f5492031ad08d437e6",
   "8184be2676ed5757ad81280b1d0319789e9df1ead0b56b58f18af4563cff9a52",
+  "83d0590182478ef1bc5bdae3e4d2d8e5e0c53799385a2871bdb7b14a0e7a9bed",
   "8771b8c6c34000a6a63f6f78c894a0fe485ab0e17d7939c7857f21990066e717",
   "87d24f7fe285dc68fda1e76b168fb4dc293f6b25bfbc2584f09527687ec1e465",
   "8c1b8dc34fcb08490c91f264fbfa55cd3d79cbf120bfb8ef11a7fc71482d70e4",

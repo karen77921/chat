@@ -310,6 +310,7 @@ function Features() {
         </Sheet>
       )}
       <GardenWake />
+      <BackupExport />
     </>
   );
 }
@@ -369,6 +370,64 @@ function GardenWake() {
                 {showLog && <pre className="st-glog">{data.log.join('\n')}</pre>}
               </>
             )}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- 加密备份：存一份到自己手机/电脑上 ---------- */
+function BackupExport() {
+  const { data } = useLoad('/api/backup/export/info');
+  const [pass, setPass] = useState('');
+  const [again, setAgain] = useState('');
+  const [withUploads, setWithUploads] = useState(true);
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  if (!data || data.available === false) return null;
+  const ready = pass.length >= 8 && pass === again && !busy;
+  const run = async () => {
+    setNote('');
+    try {
+      setBusy('正在打包加密…');
+      const job = await api('/api/backup/export', { method: 'POST', body: { passphrase: pass, include_uploads: withUploads && data.uploads_available } });
+      const parts = [];
+      for (let i = 0; i < job.chunks; i += 1) {
+        setBusy(`正在下载 ${i + 1}/${job.chunks}…`);
+        const { data: b64 } = await api(`/api/backup/export/${job.id}/${i}`);
+        parts.push(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
+      }
+      api(`/api/backup/export/${job.id}`, { method: 'DELETE' }).catch(() => {});
+      const file = new File(parts, job.name, { type: 'application/octet-stream' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: job.name }).catch(() => {});
+      } else {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = url; a.download = job.name; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+      setPass(''); setAgain('');
+      setNote(`好了：${job.name}（${(job.size / 1024 / 1024).toFixed(1)} MB）。存到 iCloud、网盘或电脑上，密码一定要记住，忘了就打不开。`);
+    } catch (e) { setNote(e?.message || '这次没做成，过一会儿再试'); }
+    setBusy('');
+  };
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>backup</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>存一份到你身边</h2><span className="go">加密下载</span></div>
+      <div className="card st-list st-garden">
+        <p className="st-tip">把聊天、记忆、小屋、设置（包括 API 密钥）打包，用你设的密码加密，下载到手机或电脑。服务器坏了也能用它恢复。</p>
+        {!data.openssl ? <p className="st-tip">服务器上没有 openssl，暂时做不了。</p> : (
+          <>
+            <label className="pill nc-in st-gtoken"><span className="sr">备份密码</span><input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="设一个密码（至少 8 位）" autoComplete="new-password" /></label>
+            <label className="pill nc-in st-gtoken"><span className="sr">再输一次</span><input type="password" value={again} onChange={(e) => setAgain(e.target.value)} placeholder="再输一次" autoComplete="new-password" /></label>
+            {data.uploads_available && (
+              <label className="st-tip st-bk-check"><input type="checkbox" checked={withUploads} onChange={(e) => setWithUploads(e.target.checked)} /> 连照片和文件一起（约 {data.uploads_mb} MB）</label>
+            )}
+            {again && pass !== again && <p className="st-tip">两次密码不一样</p>}
+            <div className="st-gacts"><button type="button" className="mini-btn" disabled={!ready} onClick={run}>{busy || '做一份加密备份'}</button></div>
+            {note && <p className="st-tip st-gnote" role="status">{note}</p>}
           </>
         )}
       </div>

@@ -294,6 +294,11 @@ async function compat(path, opts) {
     return loop('mcp', { method: 'POST', body: { ...server, enabled: Boolean(opts.body?.on) } });
   }
   if (method === 'GET' && p === '/api/garden') return loop('garden/status');
+  if (method === 'GET' && p === '/api/backup/export/info') return loop('backup/export/info');
+  if (method === 'POST' && p === '/api/backup/export') return loop('backup/export', { ...opts, timeout: 10 * 60 * 1000 });
+  if ((method === 'GET' || method === 'DELETE') && (m = /^\/api\/backup\/export\/([0-9a-f]{16})(?:\/(\d+))?$/.exec(p))) {
+    return loop(`backup/export/${m[1]}${m[2] ? `/${m[2]}` : ''}`, { ...opts, timeout: 120000 });
+  }
   if (method === 'POST' && (m = /^\/api\/garden\/(token|check|start|stop)$/.exec(p))) return loop(`garden/${m[1]}`, { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/settings/console') return loop('imprint/usage');
   if (method === 'GET' && p === '/api/logs/cache') return loop(`imprint/usage/cache${query}`);

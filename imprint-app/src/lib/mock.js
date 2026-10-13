@@ -464,6 +464,7 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/settings/console': return { available: true, now: NOW, today: { tokens: 184302 }, month: { tokens: 4860000, cost: 63.2, currency: '¥' }, hitRate: 0.72, daily: [52, 61, 58, 70, 66, 74, 69, 81, 77, 88, 84] };
     case 'GET /api/features': return { available: true, features, mcps };
     case 'GET /api/garden': return garden;
+    case 'GET /api/backup/export/info': return { openssl: true, uploads_available: true, uploads_mb: 182.4 };
     case 'POST /api/garden/token': garden.configured = true; return garden;
     case 'POST /api/garden/check': await sleep(600); return { ok: true, code: 0, output: 'Garden check ok' };
     case 'POST /api/garden/start': await sleep(600); garden.state = 'active'; return garden;

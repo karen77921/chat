@@ -4494,6 +4494,94 @@ async def loop_backup_now():
         raise HTTPException(status_code=500, detail=f"backup failed: {type(exc).__name__}: {exc}"[:600]) from exc
 
 
+# 加密备份下载：把一份最新快照用她自己设的密码加密，分块传到她手机/电脑上，VPS 坏了也还有一份
+EXPORT_DIR = LOOP_CACHE_DIR / "exports"
+EXPORT_CHUNK = 2 * 1024 * 1024
+EXPORT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def upload_dir_size() -> int:
+    if not RELAY_UPLOAD_DIR or not Path(RELAY_UPLOAD_DIR).is_dir():
+        return -1
+    return sum(f.stat().st_size for f in Path(RELAY_UPLOAD_DIR).rglob("*") if f.is_file())
+
+
+def build_export(passphrase: str, include_uploads: bool) -> dict[str, Any]:
+    import subprocess
+    import tarfile
+    if not shutil.which("openssl"):
+        raise RuntimeError("服务器上没有 openssl，没法加密")
+    snapshot = Path(create_backup()["path"])
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        os.chmod(EXPORT_DIR, 0o700)
+    for old in EXPORT_DIR.iterdir():  # 只留这一份
+        with contextlib.suppress(OSError):
+            old.unlink()
+    export_id = secrets.token_hex(8)
+    stamp = dt.datetime.now(context_zone()).strftime("%Y%m%d-%H%M")
+    plain = EXPORT_DIR / f"{export_id}.tar.gz"
+    target = EXPORT_DIR / f"{export_id}.enc"
+    try:
+        with tarfile.open(plain, "w:gz") as tar:
+            tar.add(str(snapshot), arcname=f"imprint-backup-{stamp}")
+            if include_uploads and upload_dir_size() >= 0:
+                tar.add(RELAY_UPLOAD_DIR, arcname=f"imprint-backup-{stamp}/uploads")
+        os.chmod(plain, 0o600)
+        done = subprocess.run(
+            ["openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-iter", "200000", "-salt",
+             "-in", str(plain), "-out", str(target), "-pass", "env:IMPRINT_BACKUP_PASS"],
+            env={**os.environ, "IMPRINT_BACKUP_PASS": passphrase}, capture_output=True, text=True, timeout=600,
+        )
+        if done.returncode != 0:
+            raise RuntimeError(f"加密失败：{done.stderr.strip()[:200]}")
+        os.chmod(target, 0o600)
+    finally:
+        with contextlib.suppress(OSError):
+            plain.unlink()
+    size = target.stat().st_size
+    return {"id": export_id, "name": f"imprint-backup-{stamp}.tar.gz.enc", "size": size,
+            "chunk": EXPORT_CHUNK, "chunks": max(1, -(-size // EXPORT_CHUNK))}
+
+
+@app.get("/loop/backup/export/info")
+async def loop_backup_export_info():
+    uploads = await asyncio.to_thread(upload_dir_size)
+    return {"openssl": bool(shutil.which("openssl")), "uploads_available": uploads >= 0,
+            "uploads_mb": round(max(uploads, 0) / 1024 / 1024, 1)}
+
+
+@app.post("/loop/backup/export")
+async def loop_backup_export(request: Request):
+    body = await request.json()
+    passphrase = str(body.get("passphrase") or "")
+    if len(passphrase) < 8:
+        raise HTTPException(status_code=400, detail="密码至少 8 位")
+    try:
+        return await asyncio.to_thread(build_export, passphrase, bool(body.get("include_uploads")))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"备份没做成：{exc}"[:400]) from exc
+
+
+@app.get("/loop/backup/export/{export_id}/{index}")
+async def loop_backup_export_chunk(export_id: str, index: int):
+    path = EXPORT_DIR / f"{export_id}.enc"
+    if not EXPORT_ID_RE.match(export_id) or not path.is_file() or index < 0:
+        raise HTTPException(status_code=404, detail="这份备份已经不在了，重新做一份")
+    with path.open("rb") as f:
+        f.seek(index * EXPORT_CHUNK)
+        data = f.read(EXPORT_CHUNK)
+    return {"index": index, "data": base64.b64encode(data).decode()}
+
+
+@app.delete("/loop/backup/export/{export_id}")
+async def loop_backup_export_done(export_id: str):
+    if EXPORT_ID_RE.match(export_id):
+        with contextlib.suppress(OSError):
+            (EXPORT_DIR / f"{export_id}.enc").unlink()
+    return {"ok": True}
+
+
 @app.get("/loop/persona")
 async def loop_persona():
     return persona_public()

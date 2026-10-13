@@ -131,3 +131,4 @@
 .st-gwakes { font-size: 11px; color: var(--muted); line-height: 1.8; margin: 4px 0 8px; }
 .st-gwakes time { font-family: ui-monospace, Menlo, monospace; margin-right: 8px; }
 .st-glog { font-size: 10px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: var(--muted); max-height: 220px; overflow: auto; margin: 6px 0 0; }
+.st-bk-check { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }

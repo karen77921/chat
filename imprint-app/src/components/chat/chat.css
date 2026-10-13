@@ -210,3 +210,13 @@ svg.up { transform: rotate(180deg); }
 .ledger dl > div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; line-height: 1.5; border-bottom: 1px dashed var(--line); padding-bottom: 4px; }
 .ledger dt { color: var(--muted); flex: none; }
 .ledger dd { margin: 0; text-align: right; color: var(--ink); overflow-wrap: anywhere; }
+
+/* 快捷回复：他最新一条下面的三个下一步，点一下就发，铅笔是先改再发 */
+.ch-opts { display: grid; gap: 8px; margin: 4px 0 10px; justify-items: end; }
+.ch-opt { display: flex; align-items: stretch; max-width: 86%; border-radius: 20px; overflow: hidden; animation: ch-opt-in 0.35s ease-out both; }
+.ch-opt:nth-child(2) { animation-delay: 0.06s; }
+.ch-opt:nth-child(3) { animation-delay: 0.12s; }
+.ch-opt-send { flex: 1; min-width: 0; padding: 10px 6px 10px 15px; text-align: left; font-size: 14px; line-height: 1.5; color: var(--ink); }
+.ch-opt-edit { flex: none; width: 38px; display: grid; place-items: center; color: var(--muted); border-left: 1px solid rgba(120, 110, 104, 0.12); }
+.ch-opt:active { transform: scale(0.98); }
+@keyframes ch-opt-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }

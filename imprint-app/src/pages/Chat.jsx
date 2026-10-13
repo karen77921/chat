@@ -10,6 +10,7 @@ import Icon from '../design/icons.jsx';
 import { Cyanotype } from '../design/paper.jsx';
 import Sheet from '../design/Sheet.jsx';
 import { api, MOCK } from '../lib/api.js';
+import { useLoad } from '../lib/useLoad.js';
 import { useChat, replyState, hm, dayLabel, nameOf, memberOf } from '../lib/chat.js';
 import { useBeauty } from '../theme/theme.js';
 import Message from '../components/chat/Message.jsx';
@@ -48,6 +49,11 @@ export default function Chat({ query }) {
   const queued = items.filter((m) => m.from === 'me' && m.status === 'queued').length;
   const st = ok ? replyState(data.replying, now) : null;
   const lastMine = useMemo(() => [...items].reverse().find((m) => m.from === 'me'), [items]);
+  // 快捷回复只挂在最新一条上：他正在回、或者她已经接着说了，就不显示
+  const lastItem = items[items.length - 1];
+  const options = !st && !searching && lastItem?.from !== 'me' && lastItem?.replyOptions?.length ? lastItem.replyOptions : null;
+  const [draft, setDraft] = useState(null);
+  const pickOption = (text) => c.send({ type: 'text', text }).then(() => c.reply(), () => flash('没发出去，再点一次'));
 
   // 新消息进来滚到底
   // 停在最底下时，新消息、状态、字体晚加载导致内容变高，都自动贴底；往上翻看历史时不打扰
@@ -141,12 +147,22 @@ export default function Chat({ query }) {
             </div>
           );
         })}
+        {options && (
+          <div className="ch-opts" role="group" aria-label="快捷回复">
+            {options.map((o) => (
+              <div key={o} className="ch-opt glass">
+                <button type="button" className="ch-opt-send" onClick={() => pickOption(o)}>{o}</button>
+                <button type="button" className="ch-opt-edit" aria-label="先改一改再发" onClick={() => setDraft({ text: o, n: Date.now() })}><Icon name="pen" size={13} stroke={1.5} /></button>
+              </div>
+            ))}
+          </div>
+        )}
         {st && !searching && <StatusLine st={st} onPause={c.pause} onRetry={() => c.pause().then(c.reply)} />}
       </section>
 
       {!searching && (
         <InputBar toName={group ? data?.name : him?.name} nameOf={who} queued={queued} replying={!!st} quote={quote} editing={editing}
-          onCancelQuote={() => setQuote(null)} onCancelEdit={() => setEditing(null)}
+          onCancelQuote={() => setQuote(null)} onCancelEdit={() => setEditing(null)} draft={draft}
           onSend={send} onReply={doReply} onPause={c.pause} onUpload={c.upload} />
       )}
 
@@ -163,7 +179,7 @@ export default function Chat({ query }) {
       )}
       {ledger && <Ledger m={ledger} onClose={() => setLedger(null)} />}
       {viewer && <ImageViewer {...viewer} onClose={() => setViewer(null)} onGo={(i) => setViewer((v) => ({ ...v, i }))} />}
-      {detailsOpen && <ChatDetails data={data} upload={c.upload} onClose={() => setDetailsOpen(false)} onUpdated={c.reload} />}
+      {detailsOpen && <ChatDetails chatId={chatId} data={data} upload={c.upload} onClose={() => setDetailsOpen(false)} onUpdated={c.reload} />}
       {toast && <div className="ch-toast glass" role="status">{toast}</div>}
       {chooser && group && (
         <div className="ch-choose-layer">
@@ -200,7 +216,10 @@ function Ledger({ m, onClose }) {
   );
 }
 
-function ChatDetails({ data, upload, onClose, onUpdated }) {
+const OPTION_MODES = [['off', '关'], ['mixed', '两句话 + 一个动作'], ['lines', '三句话'], ['actions', '三个动作']];
+
+function ChatDetails({ chatId, data, upload, onClose, onUpdated }) {
+  const { data: optMode, setData: setOptMode } = useLoad(`/api/chats/${encodeURIComponent(chatId)}/reply-options`);
   const [beauty, setBeauty] = useBeauty();
   const [nickname, setNickname] = useState(data?.members?.[0]?.name || '');
   const [busy, setBusy] = useState(false);
@@ -269,6 +288,15 @@ function ChatDetails({ data, upload, onClose, onUpdated }) {
         <label className="ch-detail-field">气泡透明度 · {Math.round((beauty.alpha ?? 0.5) * 100)}%
           <input type="range" min="0.2" max="0.95" step="0.05" value={beauty.alpha ?? 0.5} disabled={busy} onChange={(e) => setBeauty({ ...beauty, alpha: Number(e.target.value) })} onPointerUp={() => saveBeauty(beauty)} />
         </label>
+        <div className="ch-detail-divider" />
+        <div className="ch-detail-label">快捷回复（亲密的时候用）</div>
+        <p className="ch-detail-hint">打开后，他每次说完会在下面给你三个可以一点就发的下一步。这些选项只给你看，不会留在聊天记录里，也不会被他再读到。只对这个聊天窗口生效。</p>
+        <div className="ch-detail-actions" role="radiogroup" aria-label="快捷回复">
+          {OPTION_MODES.map(([id, label]) => (
+            <button key={id} type="button" role="radio" aria-checked={(optMode?.mode || 'off') === id} className={`chip ${(optMode?.mode || 'off') === id ? 'on' : ''}`} disabled={busy || !optMode}
+              onClick={() => api(`/api/chats/${encodeURIComponent(chatId)}/reply-options`, { method: 'PUT', body: { mode: id } }).then(setOptMode, (e) => say(e?.message || '没保存上'))}>{label}</button>
+          ))}
+        </div>
         {notice && <p className="ch-detail-notice" role="status">{notice}</p>}
       </div>
     </Sheet>

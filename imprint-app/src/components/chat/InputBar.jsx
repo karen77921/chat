@@ -9,7 +9,7 @@ import { BUILTIN, Sticker } from './stickers.jsx';
 
 const MAX_IMAGES = 9;
 
-export default function InputBar({ queued, replying, quote, onCancelQuote, editing, onCancelEdit, onSend, onReply, onPause, onUpload, toName, nameOf }) {
+export default function InputBar({ queued, replying, quote, onCancelQuote, editing, onCancelEdit, draft, onSend, onReply, onPause, onUpload, toName, nameOf }) {
   const [text, setText] = useState('');
   const [panel, setPanel] = useState(null); // null | 'plus' | 'sticker'
   const [tab, setTab] = useState('builtin');
@@ -24,6 +24,8 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
 
   useEffect(() => { if (editing) { setText(editing.text || ''); ta.current?.focus(); } }, [editing]);
   useEffect(() => { if (quote) ta.current?.focus(); }, [quote]);
+  // 快捷回复「先改两个字」：把那一条放进输入框
+  useEffect(() => { if (draft) { setText(draft.text); ta.current?.focus(); } }, [draft]);
   // 输入框跟着字数长高
   useEffect(() => { const el = ta.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 120)}px`; }, [text]);
   useEffect(() => { if (!text) sendingText.current = false; }, [text]);

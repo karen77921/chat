@@ -1726,6 +1726,52 @@ def garden_action_minutes(actions: list[tuple[str, str]]) -> int:
     return 10
 
 
+# 快捷回复（亲密场景）：他在正文末尾写 ⟦opts{"items":[…]}⟧，这里剥掉，选项单独存，绝不进聊天记录
+OPTS_TAIL_RE = re.compile(r"\n?⟦opts(\{[^⟧]*?\})⟧\s*$")
+OPTS_ANY_RE = re.compile(r"\s*⟦opts[^⟧]*(?:⟧|$)")
+REPLY_OPTION_MODES = {
+    "mixed": "两条是她会说的话（她的口吻，短，像她平时打字那样），一条是走向（她能做的一个动作或一个转折，用“我”开头，比如“我伸手去关灯”）。",
+    "lines": "三条都是她会说的话（她的口吻，短，像她平时打字那样）。",
+    "actions": "三条都是走向：她能做的一个动作、一个转折、一个换地方，用“我”开头。",
+}
+
+
+def split_reply_options(text: str) -> tuple[str, list[str]]:
+    """Return the reply without the options marker, and the options (empty if missing or broken)."""
+    items: list[str] = []
+    found = OPTS_TAIL_RE.search(text)
+    if found:
+        with contextlib.suppress(ValueError, TypeError, AttributeError):
+            raw = json.loads(found.group(1)).get("items")
+            seen: set[str] = set()
+            for item in raw if isinstance(raw, list) else []:
+                value = re.sub(r"\s+", " ", str(item or "")).strip()[:60]
+                if value and value not in seen:
+                    seen.add(value)
+                    items.append(value)
+        text = text[:found.start()]
+    text = OPTS_ANY_RE.sub("", text).rstrip()  # 坏掉的、不在末尾的残片也一律剥掉，绝不露进气泡
+    return text, items[:3] if len(items) >= 2 else []
+
+
+def reply_options_mode(session_id: str) -> str:
+    modes = load_config().get("reply_options")
+    mode = str(modes.get(session_id) or "") if isinstance(modes, dict) else ""
+    return mode if mode in REPLY_OPTION_MODES else "off"
+
+
+def reply_options_prompt(mode: str) -> str:
+    return (
+        "\n\n【快捷回复】\n"
+        "正文停下之后，另起一行追加一个标记，给她三个可以直接点的下一步：\n"
+        '⟦opts{"items":["…","…","…"]}⟧\n'
+        f"- {REPLY_OPTION_MODES[mode]}\n"
+        "- 三条方向要真的不同：一条顺着你，一条别着你，一条拐弯。\n"
+        "- 每条不超过 30 字。全部是她的视角，不是你对她说的话。\n"
+        "- 不解释这个标记，正文里不提它。正文本身不给选项、不问她要什么，选项只在标记里。"
+    )
+
+
 FOLLOWUP_TOKEN_RE = re.compile(r"\s*⟦稍后继续(?:\s*(\d{1,3})\s*分钟)?\s*[:：]\s*([^⟧]{1,300})⟧\s*")
 FOLLOWUP_MARK = "【接着做】"  # wakes queued by older versions carry older wording after this mark
 FOLLOWUP_NOTE = ("【接着做】你之前跟她说过要去做这件事，现在到时间了：要用工具就去做、去看结果，"
@@ -1841,6 +1887,8 @@ async def build_messages(
             "读取能力不等于操作权限：若目标需要登录、密钥、付款、发送消息、提交表单或连接新的 MCP，"
             "必须如实说明还缺少哪项授权或连接，不能假装已经完成。"
         )
+    if session_id and reply_options_mode(session_id) != "off":
+        system_text += reply_options_prompt(reply_options_mode(session_id))
     system_text += (
         "\n\n【说到做到】\n"
         "需要查看或去做的事，能在这一轮用工具做完的，就先做完再回复她，不要只说「等我看看」然后停下。"
@@ -3554,6 +3602,7 @@ async def handle_turn(
         reply = (reply + "\n\n" if reply else "") + "（已停止生成）"
     if error:
         reply = (reply + "\n\n" if reply else "") + f"⚠️ {friendly_model_error(error)}"
+    reply, reply_options = split_reply_options(reply)
     follow = FOLLOWUP_TOKEN_RE.search(reply)
     if follow:
         reply = FOLLOWUP_TOKEN_RE.sub(" ", reply).strip()
@@ -3609,8 +3658,11 @@ async def handle_turn(
         with contextlib.suppress(Exception):
             mark_missed_wakes_informed()
     if dry:
-        return {"ok": not error, "reply": reply, "api": meta, "acts": turn.acts, "attachments": turn.attachments}
+        return {"ok": not error, "reply": reply, "reply_options": reply_options, "api": meta, "acts": turn.acts, "attachments": turn.attachments}
     payload: dict[str, Any] = {"api": meta, "api_session": session_id}
+    if reply_options and not error and not cancelled:
+        # 只给她看、给她点；聊天记录里只有正文。放在 api 里，因为中转会原样保存这一块
+        meta["reply_options"] = reply_options
     if reaction:
         payload["reaction"] = reaction
     if turn.attachments:
@@ -4107,7 +4159,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
         wake_audit(kind, "silent", f"{wake_id} {note}".strip() if "⟦SILENT⟧" in answer or not answer
                    else f"{wake_id} unmarked: {answer}"[:2000])
         return "silent"
-    text = answer.split("⟦MESSAGE⟧", 1)[1].strip()
+    text, wake_options = split_reply_options(answer.split("⟦MESSAGE⟧", 1)[1].strip())
     if not text:
         wake_audit(kind, "silent", f"{wake_id} empty message")
         return "silent"
@@ -4117,6 +4169,8 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
         "api_session": session_id,
         "api": {"runtime": "wake-2.0", "wake_kind": kind, "wake_id": wake_id, "proactive": True},
     }
+    if wake_options:
+        payload["api"]["reply_options"] = wake_options
     if turn.attachments:
         payload["attachments"] = turn.attachments
     ok, detail = await relay_out(payload)
@@ -4816,6 +4870,28 @@ async def loop_backup_export_done(export_id: str):
 @app.get("/loop/persona")
 async def loop_persona():
     return persona_public()
+
+
+@app.get("/loop/reply-options/{session_id}")
+async def loop_reply_options(session_id: str):
+    return {"mode": reply_options_mode(session_id)}
+
+
+@app.post("/loop/reply-options/{session_id}")
+async def loop_reply_options_set(session_id: str, request: Request):
+    body = await request.json()
+    mode = str(body.get("mode") or "off")
+    if mode not in REPLY_OPTION_MODES and mode != "off":
+        raise HTTPException(status_code=400, detail="mode must be off|mixed|lines|actions")
+    cfg = load_config()
+    modes = cfg.get("reply_options") if isinstance(cfg.get("reply_options"), dict) else {}
+    if mode == "off":
+        modes.pop(session_id, None)
+    else:
+        modes[session_id] = mode
+    cfg["reply_options"] = modes
+    save_config(cfg)
+    return {"mode": reply_options_mode(session_id)}
 
 
 @app.get("/loop/prompts")

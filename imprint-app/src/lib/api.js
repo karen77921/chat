@@ -114,6 +114,9 @@ export function relayMessage(raw) {
     thinking: raw?.meta?.thinking || '', edited: Boolean(raw?.meta?.edited_at),
   };
   if (!mine && (raw?.meta?.api?.usage || raw?.meta?.api?.timing)) out.api = raw.meta.api; // 长按能看这一轮的账本
+  // 快捷回复：只给她点，不进聊天记录；他这条被改过就不再给
+  const opts = raw?.meta?.api?.reply_options;
+  if (!mine && Array.isArray(opts) && opts.length >= 2 && !raw?.meta?.edited_at) out.replyOptions = opts.map(String).slice(0, 3);
   if (raw.kind === 'thinking') {
     // 思考过程只显示成一个可以折叠的「想了一下」，不当成一条正式回复
     out.type = 'thinking'; out.thinking = String(raw.text || '').trim(); out.text = ''; out.quote = undefined;
@@ -325,6 +328,9 @@ async function compat(path, opts) {
       listen: track ? { ...track, positionS: listen.positionS || 0, playing: listen.playing } : null,
       watch: nextWatch ? { title: nextWatch.title, order: 1, at: nextWatch.at || nextWatch.scheduledAt || nextWatch.createdAt, ticketNo: String(nextWatch.id || '').slice(0, 6) } : null,
       note: notes.items[0] ? { ...notes.items[0], total: notes.total } : null, activity: activity.items || [] };
+  }
+  if ((method === 'GET' || method === 'PUT') && (m = /^\/api\/chats\/([^/]+)\/reply-options$/.exec(p))) {
+    return loop(`reply-options/${m[1]}`, method === 'PUT' ? { ...opts, method: 'POST' } : undefined);
   }
   if (method === 'GET' && p === '/api/prompts') return loop('prompts');
   if (method === 'PUT' && p === '/api/prompts') return loop('prompts', { ...opts, method: 'POST' });

@@ -584,6 +584,25 @@ class ChatHistorySearchTest(unittest.TestCase):
                 self.assertIn("满分100%", api_loop.search_chat_history("0%"))
 
 
+class ReplyOptionsTest(unittest.TestCase):
+    def test_marker_is_always_stripped_and_options_need_two_distinct_items(self):
+        split = api_loop.split_reply_options
+        self.assertEqual(split('正文\n⟦opts{"items":["再来","我推开他","我去关灯"]}⟧'), ("正文", ["再来", "我推开他", "我去关灯"]))
+        self.assertEqual(split('正文\n⟦opts{"items":["a","a"," "]}⟧'), ("正文", []))
+        self.assertEqual(split('正文\n⟦opts{"items":["a",'), ("正文", []))
+        self.assertEqual(split("正文 ⟦opts{bad}⟧"), ("正文", []))
+        self.assertEqual(split("一 ⟦气泡⟧ 二"), ("一 ⟦气泡⟧ 二", []))
+
+    def test_instruction_only_for_windows_that_turned_it_on(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(api_loop, "LOOP_CONFIG", Path(tmp) / "c.json"):
+                api_loop.save_config({"reply_options": {"s1": "actions", "s2": "bogus"}})
+                self.assertEqual(api_loop.reply_options_mode("s1"), "actions")
+                self.assertEqual(api_loop.reply_options_mode("s2"), "off")
+                self.assertEqual(api_loop.reply_options_mode("s3"), "off")
+                self.assertIn("三条都是走向", api_loop.reply_options_prompt("actions"))
+
+
 class ExtraPromptsTest(unittest.TestCase):
     def test_only_switched_on_prompts_reach_him_and_persona_is_untouched(self):
         with tempfile.TemporaryDirectory() as tmp:

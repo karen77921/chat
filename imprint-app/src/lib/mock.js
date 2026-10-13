@@ -105,7 +105,7 @@ const chats = {
       { id: 'c4', from: 'him', type: 'command', thinking: '她说云很低，先看看今晚会不会下雪。', command: { title: '查了一下天气', cmd: 'weather --city 苏州 --hours 6', output: '23:00  阴    12°\n02:00  小雪  ☁ 40%', exitCode: 0, ms: 400 }, at: C('22:53') },
       { id: 'c4t', from: 'him', type: 'thinking', thinking: 'The weather says light snow around 2am. She is probably still standing outside taking photos — remind her gently.', at: C('22:54') },
       { id: 'c4s', from: 'him', type: 'text', text: '先给你盖个章⟦气泡⟧[表情：paw]', at: C('22:54') },
-      { id: 'c5', from: 'him', type: 'text', text: '凌晨真的可能下雪。\n拍照又站在路中间了吧？', at: C('22:54') },
+      { id: 'c5', from: 'him', type: 'text', text: '凌晨真的可能下雪。\n拍照又站在路中间了吧？', at: C('22:54'), replyOptions: ['才没有，我很小心的', '你管我～', '我把刚拍的那张发给你'] },
       { id: 'c6', from: 'me', type: 'text', text: '没有！站在路边的！', quote: { id: 'c5', from: 'him', text: '拍照又站在路中间了吧？' }, status: 'queued', at: C('22:57') },
       { id: 'c7', from: 'me', type: 'voice', voice: { url: '', durationS: 6, transcript: '周六的电影订好位置了，第七排中间' }, status: 'queued', at: C('22:58') },
     ],
@@ -176,6 +176,7 @@ function chatState(id, qs) {
   let replying = chat.replying;
   if (demo === 'waiting') replying = { startedAt: new Date(now - 42000).toISOString(), lastEventAt: new Date(now - 42000).toISOString() };
   if (demo === 'stuck') replying = { startedAt: new Date(now - 150000).toISOString(), lastEventAt: new Date(now - 130000).toISOString() };
+  if (demo === 'opts') items = items.slice(0, items.findIndex((m) => m.id === 'c5') + 1); // 快捷回复：停在他那条上
   if (demo === 'failed') items = [...items.map((m) => ({ ...m, status: undefined })), { id: 'cf', from: 'him', type: 'text', text: '订好了？那我要坐你左边，上次……', status: 'failed', at: C('22:59') }];
   chat.unread = 0;
   return { available: true, now: new Date().toISOString(), id: chat.id, kind: chat.kind, name: chat.name, connection: chat.connection, me: { name: 'Lumi' }, members: chat.members, wallpaper: null, items, replying, hasMore: false };
@@ -443,6 +444,8 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
   const key = `${method} ${p}`;
   switch (key) {
     case 'GET /api/home': return home();
+    case 'GET /api/chats/w1/reply-options': return { mode: state.replyMode || 'off' };
+    case 'PUT /api/chats/w1/reply-options': state.replyMode = body.mode; return { mode: body.mode };
     case 'GET /api/prompts': return { items: state.prompts ?? [{ id: 'p1', title: '小金库规矩', text: '让她开心 +2 到 5 块，惹她生气 -10 块。每笔都记在留言板。', on: true }] };
     case 'PUT /api/prompts': state.prompts = body.items.map((x, i) => ({ id: x.id || `p${Date.now()}${i}`, ...x })); return { items: state.prompts };
     case 'GET /api/persona': return { text: state.persona ?? '你是季宁，她的哥哥。\n说话简短、温柔，偶尔调侃她。', source: 'file', chars: 24, mtime: NOW };

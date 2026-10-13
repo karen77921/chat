@@ -2669,7 +2669,7 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
         add_builtin("attach_file")
     if any(word in query for word in ("唤醒", "醒来", "定时", "提醒", "主动找", "wake")):
         add_builtin("inspect_wake_control", "schedule_self_wake")
-    if any(word in query for word in ("留言板", "小屋", "照片墙", "独处", "片单", "想看", "房间", "动态", "imprint")):
+    if any(word in query for word in ("留言板", "小屋", "此刻", "在干嘛", "在做什么", "照片墙", "独处", "片单", "想看", "房间", "动态", "imprint")):
         add_builtin("imprint_inspect_home", "imprint_leave_note", "imprint_set_room_status",
                     "imprint_record_solo", "imprint_comment_photo", "imprint_favorite_photo", "imprint_add_watch",
                     "imprint_update_tide", "imprint_record_dream", "imprint_record_awareness", "imprint_manage_space")
@@ -3905,6 +3905,45 @@ async def garden_status() -> dict[str, Any]:
     }
 
 
+def space_freshness_hint(stale_hours: float = 3.0) -> str:
+    """Remind him when his room's 此刻 or his Heart Tide hasn't been touched for a while."""
+    path = LOOP_CACHE_DIR / "imprint.db"
+    if not path.exists():
+        return ""
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as conn:
+            found = dict(conn.execute(
+                "SELECT id, at FROM records WHERE kind='setting' AND id IN ('setting_room_current','setting_tide_current')"
+            ).fetchall())
+            room = conn.execute("SELECT payload FROM records WHERE id='setting_room_current'").fetchone()
+    except sqlite3.Error:
+        return ""
+
+    def hours_ago(value: str | None) -> float | None:
+        try:
+            return (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(str(value))).total_seconds() / 3600
+        except (TypeError, ValueError):
+            return None
+
+    def age(hours: float | None) -> str:
+        if hours is None:
+            return "很久以前"
+        return f"{int(hours * 60)} 分钟前" if hours < 1 else f"{hours:.0f} 小时前"
+
+    lines = []
+    room_h = hours_ago(found.get("setting_room_current"))
+    if room_h is None or room_h >= stale_hours:
+        activity = ""
+        with contextlib.suppress(Exception):
+            activity = str(json.loads(room[0]).get("activity") or "")
+        shown = f"还停在「{activity}」，" if activity else ""
+        lines.append(f"你小屋的「此刻」{shown}上次更新是{age(room_h)}：这次用 imprint_set_room_status 把它改成你现在真实在做的事。")
+    tide_h = hours_ago(found.get("setting_tide_current"))
+    if tide_h is None or tide_h >= stale_hours:
+        lines.append(f"你的心潮上次更新是{age(tide_h)}：这次也用 imprint_update_tide 照实更新一下（16 维情绪、12 股驱力都要给）。")
+    return ("\n【你的空间】" + "".join(lines)) if lines else ""
+
+
 async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_id: str = "",
                                garden: dict[str, str] | None = None) -> str:
     """Give the companion one run opportunity; it alone chooses silent or message."""
@@ -3935,6 +3974,9 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
           "不要因为获得机会就被迫说话，也不要暴露概率、调度器或这段内部提示。"
           "如果沉默，最终只输出 ⟦SILENT⟧；如果要联系，最终以 ⟦MESSAGE⟧ 开头，后面直接写要发送的自然消息。"
         )
+    if not garden:
+        # 小屋的「此刻」和心潮放久了就会一直停在昨天：醒来时提醒他顺手更新
+        prompt += space_freshness_hint()
     # 她希望他每次醒来，不管做了什么都在聊天里说一声（已经汇报过的「接着做」除外）
     must_tell = cfg_bool("wake_always_message") and not note.startswith(FOLLOWUP_NOTE)
     if must_tell:

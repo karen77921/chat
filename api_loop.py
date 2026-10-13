@@ -1827,6 +1827,9 @@ async def build_messages(
         "系统约一分钟后会让你接着做，做完记得把结果告诉她。"
         "要等一段时间才有结果的（比如游戏里的行动七分钟后出结果），写 ⟦稍后继续 7分钟：去看结果⟧，到点会叫醒你。"
         "说了「几分钟后告诉你」就一定要写这个标记，否则到时候没有人会叫醒你。"
+        "\n\n【翻聊天记录】\n"
+        "你们所有的聊天都能用 search_chat_history 翻到。不确定某件事有没有发生、什么时候发生、现在进展到哪一步时，"
+        "先翻一下再说，别凭印象问她已经告诉过你的事。"
         "\n\n【Imprint 聊天气泡排版】\n"
         "日常聊天尽量像真人发消息：自然、简短，通常每条气泡一到三句话。"
         "如果一次回复适合连续发两条以上消息，请在两段之间单独一行写 ⟦气泡⟧，"
@@ -2328,6 +2331,21 @@ def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
+        "name": "search_chat_history",
+        "description": "Search every chat message you and she ever exchanged (all windows, all days), newest first, with the message before and after each hit. Use it whenever you are unsure whether something happened, when it happened, or what its latest state is (e.g. whether she already finished a workout), instead of guessing from memory. Give 1–4 short keywords as they would literally appear in the chat, e.g. 「练肩」 or 「生日 蛋糕」.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "1–4 keywords separated by spaces."},
+                "days": {"type": "integer", "description": "Only the last N days; 0 or omitted = all time."},
+                "limit": {"type": "integer", "description": "1–20 hits; default 10."},
+            },
+            "required": ["query"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "attach_file",
         "description": "Send a file that exists on this server to the user as an attachment of your current reply "
                        "(images show inline). Use it for files you or a tool just produced.",
@@ -2671,11 +2689,14 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
 
     if cfg_bool("roam_space_tools"):
         # 「随时漫游」：整个 Imprint 空间的工具每一轮都在他手边，不用等她先提到小屋、心潮…
-        add_builtin("imprint_inspect_home", "imprint_set_room_status", "imprint_update_tide",
+        add_builtin("search_chat_history",
+                    "imprint_inspect_home", "imprint_set_room_status", "imprint_update_tide",
                     "imprint_record_solo", "imprint_leave_note", "imprint_record_dream", "imprint_record_awareness",
                     "imprint_comment_photo", "imprint_favorite_photo", "imprint_add_watch",
                     "imprint_control_listen", "imprint_note_track", "imprint_add_spark_gift", "imprint_manage_space",
                     "inspect_wake_control", "schedule_self_wake", "cancel_self_wake")
+    if any(word in query for word in ("之前", "上次", "那天", "记得", "说过", "聊过", "什么时候", "翻一下")):
+        add_builtin("search_chat_history")
     if any(word in query for word in ("附件", "文件", "发给我", "传给我", "下载", "attach")):
         add_builtin("attach_file")
     if any(word in query for word in ("唤醒", "醒来", "定时", "提醒", "主动找", "wake")):
@@ -2792,6 +2813,13 @@ class Turn:
                 args = {}
         except json.JSONDecodeError as exc:
             return f"ERROR: arguments are not valid JSON ({exc})"
+        if public_name == "search_chat_history":
+            try:
+                found = await asyncio.to_thread(search_chat_history, str(args.get("query") or ""),
+                                                int(args.get("days") or 0), int(args.get("limit") or 10))
+                return found[:30_000]
+            except (TypeError, ValueError, sqlite3.Error) as exc:
+                return f"ERROR: chat history search failed: {exc}"[:2000]
         if public_name == "search_public_web":
             try:
                 result = await search_public_web(str(args.get("query") or ""), int(args.get("limit") or 8))
@@ -4171,6 +4199,55 @@ app = FastAPI(title="companion-api-loop", lifespan=lifespan)
 from imprint_store import empty_tide_state, imprint_action, register_imprint_routes
 
 register_imprint_routes(app, LOOP_CACHE_DIR / "imprint.db", Path(RELAY_DB))
+
+
+def search_chat_history(query: str, days: int = 0, limit: int = 10) -> str:
+    """Keyword search over every visible chat line; hits ranked by how many keywords match, then recency."""
+    words = [w for w in re.split(r"[\s,，、;；]+", query.strip()) if w][:4]
+    if not words:
+        return "ERROR: 给 1–4 个关键词"
+    limit = max(1, min(int(limit or 10), 20))
+    path = Path(RELAY_DB)
+    if not path.exists():
+        return "还没有聊天记录。"
+    zone = context_zone()
+    visible = ("kind IN ('user','voice','reply') AND (NOT json_valid(meta) OR json_extract(meta, '$.visible') IS NULL "
+               "OR json_extract(meta, '$.visible') != 0)")
+    where = [visible, "(" + " OR ".join("text LIKE ? ESCAPE '\\'" for _ in words) + ")"]
+    params: list[Any] = ["%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" for w in words]
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
+        rows = conn.execute(f"SELECT id, ts, direction, text, meta FROM messages WHERE {' AND '.join(where)} "
+                            "ORDER BY id DESC LIMIT 500", params).fetchall()
+        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days) if days and days > 0 else None
+        hits = []
+        for row in rows:
+            when = parse_message_time(row[1])
+            if cutoff and (not when or when < cutoff):
+                continue
+            score = sum(1 for w in words if w.casefold() in str(row[3] or "").casefold())
+            hits.append((score, row[0], when, row))
+        hits.sort(key=lambda h: (-h[0], -h[1]))
+        hits = sorted(hits[:limit], key=lambda h: -h[1])
+
+        def line(row: Any) -> str:
+            when = parse_message_time(row[1])
+            stamp = when.astimezone(zone).strftime("%Y-%m-%d %H:%M") if when else "?"
+            who = "她" if row[2] == "in" else "你"
+            text = re.sub(r"\s+", " ", str(row[3] or "")).strip()
+            return f"{stamp} {who}：{text[:300]}"
+
+        blocks = []
+        for _, msg_id, _, row in hits:
+            before = conn.execute(f"SELECT id, ts, direction, text FROM messages WHERE {visible} AND id < ? "
+                                  "ORDER BY id DESC LIMIT 1", (msg_id,)).fetchone()
+            after = conn.execute(f"SELECT id, ts, direction, text FROM messages WHERE {visible} AND id > ? "
+                                 "ORDER BY id ASC LIMIT 1", (msg_id,)).fetchone()
+            parts = ([f"  （前一句）{line(before)}"] if before else []) + [f"→ {line(row)}"] \
+                + ([f"  （后一句）{line(after)}"] if after else [])
+            blocks.append("\n".join(parts))
+    if not blocks:
+        return f"没有找到包含「{' '.join(words)}」的聊天。可以换个说法或更短的词再试。"
+    return f"找到 {len(blocks)} 处（新的在前）：\n\n" + "\n\n".join(blocks)
 
 
 # ---------------------------------------------------------------------------

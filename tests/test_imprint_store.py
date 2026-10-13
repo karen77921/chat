@@ -553,5 +553,28 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertFalse(api_loop.is_garden_url("https://abysslumina.com.evil.example/mcp"))
 
 
+class ChatHistorySearchTest(unittest.TestCase):
+    def test_finds_visible_lines_with_context_and_escapes_wildcards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "relay.db"
+            conn = sqlite3.connect(db)
+            conn.execute("CREATE TABLE messages(id INTEGER PRIMARY KEY, ts TEXT, direction TEXT, kind TEXT, text TEXT, meta TEXT)")
+            now = dt.datetime.now(dt.timezone.utc)
+            for text, direction, meta in (("今天去练肩", "in", "{}"), ("练完告诉我", "out", "{}"),
+                                          ("练完了", "in", "{}"), ("隐藏的练肩", "in", '{"visible":0}'), ("满分100%", "in", "{}")):
+                conn.execute("INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                             (now.isoformat(), direction, "user" if direction == "in" else "reply", text, meta))
+            conn.commit()
+            conn.close()
+            with mock.patch.object(api_loop, "RELAY_DB", str(db)):
+                found = api_loop.search_chat_history("练肩")
+                self.assertIn("→", found)
+                self.assertIn("今天去练肩", found)
+                self.assertIn("（后一句）", found)
+                self.assertNotIn("隐藏", found)
+                self.assertIn("没有找到", api_loop.search_chat_history("10_"))
+                self.assertIn("满分100%", api_loop.search_chat_history("0%"))
+
+
 if __name__ == "__main__":
     unittest.main()

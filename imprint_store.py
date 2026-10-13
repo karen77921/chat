@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Request
 
 
-NAMES = {"me": "我", "him": "Ombre"}
+NAMES = {"me": "我", "him": "他"}  # 没设置昵称时的占位；Ombre 是记忆系统的名字，不是他的名字
 ZONE = ZoneInfo("Asia/Shanghai")
 REDEEM_LOCK = threading.RLock()
 TIDE_EMOTIONS = [
@@ -786,7 +786,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                  and (range != "month" or local_day(n["at"])[:7] == today.isoformat()[:7])
                  and (range != "year" or local_day(n["at"])[:4] == str(today.year))]
         items.sort(key=lambda n: (bool(n.get("pinned")), n["at"]), reverse=True)
-        return {"available": True, "now": iso_now(), "names": NAMES, "total": len(items), "items": items}
+        return {"available": True, "now": iso_now(), "names": public_names(), "total": len(items), "items": items}
 
     @router.get("/notes/calendar")
     def notes_calendar(month: str = ""):
@@ -813,7 +813,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         photos = rows("photo")
         watches = [item for item in rows("watch") if item.get("scheduledAt")]
         month = dt.datetime.now(ZONE).strftime("%Y-%m")
-        return {"available": True, "now": iso_now(), "names": NAMES, "current": setting("room_current") or None,
+        return {"available": True, "now": iso_now(), "names": public_names(), "current": setting("room_current") or None,
                 "listen": None, "watch": watches[0] if watches else None,
                 "counts": {"photos": len(photos), "soloThisMonth": sum(local_day(x["at"]).startswith(month) for x in rows("solo"))}}
 
@@ -821,7 +821,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def list_photos(who: str = "", source: str = "", fav: str = ""):
         items = [p for p in rows("photo") if (not who or p.get("from") == who)
                  and (not source or p.get("source") == source) and (fav != "1" or p.get("fav"))]
-        return {"available": True, "names": NAMES, "total": len(items), "items": items, "nextCursor": None}
+        return {"available": True, "names": public_names(), "total": len(items), "items": items, "nextCursor": None}
 
     @router.post("/room/photos")
     async def add_photo(request: Request):
@@ -881,7 +881,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.get("/together/watch")
     def watch_list():
         films = [{**item, "at": item.get("scheduledAt")} for item in rows("watch")]
-        return {"available": True, "names": NAMES, "current": None, "reactions": [], "list": films, "watchUrl": ""}
+        return {"available": True, "names": public_names(), "current": None, "reactions": [], "list": films, "watchUrl": ""}
 
     @router.get("/together/listen")
     def listen_state():
@@ -1003,7 +1003,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                  "done": (today - dt.timedelta(days=i)).isoformat() in completed} for i in range(6, -1, -1)]
         spent = len(rows("spark_card_use"))
         spent_points = sum(int(item.get("cost") or 0) for item in rows("gift_redeem") if item.get("by") == "me")
-        return {"available": True, "now": iso_now(), "names": NAMES,
+        return {"available": True, "now": iso_now(), "names": public_names(),
                 "streak": {"days": streak, "today": {"me": "me" in days.get(today.isoformat(), set()),
                                                       "him": "him" in days.get(today.isoformat(), set())}},
                 "week": week, "cards": {"count": max(0, len(completed) // 7 - spent), "every": 7},
@@ -1026,7 +1026,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def spark_shop(cat: str = ""):
         owned = {item.get("itemId") for item in rows("gift_kept")}
         items = [{**gift, "owned": gift["id"] in owned} for gift in rows("gift") if not cat or gift.get("cat") == cat]
-        return {"available": True, "names": NAMES, "wallets": spark()["wallets"], "items": items}
+        return {"available": True, "names": public_names(), "wallets": spark()["wallets"], "items": items}
 
     @router.post("/spark/shop")
     async def add_gift(request: Request):

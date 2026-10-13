@@ -202,7 +202,7 @@ function Ledger({ m, onClose }) {
 
 function ChatDetails({ data, upload, onClose, onUpdated }) {
   const [beauty, setBeauty] = useBeauty();
-  const [nickname, setNickname] = useState(data?.members?.[0]?.name || 'Ombre');
+  const [nickname, setNickname] = useState(data?.members?.[0]?.name || '');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const avatarInput = useRef(null);

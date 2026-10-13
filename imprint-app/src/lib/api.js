@@ -130,9 +130,9 @@ export function relayMessage(raw) {
   return out;
 }
 
-function chatList(sessions) {
+function chatList(sessions, himName = '他') {
   const rows = [...(sessions || [])].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-  const convert = (s) => ({ id: s.id, kind: 'window', name: s.title || '新对话', provider: '私人后端', members: [{ id: 'him', name: 'Ombre' }], pinned: Boolean(s.pinned), preview: '', lastAt: s.updated_at || s.created_at, unread: 0, replying: false });
+  const convert = (s) => ({ id: s.id, kind: 'window', name: s.title || '新对话', provider: '私人后端', members: [{ id: 'him', name: himName }], pinned: Boolean(s.pinned), preview: '', lastAt: s.updated_at || s.created_at, unread: 0, replying: false });
   return { available: true, windows: rows.filter((x) => !x.archived).map(convert), groups: [], archived: rows.filter((x) => x.archived).map(convert) };
 }
 
@@ -165,7 +165,7 @@ async function loadChat(id, full = false) {
   return {
     available: true, id, kind: 'window', name: s.title,
     me: { id: 'me', name: '我', avatar: attachmentUrl({ url: settings.avatars?.me }) },
-    members: [{ id: 'him', name: settings.contact?.himName || 'Ombre', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
+    members: [{ id: 'him', name: settings.contact?.himName || '他', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
     presence: { online: true }, replying: null, beauty: settings.beauty || {},
     wallpaper: settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
     items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && (m.kind !== 'thinking' || String(m.text || '').trim()))
@@ -208,7 +208,10 @@ async function compat(path, opts) {
   const [p] = path.split('?');
   const query = path.slice(p.length);
   let m;
-  if (method === 'GET' && p === '/api/chats') return request(`${RELAY}/app/sessions`).then((x) => chatList(x.sessions));
+  if (method === 'GET' && p === '/api/chats') {
+    const [x, settings] = await Promise.all([request(`${RELAY}/app/sessions`), loop('imprint/settings').catch(() => ({}))]);
+    return chatList(x.sessions, settings.contact?.himName || '他');
+  }
   if (method === 'POST' && p === '/api/chats') {
     const x = await request(`${RELAY}/app/sessions`, { method: 'POST', body: { title: opts.body?.name || '新对话', activate: true } });
     return { id: x.created?.id || x.active_session };
@@ -316,7 +319,7 @@ async function compat(path, opts) {
     const track = listen?.track;
     const nextWatch = watch?.list?.find((item) => item.status === 'scheduled' && (item.at || item.scheduledAt));
     return { available: true, now: new Date().toISOString(),
-      names: { me: settings.contact?.meName || '我', him: settings.contact?.himName || 'Ombre' }, together: { since: '2026-09-18' }, greeting: '',
+      names: { me: settings.contact?.meName || '我', him: settings.contact?.himName || '他' }, together: { since: '2026-09-18' }, greeting: '',
       avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) },
       state: tide?.available === false ? null : tide?.state,
       listen: track ? { ...track, positionS: listen.positionS || 0, playing: listen.playing } : null,

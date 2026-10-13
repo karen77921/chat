@@ -244,6 +244,8 @@ class ImprintStoreTest(unittest.TestCase):
         imprint_action(self.store, "manage_space", {"operation": "appearance", "him_name": "季宁"})
         contact = self.call("GET", "/settings")["contact"]
         self.assertEqual((contact["himName"], contact["meName"]), ("季宁", "小年糕"))
+        # 留言板、礼物铺这些页面的署名也要跟着改，不能还是默认名
+        self.assertEqual(self.call("GET", "/notes")["names"], {"me": "小年糕", "him": "季宁"})
 
     def test_activity_uses_real_visible_events_and_persists_read_state(self):
         base = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)

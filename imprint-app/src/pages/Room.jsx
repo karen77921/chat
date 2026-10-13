@@ -1,7 +1,7 @@
 /**
  * 04 小屋：他住的地方。此刻在做什么、一起听 / 看入口、照片墙 / 独处 / 表情包三个分页。
- * 网址：#/room   ?tab=photos|solo|stickers
- * 数据：GET /api/room、/api/room/photos、/api/room/solo、/api/stickers（字段见 src/lib/mock.js 和 docs/04-小屋.md）
+ * 网址：#/room   ?tab=photos|solo|diary|stickers
+ * 数据：GET /api/room、/api/room/photos、/api/room/solo、/api/room/diary、/api/stickers（字段见 src/lib/mock.js 和 docs/04-小屋.md）
  */
 import { useEffect, useRef, useState } from 'react';
 import Icon from '../design/icons.jsx';
@@ -9,10 +9,10 @@ import { Band } from '../design/paper.jsx';
 import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
-import { NowCard, TogetherRow, PhotoWall, PhotoView, Solo, Stickers } from '../components/room/Parts.jsx';
+import { NowCard, TogetherRow, PhotoWall, PhotoView, Solo, Diary, Stickers } from '../components/room/Parts.jsx';
 import '../components/room/room.css';
 
-const TABS = [['photos', '照片墙'], ['solo', '独处'], ['stickers', '表情包']];
+const TABS = [['photos', '照片墙'], ['solo', '独处'], ['diary', '日记'], ['stickers', '表情包']];
 const upload = (file, kind) => { const f = new FormData(); f.append('file', file); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
 
 export default function Room({ query }) {
@@ -29,6 +29,17 @@ export default function Room({ query }) {
   const photos = useLoad(tab === 'photos' ? photoPath : null);
   const solo = useLoad(tab === 'solo' ? '/api/room/solo' : null);
   const stickers = useLoad(tab === 'stickers' ? '/api/stickers' : null);
+  const diary = useLoad(tab === 'diary' ? '/api/room/diary' : null);
+  const [writing, setWriting] = useState(false);
+  const [diaryNote, setDiaryNote] = useState('');
+  const writeDiary = async () => {
+    setWriting(true); setDiaryNote('');
+    try {
+      const r = await api('/api/room/diary/write', { method: 'POST' });
+      diary.setData((d) => ({ ...(d || { available: true }), items: [r.item, ...((d?.items) || []).filter((x) => x.id !== r.item.id)] }));
+    } catch (cause) { setDiaryNote(cause?.message || '这次没写成，过一会儿再试'); }
+    finally { setWriting(false); }
+  };
   const now = home?.now ? new Date(home.now) : new Date();
   const ok = home && home.available !== false;
 
@@ -74,6 +85,7 @@ export default function Room({ query }) {
       <Band tone="l1" seed={21 + TABS.findIndex(([k]) => k === tab)} className="rm-band">
         {tab === 'photos' && <PhotoWall data={photos.data} filter={filter} setFilter={setFilter} onOpen={setOpen} names={home?.names} />}
         {tab === 'solo' && <Solo data={solo.data} now={now} />}
+        {tab === 'diary' && <Diary data={diary.data} onWrite={writeDiary} writing={writing} note={diaryNote} />}
         {tab === 'stickers' && (home?.recording === false ? <div className="card rm-empty">这里还没有你们的表情。</div> : <Stickers data={stickers.data} setData={stickers.setData} onUpload={upload} />)}
       </Band>
 

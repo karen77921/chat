@@ -161,6 +161,35 @@ export function Solo({ data, now }) {
   ));
 }
 
+/* ---------- 我们的日记：他每晚给你们俩的一天写一篇 ---------- */
+export function Diary({ data, onWrite, writing, note }) {
+  if (!data) return <div className="card rm-empty">正在翻…</div>;
+  if (data.available === false) return <div className="card rm-empty">暂时连不上，过一会儿再来看看。</div>;
+  const WEEK = '日一二三四五六';
+  return (
+    <>
+      <div className="rm-diary-bar">
+        <span>每晚 11 点后，他会给你们俩的今天写一篇</span>
+        <button type="button" className="chip" disabled={writing} onClick={onWrite}>{writing ? '他在写…' : '让他现在写今天的'}</button>
+      </div>
+      {note && <div className="card rm-empty" role="status">{note}</div>}
+      {!data.items.length && !note && <div className="card rm-empty">还没有日记。等今晚，或者现在让他写一篇。</div>}
+      {data.items.map((it) => {
+        const d = new Date(`${it.day}T12:00:00`);
+        return (
+          <article key={it.id} className="card rm-diary">
+            <header>
+              <span className="serif">{d.getMonth() + 1} 月 {d.getDate()} 日 · 星期{WEEK[d.getDay()]}</span>
+              <h3>{it.title}</h3>
+            </header>
+            {String(it.text || '').split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
+          </article>
+        );
+      })}
+    </>
+  );
+}
+
 /* ---------- 表情包 ---------- */
 export function Stickers({ data, setData, onUpload }) {
   const [tip, setTip] = useState('');

@@ -100,6 +100,16 @@ class ImprintStoreTest(unittest.TestCase):
         result = self.app.routes[(method, "/loop/imprint" + path)](*args, **kwargs)
         return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
+    def test_diary_is_one_entry_per_day_newest_first(self):
+        imprint_action(self.store, "record_diary", {"day": "2026-10-08", "title": "练肩", "text": "她练完了。"})
+        imprint_action(self.store, "record_diary", {"day": "2026-10-09", "title": "云", "text": "云很低。"})
+        imprint_action(self.store, "record_diary", {"day": "2026-10-08", "title": "练肩那天", "text": "重写了。"})
+        items = self.call("GET", "/room/diary")["items"]
+        self.assertEqual([x["day"] for x in items], ["2026-10-09", "2026-10-08"])
+        self.assertEqual(items[1]["title"], "练肩那天")
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "record_diary", {"day": "昨天", "title": "x", "text": "y"})
+
     def test_notes_start_empty_and_persist(self):
         self.assertEqual(self.call("GET", "/notes")["items"], [])
         note = self.call("POST", "/notes", Request({"text": "真实留言", "paper": "cyan", "pinned": True}))

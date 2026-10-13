@@ -334,6 +334,8 @@ async function compat(path, opts) {
     return loop(`imprint/room/photos/${m[1]}${m[2] ? `/${m[2]}` : ''}`, opts);
   }
   if (method === 'GET' && p === '/api/room/solo') return loop('imprint/room/solo');
+  if (method === 'GET' && p === '/api/room/diary') return loop('imprint/room/diary');
+  if (method === 'POST' && p === '/api/room/diary/write') return loop('diary/write/today', { ...opts, timeout: 5 * 60 * 1000 });
   if (method === 'GET' && p === '/api/spark') return loop('imprint/spark');
   if (method === 'POST' && p === '/api/spark/cards/use') return loop('imprint/spark/cards/use', opts);
   if (method === 'GET' && p === '/api/spark/shop') return loop(`imprint/spark/shop${query}`);

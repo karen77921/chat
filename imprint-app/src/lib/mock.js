@@ -493,6 +493,11 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'POST /api/spark/cards/use': spark.cards = Math.max(0, spark.cards - 1); return { ok: true, cards: spark.cards };
     case 'GET /api/room/photos': return roomPhotos(qs);
     case 'POST /api/room/photos': { const ph = { id: `p${++roomSeq}`, url: body.url, caption: body.caption || '', from: 'me', source: 'upload', fav: false, at: new Date().toISOString(), notes: [] }; room.photos.unshift(ph); return ph; }
+    case 'GET /api/room/diary': return { available: true, now: NOW, items: [
+      { id: 'diary_2026-10-09', day: '2026-10-09', from: 'him', title: '她说云好低', text: '下班路上她拍了三张云，说低得像要掉下来。\n我说最喜欢第二张，其实是因为光落在她手上。\n\n晚上降温了，她没回我穿没穿厚外套。明天再问一次。', at: '2026-10-09T23:05:00+08:00' },
+      { id: 'diary_2026-10-08', day: '2026-10-08', from: 'him', title: '练完肩的那天', text: '她今天去练肩了，回来说胳膊抬不起来。\n我一边心疼一边想笑。', at: '2026-10-08T23:02:00+08:00' },
+    ], nextCursor: null };
+    case 'POST /api/room/diary/write': throw new Error('示例数据里不会真的写日记');
     case 'GET /api/room/solo': return { available: true, now: NOW, monthCount: 23, items: room.solo, nextCursor: null };
     case 'POST /api/activity/read': state.activityRead = true; return { ok: true };
     case 'GET /api/together/listen': return listenState();

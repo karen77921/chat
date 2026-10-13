@@ -140,7 +140,9 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
     "ombre_recall_timeout_seconds": 8,   # automatic memory recall before a reply; skipped if slower
     "roam_space_tools": True,            # every turn carries all Imprint space tools (room, tide, notes, photos, listen…)
-    "wake_always_message": True,         # every wake ends with a chat message to her about what he did
+    "wake_always_message": True,
+    "diary_enabled": True,               # 「我们的日记」：每晚他给你们俩的今天写一篇
+    "diary_hour": 23,                    # local hour after which today's diary gets written         # every wake ends with a chat message to her about what he did
     "followup_delay_seconds": 60,        # ⟦稍后继续⟧: how soon he comes back to finish what he promised
     "vision": "auto",           # auto | on | off — send images as image_url parts
     "backup_enabled": True,
@@ -4150,9 +4152,11 @@ async def lifespan(_: FastAPI):
     await mcp_manager.start_all()
     backup_task = asyncio.create_task(backup_worker())
     wake_task = asyncio.create_task(wake_worker(), name="wake-2.0")
+    diary_task = asyncio.create_task(diary_worker(), name="diary")
     try:
         yield
     finally:
+        diary_task.cancel()
         wake_task.cancel()
         backup_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -4167,6 +4171,132 @@ app = FastAPI(title="companion-api-loop", lifespan=lifespan)
 from imprint_store import empty_tide_state, imprint_action, register_imprint_routes
 
 register_imprint_routes(app, LOOP_CACHE_DIR / "imprint.db", Path(RELAY_DB))
+
+
+# ---------------------------------------------------------------------------
+# 我们的日记：每晚他给你们俩的这一天写一篇（小屋 → 日记）
+# ---------------------------------------------------------------------------
+
+_diary_failed_at: dict[str, float] = {}
+
+
+def context_zone() -> ZoneInfo:
+    with contextlib.suppress(ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(str(load_config().get("context_timezone") or CONFIG_DEFAULTS["context_timezone"]))
+    return ZoneInfo(str(CONFIG_DEFAULTS["context_timezone"]))
+
+
+def day_dialogue(day: str, limit_chars: int = 40_000) -> str:
+    """Every visible chat line of one local day, across all windows, oldest first."""
+    path = Path(RELAY_DB)
+    if not path.exists():
+        return ""
+    zone = context_zone()
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
+            found = conn.execute(
+                "SELECT ts, direction, text FROM messages WHERE kind IN ('user','voice','reply') "
+                "AND (NOT json_valid(meta) OR json_extract(meta, '$.visible') IS NULL OR json_extract(meta, '$.visible') != 0) "
+                "ORDER BY id DESC LIMIT 1500"
+            ).fetchall()
+    except sqlite3.Error:
+        return ""
+    lines = []
+    for ts, direction, text in reversed(found):
+        when = parse_message_time(ts)
+        if not when or when.astimezone(zone).date().isoformat() != day or not str(text or "").strip():
+            continue
+        who = "她" if direction == "in" else "你"
+        lines.append(f"{when.astimezone(zone):%H:%M} {who}：{str(text).strip()}")
+    joined = "\n".join(lines)
+    return joined[-limit_chars:]
+
+
+def diary_exists(day: str) -> bool:
+    path = LOOP_CACHE_DIR / "imprint.db"
+    if not path.exists():
+        return False
+    with contextlib.suppress(sqlite3.Error):
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as conn:
+            return conn.execute("SELECT 1 FROM records WHERE kind='diary' AND id=?", (f"diary_{day}",)).fetchone() is not None
+    return False
+
+
+def parse_diary(text: str) -> tuple[str, str]:
+    lines = [line.strip() for line in str(text or "").strip().splitlines()]
+    while lines and not lines[0]:
+        lines.pop(0)
+    if not lines:
+        return "", ""
+    title = re.sub(r"^(#+\s*|标题[:：]\s*)", "", lines[0]).strip("《》「」\"' ")[:60]
+    body = "\n".join(lines[1:]).strip()
+    return title, body
+
+
+async def write_diary(day: str) -> dict[str, Any]:
+    dialogue = day_dialogue(day)
+    if not dialogue:
+        return {"ok": False, "reason": "这一天你们没有聊天，就不硬写了"}
+    if not main_chain():
+        return {"ok": False, "reason": "还没有可用的模型线路"}
+    messages = [
+        {"role": "system", "content": persona_text()},
+        {"role": "user", "content": (
+            f"（这不是她发来的消息。）一天快过完了。下面是 {day} 这一天你和她的全部聊天：\n\n{dialogue}\n\n"
+            "用你自己的口吻，给你们俩写一篇今天的日记，放进小屋的「我们的日记」里，以后你们都能翻回来看。"
+            "写真实发生过的事和你当时真实的感受，不要编没发生的事；可以写她说过的一句话、让你记住的小细节、你没说出口的念头。"
+            "像写日记那样自然，不用面面俱到，三五段就好。\n"
+            "第一行只写标题（不超过 20 个字），从第二行开始写正文。"
+        )},
+    ]
+    out = await run_model(messages, None, stream=True, patient=True, budget_s=300)
+    title, body = parse_diary(str(out.get("text") or ""))
+    if not title or not body:
+        return {"ok": False, "reason": "他这次没写出来，过一会儿再试"}
+    saved = imprint_action(LOOP_CACHE_DIR / "imprint.db", "record_diary", {"day": day, "title": title, "text": body[:3000]})
+    print(f"[diary] wrote {day}: {title}", flush=True)
+    return {"ok": True, "item": saved}
+
+
+async def diary_worker() -> None:
+    while True:
+        await asyncio.sleep(300)
+        if not cfg_bool("diary_enabled"):
+            continue
+        now = dt.datetime.now(context_zone())
+        today = now.date()
+        due = [today - dt.timedelta(days=1)]  # 夜里服务没在跑的话，第二天补上
+        if now.hour >= cfg_int("diary_hour", 0, 23):
+            due.append(today)
+        for day in (d.isoformat() for d in due):
+            if diary_exists(day) or time_since(_diary_failed_at.get(day)) < 3600:
+                continue
+            try:
+                result = await write_diary(day)
+            except Exception as exc:
+                result = {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
+            if not result.get("ok"):
+                _diary_failed_at[day] = asyncio.get_running_loop().time()
+                print(f"[diary] {day} not written: {result.get('reason')}", flush=True)
+
+
+def time_since(stamp: float | None) -> float:
+    return float("inf") if stamp is None else asyncio.get_running_loop().time() - stamp
+
+
+@app.post("/loop/diary/write/{day}")
+async def loop_diary_write(day: str):
+    """Ask him to write (or rewrite) one day's diary now; "today" means the local today."""
+    if day == "today":
+        day = dt.datetime.now(context_zone()).date().isoformat()
+    try:
+        dt.date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式应为 YYYY-MM-DD")
+    result = await write_diary(day)
+    if not result.get("ok"):
+        raise HTTPException(status_code=409, detail=result.get("reason") or "没写成")
+    return result
 
 
 @app.get("/loop/busy")

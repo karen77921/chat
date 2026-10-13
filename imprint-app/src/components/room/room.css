@@ -89,3 +89,12 @@
 .rm-stk-c { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; -webkit-touch-callout: none; user-select: none; }
 .rm-stk-ask { grid-column: span 2; min-height: 72px; border-radius: 3px; border: 1.5px dashed color-mix(in srgb, var(--print-c) 50%, transparent); display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--accent); letter-spacing: 0.08em; }
 .rm-stk-add { aspect-ratio: 1; border-radius: 3px; border: 1.5px dashed color-mix(in srgb, var(--print-c) 50%, transparent); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+
+/* 我们的日记 */
+.rm-diary-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+.rm-diary-bar .chip { flex: none; }
+.rm-diary { padding: 16px 16px 6px; margin-bottom: 12px; }
+.rm-diary header { margin-bottom: 8px; }
+.rm-diary header .serif { font-size: 11px; letter-spacing: .08em; color: var(--muted); }
+.rm-diary h3 { margin: 4px 0 0; font: 600 17px/1.4 var(--serif); color: var(--ink); }
+.rm-diary p { margin: 0 0 10px; font-size: 14px; line-height: 1.8; color: var(--ink); white-space: pre-line; }

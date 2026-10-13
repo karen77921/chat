@@ -233,6 +233,23 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             )
             return value
 
+        if action == "record_diary":
+            # 「我们的日记」：他给你们俩的一天写一篇，每天一篇，重写会覆盖同一天
+            day = str(body.get("day") or "").strip()
+            title = str(body.get("title") or "").strip()
+            text = str(body.get("text") or "").strip()
+            try:
+                dt.date.fromisoformat(day)
+            except ValueError:
+                raise ValueError("日记需要 YYYY-MM-DD 格式的日期")
+            if not title or len(title) > 60 or not text or len(text) > 3000:
+                raise ValueError("日记标题需为 1–60 字，正文 1–3000 字")
+            value = {"from": "him", "day": day, "title": title, "text": text}
+            at = iso_now()
+            conn.execute("INSERT OR REPLACE INTO records(id,kind,at,payload) VALUES(?,?,?,?)",
+                         (f"diary_{day}", "diary", at, json.dumps(value, ensure_ascii=False)))
+            return {**value, "id": f"diary_{day}", "at": at}
+
         if action == "record_solo":
             title = str(body.get("title") or "").strip()
             text = str(body.get("text") or "").strip()
@@ -832,6 +849,11 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         month = dt.datetime.now(ZONE).strftime("%Y-%m")
         return {"available": True, "now": iso_now(), "monthCount": sum(local_day(x["at"]).startswith(month) for x in items),
                 "items": items, "nextCursor": None}
+
+    @router.get("/room/diary")
+    def diary():
+        items = sorted(rows("diary"), key=lambda x: str(x.get("day") or ""), reverse=True)
+        return {"available": True, "now": iso_now(), "items": items, "nextCursor": None}
 
     @router.get("/stickers")
     def stickers():

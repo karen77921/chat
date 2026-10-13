@@ -132,3 +132,8 @@
 .st-gwakes time { font-family: ui-monospace, Menlo, monospace; margin-right: 8px; }
 .st-glog { font-size: 10px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: var(--muted); max-height: 220px; overflow: auto; margin: 6px 0 0; }
 .st-bk-check { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
+.st-pad { padding: 18px; font-size: 13px; color: var(--muted); }
+.st-persona { display: block; width: 100%; min-height: 56vh; padding: 16px; border: 0; outline: none; resize: vertical;
+  font-size: 14px; line-height: 1.75; color: var(--ink); font-family: var(--sans); }
+.st-persona:focus { box-shadow: inset 0 0 0 1.5px rgba(185, 128, 121, 0.45); }
+.st-persona-f { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 2px 6px; font-size: 11.5px; color: var(--muted); }

@@ -18,7 +18,7 @@ import '../components/chat/chatlist.css';
 import '../components/settings/settings.css';
 
 const PAGES = {
-  access: ['access', '接入'], features: ['features', '功能管理'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
+  access: ['access', '接入'], persona: ['persona', '他的人设'], features: ['features', '功能管理'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
 const upload = (file, kind) => { const f = new FormData(); f.append('file', file); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
 const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
@@ -38,6 +38,7 @@ export default function Settings({ query }) {
         </header>
         <Band tone="l1" seed={82 + Object.keys(PAGES).indexOf(p)} className="st-band">
           {p === 'access' && <Access />}
+          {p === 'persona' && <Persona />}
           {p === 'features' && <Features />}
           {p === 'beauty' && <Beauty />}
           {p === 'usage' && <Usage />}
@@ -53,6 +54,7 @@ function Desk({ go }) {
   const { data: c } = useLoad('/api/settings/console');
   const { data: f } = useLoad('/api/features');
   const { data: conn } = useLoad('/api/connections');
+  const { data: persona } = useLoad('/api/persona');
   const ok = c && c.available !== false;
   const daily = c?.daily || [];
   const max = Math.max(1, ...daily);
@@ -60,6 +62,7 @@ function Desk({ go }) {
   const mcpDown = f?.mcps?.filter((m) => m.on && m.status !== 'ok').length || 0;
   const items = [
     ['access', 'link', '接入', conn?.items ? `${conn.items.filter((x) => x.kind === 'window').length} 个窗口 · ${conn.items.filter((x) => x.kind === 'member').length} 个群成员` : '…', false],
+    ['persona', 'feather', '他的人设', persona?.text != null ? `写给他的 prompt · ${persona.text.length} 字` : '…', false],
     ['features', 'plug', '功能管理', f?.features ? `${f.features.filter((x) => x.on).length} 个功能在跑 · MCP ${f.mcps.filter((m) => m.on && m.status === 'ok').length} 个连上${mcpDown ? ` · ${mcpDown} 个断开` : ''}` : '…', mcpDown > 0],
     ['beauty', 'brush', '美化', '主题 · 头像 · 聊天背景 · 气泡', false],
     ['usage', 'tool', '用量与日志', ok ? `${c.observed || 0} 次真实用量记录 · 工具调用` : '…', false],
@@ -98,6 +101,43 @@ function Desk({ go }) {
         ))}
       </Band>
     </main>
+  );
+}
+
+/* ---------- 他的人设：写给他的 prompt，每一轮都会读，所有聊天窗口共用 ---------- */
+function Persona() {
+  const { data, setData } = useLoad('/api/persona');
+  const [text, setText] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  useEffect(() => { if (data?.text != null && text == null) setText(data.text); }, [data, text]);
+  if (!data) return <div className="card st-pad">正在读…</div>;
+  if (data.available === false) return <div className="card st-pad">暂时连不上，过一会儿再来。</div>;
+  const value = text ?? '';
+  const dirty = value !== data.text;
+  const save = async () => {
+    setBusy(true); setNote('');
+    try {
+      const saved = await api('/api/persona', { method: 'PUT', body: { text: value } });
+      setData(saved); setText(saved.text); setNote('保存好了，他下一句话就按新的来。');
+    } catch (e) { setNote(e?.message || '没保存上，再试一次'); }
+    setBusy(false);
+  };
+  return (
+    <>
+      <p className="st-tip">这里写的是他的「人设」：他是谁、你们的关系、说话的方式、他要记住的规矩。他每说一句话之前都会先读一遍，所有聊天窗口共用这一份。</p>
+      <textarea className="card st-persona" value={value} onChange={(e) => { setText(e.target.value); setNote(''); }}
+        placeholder="比如：你是季宁，她的哥哥……" spellCheck={false} aria-label="他的人设" />
+      <div className="st-persona-f">
+        <span>{value.length} 字{dirty ? ' · 还没保存' : ''}</span>
+        <span className="st-gacts" style={{ margin: 0 }}>
+          {dirty && <button type="button" className="mini-btn" disabled={busy} onClick={() => { setText(data.text); setNote(''); }}>撤回改动</button>}
+          <button type="button" className="mini-btn" disabled={busy || !dirty || !value.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
+        </span>
+      </div>
+      {note && <p className="st-tip" role="status">{note}</p>}
+      <p className="st-tip">小提示：越长他每轮读得越多，回复会稍慢、也更费钱。时间、记忆、聊天记录这些系统会自动给他，不用写在这里。</p>
+    </>
   );
 }
 

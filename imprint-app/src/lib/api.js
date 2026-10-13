@@ -48,10 +48,16 @@ export function authedImageUrl(url) {
     const headers = {};
     const value = token();
     if (value) headers.Authorization = `Bearer ${value}`;
-    blobUrls.set(clean, fetch(clean, { headers }).then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // 中继里的图有两种写法（/relay/uploads/… 和 /uploads/…），哪个能取到用哪个；
+    // 只认真正的图片，免得取回一张网页当成图片，显示成一片空白
+    const other = clean.includes('/relay/uploads/') ? clean.replace('/relay/uploads/', '/uploads/') : clean.replace('/uploads/', '/relay/uploads/');
+    const tryOne = (target) => fetch(target, { headers }).then((res) => {
+      const type = res.headers.get('content-type') || '';
+      if (!res.ok || (type && !type.startsWith('image/') && !type.startsWith('application/octet-stream'))) throw new Error(`HTTP ${res.status} ${type}`);
       return res.blob();
-    }).then((blob) => URL.createObjectURL(blob)).catch((err) => { blobUrls.delete(clean); throw err; }));
+    });
+    blobUrls.set(clean, tryOne(clean).catch(() => tryOne(other))
+      .then((blob) => URL.createObjectURL(blob)).catch((err) => { blobUrls.delete(clean); throw err; }));
   }
   return blobUrls.get(clean);
 }

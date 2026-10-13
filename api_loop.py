@@ -139,6 +139,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "model_chain_timeout_seconds": 90,   # all configured fallbacks together
     "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
     "ombre_recall_timeout_seconds": 8,   # automatic memory recall before a reply; skipped if slower
+    "roam_space_tools": True,            # every turn carries all Imprint space tools (room, tide, notes, photos, listen…)
     "wake_always_message": True,         # every wake ends with a chat message to her about what he did
     "followup_delay_seconds": 60,        # ⟦稍后继续⟧: how soon he comes back to finish what he promised
     "vision": "auto",           # auto | on | off — send images as image_url parts
@@ -2665,6 +2666,13 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
             if name in builtin_by_name and builtin_by_name[name] not in selected:
                 selected.append(builtin_by_name[name])
 
+    if cfg_bool("roam_space_tools"):
+        # 「随时漫游」：整个 Imprint 空间的工具每一轮都在他手边，不用等她先提到小屋、心潮…
+        add_builtin("imprint_inspect_home", "imprint_set_room_status", "imprint_update_tide",
+                    "imprint_record_solo", "imprint_leave_note", "imprint_record_dream", "imprint_record_awareness",
+                    "imprint_comment_photo", "imprint_favorite_photo", "imprint_add_watch",
+                    "imprint_control_listen", "imprint_note_track", "imprint_add_spark_gift", "imprint_manage_space",
+                    "inspect_wake_control", "schedule_self_wake", "cancel_self_wake")
     if any(word in query for word in ("附件", "文件", "发给我", "传给我", "下载", "attach")):
         add_builtin("attach_file")
     if any(word in query for word in ("唤醒", "醒来", "定时", "提醒", "主动找", "wake")):

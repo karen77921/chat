@@ -576,5 +576,37 @@ class ChatHistorySearchTest(unittest.TestCase):
                 self.assertIn("满分100%", api_loop.search_chat_history("0%"))
 
 
+class GardenWatchTest(unittest.TestCase):
+    def test_tells_her_once_when_bridge_drops_but_not_when_she_stopped_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            states = ["active", "failed", "failed", "active", "inactive"]
+            sent = []
+
+            async def fake_exec(*args, **kwargs):
+                return 0, states.pop(0)
+
+            async def fake_relay(payload):
+                sent.append(payload)
+                return True, ""
+
+            cli = Path(tmp) / "dist" / "cli.js"
+            cli.parent.mkdir(parents=True)
+            cli.write_text("")
+            with mock.patch.object(api_loop, "GARDEN_DIR", Path(tmp)), \
+                 mock.patch.object(api_loop, "GARDEN_WATCH_FILE", Path(tmp) / "watch.json"), \
+                 mock.patch.object(api_loop, "_garden_exec", fake_exec), \
+                 mock.patch.object(api_loop, "relay_out", fake_relay), \
+                 mock.patch.object(api_loop, "wake_audit", lambda *a: None), \
+                 mock.patch.object(api_loop, "active_session_id", lambda: "s1"):
+                results = [asyncio.run(api_loop.garden_watch_once()) for _ in range(3)]
+                self.assertEqual(results, ["active", "notified", "failed"])
+                self.assertEqual(len(sent), 1)
+                self.assertIn("唤醒桥", sent[0]["text"])
+                asyncio.run(api_loop.garden_watch_once())  # she started it again
+                api_loop.garden_watch_save({**api_loop.garden_watch_load(), "user_stopped": True})
+                self.assertEqual(asyncio.run(api_loop.garden_watch_once()), "inactive")
+                self.assertEqual(len(sent), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

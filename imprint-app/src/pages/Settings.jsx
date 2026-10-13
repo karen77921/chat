@@ -335,7 +335,7 @@ function GardenWake() {
   const start = () => run('start', async () => { setData(await api('/api/garden/start', { method: 'POST', timeout: 45000 })); });
   const stop = () => run('stop', async () => { setData(await api('/api/garden/stop', { method: 'POST', timeout: 45000 })); });
   const [dot, label] = GARDEN_STATE[data.state] || ['off', '状态未知'];
-  const RESULT = { received: '收到', message: '他去处理了，还跟你说了话', silent: '他去处理了，没打扰你', error: '这次没处理成功', skipped: '跳过' };
+  const RESULT = { 'bridge-down': '唤醒桥断了，已经在聊天里告诉你', received: '收到', message: '他去处理了，还跟你说了话', silent: '他去处理了，没打扰你', error: '这次没处理成功', skipped: '跳过' };
   return (
     <>
       <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>garden</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>花园唤醒</h2><span className="go">Galatea Garden</span></div>

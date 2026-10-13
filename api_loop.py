@@ -4181,9 +4181,11 @@ async def lifespan(_: FastAPI):
     backup_task = asyncio.create_task(backup_worker())
     wake_task = asyncio.create_task(wake_worker(), name="wake-2.0")
     diary_task = asyncio.create_task(diary_worker(), name="diary")
+    garden_task = asyncio.create_task(garden_watch_worker(), name="garden-watch")
     try:
         yield
     finally:
+        garden_task.cancel()
         diary_task.cancel()
         wake_task.cancel()
         backup_task.cancel()
@@ -4537,8 +4539,56 @@ async def loop_garden_start():
 
 @app.post("/loop/garden/stop")
 async def loop_garden_stop():
+    garden_watch_save({**garden_watch_load(), "user_stopped": True})  # 她自己停的，不用提醒
     await _garden_exec("systemctl", "stop", GARDEN_UNIT, timeout=30)
     return await garden_status()
+
+
+# 唤醒桥断了不会自己重连（花园的规矩），所以断了就在聊天里告诉她一声，让她去点「启动」
+GARDEN_WATCH_FILE = LOOP_CACHE_DIR / "garden-watch.json"
+
+
+def garden_watch_load() -> dict[str, Any]:
+    with contextlib.suppress(OSError, ValueError):
+        return json.loads(GARDEN_WATCH_FILE.read_text(encoding="utf-8"))
+    return {}
+
+
+def garden_watch_save(value: dict[str, Any]) -> None:
+    with contextlib.suppress(OSError):
+        GARDEN_WATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GARDEN_WATCH_FILE.write_text(json.dumps(value), encoding="utf-8")
+
+
+async def garden_watch_once() -> str:
+    """Compare the bridge's state with last time; returns "notified" when it just went down on its own."""
+    if not (GARDEN_DIR / "dist" / "cli.js").exists():
+        return "absent"
+    _, out = await _garden_exec("systemctl", "is-active", GARDEN_UNIT, timeout=10)
+    state = next((w for w in out.split() if w in {"active", "inactive", "failed", "activating", "deactivating"}), "unknown")
+    seen = garden_watch_load()
+    previous = seen.get("last")
+    if state in {"active", "activating"}:
+        seen["user_stopped"] = False
+    seen["last"] = state
+    garden_watch_save(seen)
+    if previous not in {"active", "activating"} or state not in {"failed", "inactive"} or seen.get("user_stopped"):
+        return state
+    session_id = active_session_id()
+    when = dt.datetime.now(context_zone()).strftime("%H:%M")
+    text = (f"花园的唤醒桥刚刚断了（{when} 左右发现的）。它断了不会自己重连，"
+            "有空去 设置 → 功能 → 花园唤醒，先点「检查连接」，没问题再点「启动」，我就能及时收到花园的消息啦。")
+    ok, _ = await relay_out({"type": "reply", "text": text, "api_session": session_id,
+                             "api": {"runtime": "garden-watch", "proactive": True}})
+    wake_audit("garden", "bridge-down", f"{state} at {when}; told her: {ok}")
+    return "notified"
+
+
+async def garden_watch_worker() -> None:
+    while True:
+        await asyncio.sleep(120)
+        with contextlib.suppress(Exception):
+            await garden_watch_once()
 
 
 @app.post("/loop/garden/wake")

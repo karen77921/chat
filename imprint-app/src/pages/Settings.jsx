@@ -18,7 +18,7 @@ import '../components/chat/chatlist.css';
 import '../components/settings/settings.css';
 
 const PAGES = {
-  access: ['access', '接入'], persona: ['persona', '他的人设'], features: ['features', '功能管理'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
+  access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], features: ['features', '功能管理'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
 const upload = (file, kind) => { const f = new FormData(); f.append('file', file); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
 const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
@@ -39,6 +39,7 @@ export default function Settings({ query }) {
         <Band tone="l1" seed={82 + Object.keys(PAGES).indexOf(p)} className="st-band">
           {p === 'access' && <Access />}
           {p === 'persona' && <Persona />}
+          {p === 'prompts' && <Prompts />}
           {p === 'features' && <Features />}
           {p === 'beauty' && <Beauty />}
           {p === 'usage' && <Usage />}
@@ -55,6 +56,7 @@ function Desk({ go }) {
   const { data: f } = useLoad('/api/features');
   const { data: conn } = useLoad('/api/connections');
   const { data: persona } = useLoad('/api/persona');
+  const { data: prompts } = useLoad('/api/prompts');
   const ok = c && c.available !== false;
   const daily = c?.daily || [];
   const max = Math.max(1, ...daily);
@@ -63,6 +65,7 @@ function Desk({ go }) {
   const items = [
     ['access', 'link', '接入', conn?.items ? `${conn.items.filter((x) => x.kind === 'window').length} 个窗口 · ${conn.items.filter((x) => x.kind === 'member').length} 个群成员` : '…', false],
     ['persona', 'feather', '他的人设', persona?.text != null ? `写给他的 prompt · ${persona.text.length} 字` : '…', false],
+    ['prompts', 'sparkle', '额外提示词', prompts?.items ? (prompts.items.length ? `${prompts.items.filter((x) => x.on).length} 条开着 · 共 ${prompts.items.length} 条` : '不改人设，另外给他加的话') : '…', false],
     ['features', 'plug', '功能管理', f?.features ? `${f.features.filter((x) => x.on).length} 个功能在跑 · MCP ${f.mcps.filter((m) => m.on && m.status === 'ok').length} 个连上${mcpDown ? ` · ${mcpDown} 个断开` : ''}` : '…', mcpDown > 0],
     ['beauty', 'brush', '美化', '主题 · 头像 · 聊天背景 · 气泡', false],
     ['usage', 'tool', '用量与日志', ok ? `${c.observed || 0} 次真实用量记录 · 工具调用` : '…', false],
@@ -137,6 +140,60 @@ function Persona() {
       </div>
       {note && <p className="st-tip" role="status">{note}</p>}
       <p className="st-tip">小提示：越长他每轮读得越多，回复会稍慢、也更费钱。时间、记忆、聊天记录这些系统会自动给他，不用写在这里。</p>
+    </>
+  );
+}
+
+/* ---------- 额外提示词：不动人设，另外一条条加给他，每条能单独开关 ---------- */
+function Prompts() {
+  const { data, setData } = useLoad('/api/prompts');
+  const [edit, setEdit] = useState(null); // { id?, title, text, on }
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  if (!data) return <div className="card st-pad">正在读…</div>;
+  if (data.available === false) return <div className="card st-pad">暂时连不上，过一会儿再来。</div>;
+  const items = data.items || [];
+  const push = async (next, done) => {
+    setBusy(true); setNote('');
+    try { setData(await api('/api/prompts', { method: 'PUT', body: { items: next } })); done?.(); }
+    catch (e) { setNote(e?.message || '没保存上，再试一次'); }
+    setBusy(false);
+  };
+  const save = () => {
+    const row = { ...edit, title: edit.title.trim(), text: edit.text.trim() };
+    const next = row.id ? items.map((x) => (x.id === row.id ? row : x)) : [...items, row];
+    push(next, () => setEdit(null));
+  };
+  const remove = () => push(items.filter((x) => x.id !== edit.id), () => setEdit(null));
+  const toggle = (row) => push(items.map((x) => (x.id === row.id ? { ...x, on: !x.on } : x)));
+  return (
+    <>
+      <p className="st-tip">不改人设，另外写给他的话：规矩、约定、最近要注意的事都可以放这里。每条能单独开关，开着的他每说一句话都会读到，和人设一样要遵守。</p>
+      {items.length === 0 && <div className="card st-pad">还没有。点下面「加一条」。</div>}
+      <div className="st-prompts">
+        {items.map((row) => (
+          <div key={row.id} className={`card st-prompt ${row.on ? '' : 'off'}`}>
+            <button type="button" className="st-prompt-t" onClick={() => setEdit({ ...row })}>
+              <b>{row.title || '没写标题'}</b><em>{row.text}</em>
+            </button>
+            <input type="checkbox" className="switch" checked={row.on} disabled={busy} onChange={() => toggle(row)} aria-label={`${row.title || '这一条'}：${row.on ? '开着' : '关着'}`} />
+          </div>
+        ))}
+      </div>
+      <button type="button" className="cl-link st-addmcp" onClick={() => setEdit({ title: '', text: '', on: true })} disabled={items.length >= 30}><Icon name="plus" size={16} stroke={1.5} />加一条</button>
+      {note && !edit && <p className="st-tip" role="status">{note}</p>}
+      {edit && (
+        <Sheet open onClose={() => setEdit(null)} label={edit.id ? '改这一条' : '加一条提示词'} seed={44}>
+          <div className="st-prompt-edit">
+            <label className="pill"><span className="sr">标题</span><input value={edit.title} maxLength={60} onChange={(e) => setEdit({ ...edit, title: e.target.value })} placeholder="标题，比如：小金库规矩" /></label>
+            <textarea className="card st-persona short" value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} placeholder="要他读到的内容…" aria-label="提示词内容" />
+            <div className="st-persona-f"><span>{edit.text.length} 字</span><span>{edit.on ? '开着' : '关着'}</span></div>
+            {note && <p className="st-tip" role="status">{note}</p>}
+            <button type="button" className="btn-main" disabled={busy || !edit.text.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
+            {edit.id && <button type="button" className="cl-link st-delmcp" disabled={busy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />删掉这一条</button>}
+          </div>
+        </Sheet>
+      )}
     </>
   );
 }

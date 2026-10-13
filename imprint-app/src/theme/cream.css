@@ -163,3 +163,4 @@
 [data-theme='cream'] .cl-acts button { background: #d9aea8; }
 [data-theme='cream'] .cl-acts button:nth-child(2) { background: #c4918a; }
 [data-theme='cream'] .cl-acts .danger { background: #a9746d; }
+[data-theme='cream'] .switch:checked { background: #c4918a; }

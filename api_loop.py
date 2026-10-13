@@ -481,6 +481,27 @@ def persona_text() -> str:
     return PERSONA_ENV or DEFAULT_PERSONA
 
 
+def extra_prompts() -> list[dict[str, Any]]:
+    """她额外写给他的提示词：一条条独立的，可以单独开关，不动人设本身。"""
+    rows = load_config().get("extra_prompts")
+    out = []
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and str(row.get("text") or "").strip():
+            out.append({"id": str(row.get("id") or ""), "title": str(row.get("title") or "")[:60],
+                        "text": str(row.get("text") or "")[:20_000], "on": row.get("on") is not False})
+    return out
+
+
+def persona_full() -> str:
+    """人设 + 打开着的额外提示词。每一轮、醒来、写日记、首页那句话都读这个。"""
+    text = persona_text()
+    extras = [row for row in extra_prompts() if row["on"]]
+    if not extras:
+        return text
+    blocks = "\n\n".join((f"### {row['title']}\n" if row["title"] else "") + row["text"].strip() for row in extras)
+    return f"{text}\n\n【她额外交代给你的】\n以下是她另外写给你的提示，和上面的人设一样要遵守：\n\n{blocks}"
+
+
 def persona_public() -> dict[str, Any]:
     path = persona_path()
     text = persona_text()
@@ -1741,7 +1762,7 @@ async def build_messages(
     """→ (messages, had_images). History images are only re-sent for the newest history_images human rows."""
     # Keep this prefix deterministic: provider prompt caches match exact prefixes.
     # Time, recall and summaries are deliberately appended later as volatile context.
-    system_text = persona_text()
+    system_text = persona_full()
     volatile_parts: list[str] = []
     injected = context_injection_text(session_id, before_id)
     if injected:
@@ -4317,7 +4338,7 @@ async def write_diary(day: str) -> dict[str, Any]:
     if not main_chain():
         return {"ok": False, "reason": "还没有可用的模型线路"}
     messages = [
-        {"role": "system", "content": persona_text()},
+        {"role": "system", "content": persona_full()},
         {"role": "user", "content": (
             f"（这不是她发来的消息。）一天快过完了。下面是 {day} 这一天你和她的全部聊天：\n\n{dialogue}\n\n"
             "用你自己的口吻，给你们俩写一篇今天的日记，放进小屋的「我们的日记」里，以后你们都能翻回来看。"
@@ -4640,7 +4661,7 @@ async def write_whisper() -> dict[str, Any]:
     recent = "\n".join(filter(None, (day_dialogue((today - dt.timedelta(days=1)).isoformat(), 4000),
                                       day_dialogue(today.isoformat(), 6000))))[-6000:]
     messages = [
-        {"role": "system", "content": persona_text()},
+        {"role": "system", "content": persona_full()},
         {"role": "user", "content": (
             "（这不是她发来的消息。）她打开了你们的首页，首页上有一小块地方专门放你此刻想对她说的一句话。\n"
             + (f"你们最近的聊天：\n{recent}\n\n" if recent else "")
@@ -4795,6 +4816,37 @@ async def loop_backup_export_done(export_id: str):
 @app.get("/loop/persona")
 async def loop_persona():
     return persona_public()
+
+
+@app.get("/loop/prompts")
+async def loop_prompts():
+    return {"items": extra_prompts()}
+
+
+@app.post("/loop/prompts")
+async def loop_prompts_save(request: Request):
+    """整份替换：前端每次把完整列表发过来。"""
+    body = await request.json()
+    rows = body.get("items")
+    if not isinstance(rows, list) or len(rows) > 30:
+        raise HTTPException(status_code=400, detail="最多 30 条")
+    clean = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise HTTPException(status_code=400, detail="格式不对")
+        text = str(row.get("text") or "").strip()
+        title = str(row.get("title") or "").strip()
+        if len(title) > 60 or len(text) > 20_000:
+            raise HTTPException(status_code=413, detail="标题最多 60 字，内容最多 2 万字")
+        if text:
+            clean.append({"id": str(row.get("id") or secrets.token_hex(4))[:16], "title": title, "text": text,
+                          "on": row.get("on") is not False})
+    if sum(len(r["text"]) for r in clean) > 60_000:
+        raise HTTPException(status_code=413, detail="加起来最多 6 万字")
+    cfg = load_config()
+    cfg["extra_prompts"] = clean
+    save_config(cfg)
+    return {"items": extra_prompts()}
 
 
 @app.post("/loop/persona")

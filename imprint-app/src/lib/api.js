@@ -326,6 +326,8 @@ async function compat(path, opts) {
       watch: nextWatch ? { title: nextWatch.title, order: 1, at: nextWatch.at || nextWatch.scheduledAt || nextWatch.createdAt, ticketNo: String(nextWatch.id || '').slice(0, 6) } : null,
       note: notes.items[0] ? { ...notes.items[0], total: notes.total } : null, activity: activity.items || [] };
   }
+  if (method === 'GET' && p === '/api/prompts') return loop('prompts');
+  if (method === 'PUT' && p === '/api/prompts') return loop('prompts', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/persona') return loop('persona');
   if (method === 'PUT' && p === '/api/persona') return loop('persona', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/home/whisper') return loop('home/whisper', { timeout: 120000 });

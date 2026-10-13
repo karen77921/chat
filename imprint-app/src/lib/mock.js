@@ -443,6 +443,8 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
   const key = `${method} ${p}`;
   switch (key) {
     case 'GET /api/home': return home();
+    case 'GET /api/prompts': return { items: state.prompts ?? [{ id: 'p1', title: '小金库规矩', text: '让她开心 +2 到 5 块，惹她生气 -10 块。每笔都记在留言板。', on: true }] };
+    case 'PUT /api/prompts': state.prompts = body.items.map((x, i) => ({ id: x.id || `p${Date.now()}${i}`, ...x })); return { items: state.prompts };
     case 'GET /api/persona': return { text: state.persona ?? '你是季宁，她的哥哥。\n说话简短、温柔，偶尔调侃她。', source: 'file', chars: 24, mtime: NOW };
     case 'PUT /api/persona': state.persona = body.text; return { text: body.text, source: 'file', chars: body.text.length, mtime: new Date().toISOString() };
     case 'GET /api/home/whisper': return { text: '今天降温了，出门把那件厚外套带上，别又说不冷。', at: NOW };

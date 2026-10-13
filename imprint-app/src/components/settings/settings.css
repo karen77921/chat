@@ -137,3 +137,12 @@
   font-size: 14px; line-height: 1.75; color: var(--ink); font-family: var(--sans); }
 .st-persona:focus { box-shadow: inset 0 0 0 1.5px rgba(185, 128, 121, 0.45); }
 .st-persona-f { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 2px 6px; font-size: 11.5px; color: var(--muted); }
+.st-prompts { display: grid; gap: 10px; margin-bottom: 12px; }
+.st-prompt { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.st-prompt.off { opacity: 0.6; }
+.st-prompt-t { flex: 1; min-width: 0; display: grid; gap: 4px; text-align: left; }
+.st-prompt-t b { font-weight: 400; font-size: 14px; }
+.st-prompt-t em { font-style: normal; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-prompt-edit { display: grid; gap: 12px; padding-bottom: 8px; }
+.st-prompt-edit input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 15px; }
+.st-persona.short { min-height: 34vh; }

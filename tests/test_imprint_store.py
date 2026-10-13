@@ -584,6 +584,20 @@ class ChatHistorySearchTest(unittest.TestCase):
                 self.assertIn("满分100%", api_loop.search_chat_history("0%"))
 
 
+class ExtraPromptsTest(unittest.TestCase):
+    def test_only_switched_on_prompts_reach_him_and_persona_is_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(api_loop, "LOOP_CONFIG", Path(tmp) / "c.json"):
+                api_loop.save_config({"extra_prompts": [
+                    {"id": "a", "title": "小金库", "text": "每笔都记在留言板。", "on": True},
+                    {"id": "b", "title": "暂停", "text": "这条先不用", "on": False},
+                ]})
+                full = api_loop.persona_full()
+                self.assertTrue(full.startswith(api_loop.persona_text()))
+                self.assertIn("### 小金库\n每笔都记在留言板。", full)
+                self.assertNotIn("这条先不用", full)
+
+
 class GardenWatchTest(unittest.TestCase):
     def test_tells_her_once_when_bridge_drops_but_not_when_she_stopped_it(self):
         with tempfile.TemporaryDirectory() as tmp:

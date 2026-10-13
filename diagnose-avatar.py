@@ -4,6 +4,7 @@
 Never prints secrets. Usage on the VPS:
   curl -fsSL $B/diagnose-avatar.py | sudo python3 -
 """
+import contextlib
 import json
 import os
 import sqlite3
@@ -31,6 +32,20 @@ if not row:
 print("头像保存时间:", row[0])
 avatars = json.loads(row[1])
 
+PUBLIC = "https://chat.jiningji.win"
+
+
+def fetch(target):
+    req = urllib.request.Request(target, headers={"Authorization": f"Bearer {secret}"} if secret else {})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return f"HTTP {resp.status}, {len(resp.read())} 字节"
+    except urllib.error.HTTPError as exc:
+        return f"HTTP {exc.code}"
+    except OSError as exc:
+        return f"失败 {type(exc).__name__}"
+
+
 MAGIC = {b"\xff\xd8\xff": "jpeg", b"\x89PNG": "png", b"GIF8": "gif", b"RIFF": "webp?"}
 for who, url in avatars.items():
     print(f"\n[{who}] 保存的地址: {url}")
@@ -50,3 +65,22 @@ for who, url in avatars.items():
             print(f"  取图 {target.replace(relay, '<relay>')} -> HTTP {exc.code}")
         except OSError as exc:
             print(f"  取图 {target.replace(relay, '<relay>')} -> 失败 {type(exc).__name__}")
+
+    print(f"  公网 {url} -> {fetch(PUBLIC + url)}")
+    if url.startswith("/relay/uploads/"):
+        alt = url[len("/relay"):]
+        print(f"  公网 {alt} -> {fetch(PUBLIC + alt)}")
+
+# 对照：聊天里能正常显示的那种图片，地址长什么样
+relay_db = Path(env.get("RELAY_DB", "/root/companion-relay/relay.db"))
+if relay_db.exists():
+    with sqlite3.connect(f"file:{relay_db}?mode=ro", uri=True) as conn:
+        rows = conn.execute("SELECT meta FROM messages WHERE meta LIKE '%attachments%' ORDER BY id DESC LIMIT 30").fetchall()
+    for (meta,) in rows:
+        with contextlib.suppress(Exception):
+            att = json.loads(meta)["attachments"][0]
+            url = att.get("url") or ""
+            if url:
+                print(f"\n[聊天图片对照] 地址: {url}")
+                print(f"  公网 {url} -> {fetch(PUBLIC + url if url.startswith('/') else url)}")
+                break

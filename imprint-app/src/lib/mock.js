@@ -446,6 +446,14 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/home': return home();
     case 'GET /api/chats/w1/reply-options': return { mode: state.replyMode || 'off' };
     case 'PUT /api/chats/w1/reply-options': state.replyMode = body.mode; return { mode: body.mode };
+    case 'GET /api/purchases': return { available: true, names: { me: 'Lumi', him: 'Ash' }, avatars: {}, items: state.purchases ?? (state.purchases = [
+      { id: 'a1', no: '202610100001', category: '想买的东西', title: '冰淇淋', price: 5, reason: '我要吃冰淇淋 (>ᴗ<)', status: 'rejected', comment: '夫人这个太便宜，选一个贵的重新申请。', at: '2026-10-10T10:00:00+08:00',
+        timeline: [{ at: '2026-10-10T10:00:00+08:00', kind: 'submit', by: 'me', text: '我要吃冰淇淋 (>ᴗ<)' }, { at: '2026-10-10T10:01:00+08:00', kind: 'reject', by: 'him', text: '夫人这个太便宜，选一个贵的重新申请。' }] },
+      { id: 'a2', no: '202610090001', category: '想吃的', title: '火锅', price: 268, reason: '周五下班想吃', status: 'approved', comment: '批了，我请。', at: '2026-10-09T18:00:00+08:00',
+        timeline: [{ at: '2026-10-09T18:00:00+08:00', kind: 'submit', by: 'me', text: '周五下班想吃' }, { at: '2026-10-09T18:02:00+08:00', kind: 'approve', by: 'him', text: '批了，我请。' }] },
+    ]) };
+    case 'POST /api/purchases': { const it = { id: `a${Date.now()}`, no: '202610130009', status: 'pending', at: new Date().toISOString(), ...body, price: Number(body.price), timeline: [{ at: new Date().toISOString(), kind: 'submit', by: 'me', text: body.reason }] }; state.purchases.unshift(it);
+      setTimeout(() => { Object.assign(it, { status: 'approved', comment: '准了，记我账上。' }); it.timeline.push({ at: new Date().toISOString(), kind: 'approve', by: 'him', text: '准了，记我账上。' }); }, 2500); return it; }
     case 'GET /api/prompts': return { items: state.prompts ?? [{ id: 'p1', title: '小金库规矩', text: '让她开心 +2 到 5 块，惹她生气 -10 块。每笔都记在留言板。', on: true }] };
     case 'PUT /api/prompts': state.prompts = body.items.map((x, i) => ({ id: x.id || `p${Date.now()}${i}`, ...x })); return { items: state.prompts };
     case 'GET /api/persona': return { text: state.persona ?? '你是季宁，她的哥哥。\n说话简短、温柔，偶尔调侃她。', source: 'file', chars: 24, mtime: NOW };

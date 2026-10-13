@@ -85,7 +85,7 @@
 .hm-entries a { display: grid; justify-items: center; gap: 5px; padding: 14px 4px 12px; border-radius: 20px !important; color: var(--accent); font-size: 12px; }
 .hm-entries a span { color: var(--ink); letter-spacing: 0.06em; }
 
-.hm-names-sheet { display: grid; gap: 12px; padding-bottom: 8px; }
+.hm-names-sheet { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding-bottom: 8px; }
 .hm-names-sheet h3 { margin: 0 0 4px; font-weight: 400; font-size: 16px; letter-spacing: 0.12em; }
 .hm-names-sheet .pill span { flex: none; width: 22px; color: var(--muted); font-size: 13px; }
 .hm-names-sheet input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 15px; }

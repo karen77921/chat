@@ -2400,6 +2400,28 @@ def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
+        "name": "imprint_list_purchases",
+        "description": "List her purchase requests in Imprint's 买买申请 (what she wants, price, her reason, status pending/approved/rejected/withdrawn, your earlier comments). Use before reviewing or when she asks about them.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "imprint_review_purchase",
+        "description": "Approve or reject one of her purchase requests, with a short comment in your own voice. It shows on the request page as your stamp and reply. Call imprint_list_purchases first to get the real id.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "decision": {"type": "string", "enum": ["approve", "reject"]},
+                "comment": {"type": "string", "description": "1–2 sentences to her, up to 300 characters."},
+            },
+            "required": ["id", "decision", "comment"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "search_chat_history",
         "description": "Search every chat message you and she ever exchanged (all windows, all days), newest first, with the message before and after each hit. Use it whenever you are unsure whether something happened, when it happened, or what its latest state is (e.g. whether she already finished a workout), instead of guessing from memory. Give 1–4 short keywords as they would literally appear in the chat, e.g. 「练肩」 or 「生日 蛋糕」.",
         "parameters": {
@@ -2763,6 +2785,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
                     "imprint_record_solo", "imprint_leave_note", "schedule_self_wake")
     if any(word in query for word in ("之前", "上次", "那天", "记得", "说过", "聊过", "什么时候", "翻一下")):
         add_builtin("search_chat_history")
+    if any(word in query for word in ("申请", "审批", "批准", "批一下", "批了", "想买", "买买")):
+        add_builtin("imprint_list_purchases", "imprint_review_purchase")
     if any(word in query for word in ("附件", "文件", "发给我", "传给我", "下载", "attach")):
         add_builtin("attach_file")
     if any(word in query for word in ("唤醒", "醒来", "定时", "提醒", "主动找", "wake")):
@@ -2975,6 +2999,8 @@ class Turn:
             "imprint_update_tide": "set_tide",
             "imprint_record_dream": "record_dream",
             "imprint_record_awareness": "record_awareness",
+            "imprint_list_purchases": "purchase_list",
+            "imprint_review_purchase": "purchase_review",
         }
         if public_name in imprint_actions:
             if self.dry and public_name != "imprint_inspect_home":
@@ -4778,6 +4804,83 @@ async def loop_home_plans():
             note = note.split("要做的事：", 1)[-1].strip() or "接着做答应你的事"
         items.append({"id": wake.get("wake_id"), "at": wake.get("wake_at"), "text": note[:120] or "到点醒来看看你"})
     return {"items": items}
+
+# ---------------------------------------------------------------------------
+# 买买申请：她交申请，他自己审
+# ---------------------------------------------------------------------------
+
+def parse_review(text: str) -> tuple[str, str]:
+    lines = [line.strip() for line in str(text or "").strip().splitlines() if line.strip()]
+    if not lines:
+        return "", ""
+    head = lines[0].strip("【】[]「」*# ")
+    decision = "reject" if head.startswith("不通过") or head.startswith("驳回") else "approve" if head.startswith("通过") or head.startswith("批准") else ""
+    comment = " ".join(lines[1:]).strip() or head[3:].strip(" ：:，,")
+    return decision, comment[:300]
+
+
+async def review_purchase(item: dict[str, Any]) -> None:
+    """他看着这张申请、你们最近的聊天和以前的申请，自己决定批不批。"""
+    try:
+        history = imprint_action(LOOP_CACHE_DIR / "imprint.db", "purchase_list").get("items", [])
+        earlier = [x for x in history if x["id"] != item["id"]][:6]
+        status = {"approved": "通过", "rejected": "不通过", "withdrawn": "她撤回了", "pending": "还没审"}
+        past = "\n".join(f"- {x['title']} ¥{x['price']:g}：{status.get(x.get('status'), '')}" + (f"（你说：{x['comment']}）" if x.get("comment") else "")
+                         for x in earlier)
+        today = dt.datetime.now(context_zone()).date().isoformat()
+        recent = day_dialogue(today, 3000)
+        messages = [
+            {"role": "system", "content": persona_full()},
+            {"role": "user", "content": (
+                "（这不是她发来的消息。）她在 Imprint 的「买买申请」里给你交了一张申请，等你审批：\n"
+                f"类别：{item.get('category')}\n想要：{item.get('title')}\n价格：¥{item.get('price'):g}\n她的说明：{item.get('reason') or '（没写）'}\n"
+                + (f"\n她以前的申请：\n{past}\n" if past else "")
+                + (f"\n你们今天的聊天：\n{recent}\n" if recent else "")
+                + "\n用你自己的判断和口吻来审：可以爽快批，也可以逗她、提条件、让她重新申请。"
+                "第一行只写「通过」或「不通过」，从第二行开始写给她的审批回应，一两句话，像你平时跟她说话那样。"
+            )},
+        ]
+        out = await run_model(messages, None, stream=True, patient=True, budget_s=120)
+        decision, comment = parse_review(str(out.get("text") or ""))
+        if not decision:
+            print(f"[purchase] {item['id']} unclear review: {str(out.get('text'))[:120]!r}", flush=True)
+            return
+        imprint_action(LOOP_CACHE_DIR / "imprint.db", "purchase_review", {"id": item["id"], "decision": decision, "comment": comment})
+        session_id = active_session_id()
+        if session_id:
+            verdict = "通过" if decision == "approve" else "不通过"
+            # 发一条到聊天：她能收到提醒，他自己以后也记得批过什么
+            await relay_out({"type": "reply", "text": f"（买买申请「{item['title']}」¥{item['price']:g}：{verdict}）{comment}",
+                             "api_session": session_id, "api": {"runtime": "purchase-review", "proactive": True}})
+    except Exception as exc:
+        print(f"[purchase] review failed for {item.get('id')}: {type(exc).__name__}: {exc}", flush=True)
+
+
+_purchase_tasks: set[asyncio.Task] = set()
+
+
+@app.post("/loop/purchases")
+async def loop_purchase_create(request: Request):
+    body = await request.json()
+    try:
+        item = imprint_action(LOOP_CACHE_DIR / "imprint.db", "purchase_create", body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    task = asyncio.create_task(review_purchase(item), name=f"purchase:{item['id']}")
+    _purchase_tasks.add(task)
+    task.add_done_callback(_purchase_tasks.discard)
+    return item
+
+
+@app.post("/loop/purchases/{rec_id}/review")
+async def loop_purchase_rereview(rec_id: str):
+    """她撒娇「再审一次」：让他重新看这张。"""
+    items = imprint_action(LOOP_CACHE_DIR / "imprint.db", "purchase_list").get("items", [])
+    item = next((x for x in items if x["id"] == rec_id), None)
+    if not item or item.get("status") == "withdrawn":
+        raise HTTPException(status_code=404, detail="找不到这张申请")
+    await review_purchase(item)
+    return next((x for x in imprint_action(LOOP_CACHE_DIR / "imprint.db", "purchase_list")["items"] if x["id"] == rec_id), item)
 
 # 加密备份下载：把一份最新快照用她自己设的密码加密，分块传到她手机/电脑上，VPS 坏了也还有一份
 EXPORT_DIR = LOOP_CACHE_DIR / "exports"

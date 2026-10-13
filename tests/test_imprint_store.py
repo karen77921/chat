@@ -100,6 +100,21 @@ class ImprintStoreTest(unittest.TestCase):
         result = self.app.routes[(method, "/loop/imprint" + path)](*args, **kwargs)
         return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
+    def test_purchase_request_review_and_withdraw_keep_a_timeline(self):
+        item = imprint_action(self.store, "purchase_create", {"title": "冰淇淋", "price": "5", "reason": "想吃"})
+        self.assertEqual((item["status"], item["price"]), ("pending", 5.0))
+        reviewed = imprint_action(self.store, "purchase_review", {"id": item["id"], "decision": "reject", "comment": "太便宜了"})
+        self.assertEqual(reviewed["status"], "rejected")
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "purchase_withdraw", {"id": item["id"]})
+        other = imprint_action(self.store, "purchase_create", {"title": "裙子", "price": 299, "reason": ""})
+        imprint_action(self.store, "purchase_withdraw", {"id": other["id"]})
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "purchase_review", {"id": other["id"], "decision": "approve", "comment": ""})
+        items = {x["title"]: x for x in self.call("GET", "/purchases")["items"]}
+        self.assertEqual([t["kind"] for t in items["冰淇淋"]["timeline"]], ["submit", "reject"])
+        self.assertEqual(items["裙子"]["status"], "withdrawn")
+
     def test_diary_is_one_entry_per_day_newest_first(self):
         imprint_action(self.store, "record_diary", {"day": "2026-10-08", "title": "练肩", "text": "她练完了。"})
         imprint_action(self.store, "record_diary", {"day": "2026-10-09", "title": "云", "text": "云很低。"})

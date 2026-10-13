@@ -233,6 +233,60 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             )
             return value
 
+        if action.startswith("purchase_"):
+            # 买买申请：她申请，他审批；每一步都记进轨迹
+            def load(rec_id: str) -> dict:
+                row = conn.execute("SELECT at, payload FROM records WHERE kind='purchase' AND id=?", (str(rec_id or ""),)).fetchone()
+                if not row:
+                    raise ValueError("找不到这张申请")
+                return {**json.loads(row["payload"]), "id": str(rec_id), "at": row["at"]}
+
+            def store(item: dict) -> dict:
+                payload = {k: v for k, v in item.items() if k not in {"id", "at"}}
+                conn.execute("UPDATE records SET payload=? WHERE id=? AND kind='purchase'",
+                             (json.dumps(payload, ensure_ascii=False), item["id"]))
+                return item
+
+            if action == "purchase_list":
+                rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='purchase' ORDER BY at DESC LIMIT 200").fetchall()
+                return {"items": [{**json.loads(r["payload"]), "id": r["id"], "at": r["at"]} for r in rows]}
+            if action == "purchase_create":
+                title = str(body.get("title") or "").strip()
+                reason = str(body.get("reason") or "").strip()
+                category = str(body.get("category") or "想买的东西").strip()[:12]
+                try:
+                    price = round(float(body.get("price")), 2)
+                except (TypeError, ValueError):
+                    raise ValueError("价格要填数字")
+                if not title or len(title) > 40 or len(reason) > 500 or not (0 <= price <= 10_000_000):
+                    raise ValueError("想要的东西 1–40 字，说明不超过 500 字，价格要合理")
+                now = iso_now()
+                count = conn.execute("SELECT COUNT(*) FROM records WHERE kind='purchase'").fetchone()[0]
+                number = dt.datetime.now(ZONE).strftime("%Y%m%d") + f"{count + 1:04d}"
+                return add("purchase", {"no": number, "category": category, "title": title, "price": price, "reason": reason,
+                                        "status": "pending", "by": "me",
+                                        "timeline": [{"at": now, "kind": "submit", "by": "me", "text": reason}]})
+            if action == "purchase_review":
+                item = load(body.get("id"))
+                decision = str(body.get("decision") or "").strip().lower()
+                comment = str(body.get("comment") or "").strip()[:300]
+                if decision not in {"approve", "reject"}:
+                    raise ValueError("decision 只能是 approve 或 reject")
+                if item.get("status") == "withdrawn":
+                    raise ValueError("她已经撤回了这张申请")
+                item["status"] = "approved" if decision == "approve" else "rejected"
+                item["comment"] = comment
+                item["timeline"] = [*item.get("timeline", []), {"at": iso_now(), "kind": decision, "by": "him", "text": comment}]
+                return store(item)
+            if action == "purchase_withdraw":
+                item = load(body.get("id"))
+                if item.get("status") != "pending":
+                    raise ValueError("已经审批过了，不能撤回")
+                item["status"] = "withdrawn"
+                item["timeline"] = [*item.get("timeline", []), {"at": iso_now(), "kind": "withdraw", "by": "me", "text": ""}]
+                return store(item)
+            raise ValueError("unknown purchase action")
+
         if action == "record_diary":
             # 「我们的日记」：他给你们俩的一天写一篇，每天一篇，重写会覆盖同一天
             day = str(body.get("day") or "").strip()
@@ -856,6 +910,17 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         month = dt.datetime.now(ZONE).strftime("%Y-%m")
         return {"available": True, "now": iso_now(), "monthCount": sum(local_day(x["at"]).startswith(month) for x in items),
                 "items": items, "nextCursor": None}
+
+    @router.get("/purchases")
+    def purchases():
+        return {"available": True, "names": public_names(), **imprint_action(data_path, "purchase_list")}
+
+    @router.post("/purchases/{rec_id}/withdraw")
+    def purchase_withdraw(rec_id: str):
+        try:
+            return imprint_action(data_path, "purchase_withdraw", {"id": rec_id})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @router.get("/room/diary")
     def diary():

@@ -332,6 +332,14 @@ async function compat(path, opts) {
   if ((method === 'GET' || method === 'PUT') && (m = /^\/api\/chats\/([^/]+)\/reply-options$/.exec(p))) {
     return loop(`reply-options/${m[1]}`, method === 'PUT' ? { ...opts, method: 'POST' } : undefined);
   }
+  if (method === 'GET' && p === '/api/purchases') {
+    const [list, settings] = await Promise.all([loop('imprint/purchases'), loop('imprint/settings').catch(() => ({}))]);
+    return { ...list, avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) } };
+  }
+  if (method === 'POST' && p === '/api/purchases') return loop('purchases', opts);
+  if (method === 'POST' && (m = /^\/api\/purchases\/([0-9a-f]+)\/(withdraw|review)$/.exec(p))) {
+    return m[2] === 'withdraw' ? loop(`imprint/purchases/${m[1]}/withdraw`, { method: 'POST' }) : loop(`purchases/${m[1]}/review`, { method: 'POST', timeout: 150000 });
+  }
   if (method === 'GET' && p === '/api/prompts') return loop('prompts');
   if (method === 'PUT' && p === '/api/prompts') return loop('prompts', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/persona') return loop('persona');

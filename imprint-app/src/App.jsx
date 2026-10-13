@@ -11,6 +11,7 @@ import Chat from './pages/Chat.jsx';
 import Room from './pages/Room.jsx';
 import ChatList from './pages/ChatList.jsx';
 import Spark from './pages/Spark.jsx';
+import Approvals from './pages/Approvals.jsx';
 import Together from './pages/Together.jsx';
 import MiniPlayer from './components/together/MiniPlayer.jsx';
 import Tide from './pages/Tide.jsx';
@@ -26,6 +27,7 @@ const ROUTES = {
   '/chat/t': Chat,
   '/room': Room,
   '/spark': Spark,
+  '/approvals': Approvals,
   '/together': Together,
   '/tide': Tide,
   '/settings': Settings,

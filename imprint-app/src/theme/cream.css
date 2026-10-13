@@ -164,3 +164,13 @@
 [data-theme='cream'] .cl-acts button:nth-child(2) { background: #c4918a; }
 [data-theme='cream'] .cl-acts .danger { background: #a9746d; }
 [data-theme='cream'] .switch:checked { background: #c4918a; }
+
+/* 弹出面板：背景画在面板本身上——之前画在一层绝对定位的底上，往下滚时内容会滚出背景 */
+[data-theme='cream'] .sheet-panel {
+  background: rgba(252, 249, 245, 0.96);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 -10px 40px rgba(120, 100, 90, 0.10);
+  overscroll-behavior: contain;
+}
+[data-theme='cream'] .sheet-bg { display: none; }

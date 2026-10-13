@@ -2688,13 +2688,10 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
                 selected.append(builtin_by_name[name])
 
     if cfg_bool("roam_space_tools"):
-        # 「随时漫游」：整个 Imprint 空间的工具每一轮都在他手边，不用等她先提到小屋、心潮…
-        add_builtin("search_chat_history",
-                    "imprint_inspect_home", "imprint_set_room_status", "imprint_update_tide",
-                    "imprint_record_solo", "imprint_leave_note", "imprint_record_dream", "imprint_record_awareness",
-                    "imprint_comment_photo", "imprint_favorite_photo", "imprint_add_watch",
-                    "imprint_control_listen", "imprint_note_track", "imprint_add_spark_gift", "imprint_manage_space",
-                    "inspect_wake_control", "schedule_self_wake", "cancel_self_wake")
+        # 「随时漫游」：轻的几样每一轮都在他手边（翻记录、看空间、改此刻、写独处和留言、给自己定闹钟）。
+        # 大件（心潮全量、礼物铺、一起听…）聊到相关的词、或者他自己醒来时才带上——全带的话请求太重，中转会超时。
+        add_builtin("search_chat_history", "imprint_inspect_home", "imprint_set_room_status",
+                    "imprint_record_solo", "imprint_leave_note", "schedule_self_wake")
     if any(word in query for word in ("之前", "上次", "那天", "记得", "说过", "聊过", "什么时候", "翻一下")):
         add_builtin("search_chat_history")
     if any(word in query for word in ("附件", "文件", "发给我", "传给我", "下载", "attach")):
@@ -3319,7 +3316,8 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
     tried: list[str] = []
     errors: list[str] = []
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + (budget_s or cfg_int("model_chain_timeout_seconds", 30, 600))
+    # 设置里的超时太短的话，带着工具和长上下文的请求还没开口就被掐掉了：这里给个下限
+    deadline = loop.time() + (budget_s or max(90, cfg_int("model_chain_timeout_seconds", 30, 600)))
     t0 = loop.time()
     timing: dict[str, Any] = {"tools": len(tools or []), "dropped_tools": False}
     for route in main_chain():
@@ -3343,16 +3341,16 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
 
         try:
             remaining = max(1.0, deadline - loop.time())
-            route_timeout = min(budget_s or cfg_int("model_request_timeout_seconds", 30, 300), remaining)
+            route_timeout = min(budget_s or max(60, cfg_int("model_request_timeout_seconds", 30, 300)), remaining)
             request = stream_chat(route, messages, tools, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, tools, session_id)
             try:
                 # Give a tool-capable attempt a short head start, then retry the
                 # same model without schemas so ordinary conversation can get out.
                 # Background wake turns have nobody waiting, so they keep their tools (patient).
-                first_timeout = min(route_timeout, 25 if tools and not patient else route_timeout)
+                first_timeout = min(route_timeout, 40 if tools and not patient else route_timeout)
                 out = await asyncio.wait_for(request, timeout=first_timeout)
             except (asyncio.TimeoutError, httpx.TimeoutException):
-                retry_remaining = min(route_timeout - first_timeout, deadline - loop.time())
+                retry_remaining = min(max(route_timeout - first_timeout, 30.0), deadline - loop.time())
                 if not tools or started["v"] or retry_remaining < 5:
                     raise
                 timing["dropped_tools"] = True  # 带工具的请求超时，去掉工具重问

@@ -238,6 +238,12 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(settings["contact"]["himName"], "小年糕")
         self.call("PUT", "/settings/contact", Request({"himName": "哥哥"}))
         self.assertEqual(self.call("GET", "/settings")["contact"]["himName"], "哥哥")
+        self.call("PUT", "/settings/contact", Request({"meName": "小年糕"}))
+        contact = self.call("GET", "/settings")["contact"]
+        self.assertEqual((contact["himName"], contact["meName"]), ("哥哥", "小年糕"))
+        imprint_action(self.store, "manage_space", {"operation": "appearance", "him_name": "季宁"})
+        contact = self.call("GET", "/settings")["contact"]
+        self.assertEqual((contact["himName"], contact["meName"]), ("季宁", "小年糕"))
 
     def test_activity_uses_real_visible_events_and_persists_read_state(self):
         base = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)

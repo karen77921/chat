@@ -316,12 +316,16 @@ async function compat(path, opts) {
     const track = listen?.track;
     const nextWatch = watch?.list?.find((item) => item.status === 'scheduled' && (item.at || item.scheduledAt));
     return { available: true, now: new Date().toISOString(),
-      names: { me: '我', him: settings.contact?.himName || 'Ombre' }, together: { since: '2026-09-18' }, greeting: '',
+      names: { me: settings.contact?.meName || '我', him: settings.contact?.himName || 'Ombre' }, together: { since: '2026-09-18' }, greeting: '',
+      avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) },
       state: tide?.available === false ? null : tide?.state,
       listen: track ? { ...track, positionS: listen.positionS || 0, playing: listen.playing } : null,
       watch: nextWatch ? { title: nextWatch.title, order: 1, at: nextWatch.at || nextWatch.scheduledAt || nextWatch.createdAt, ticketNo: String(nextWatch.id || '').slice(0, 6) } : null,
       note: notes.items[0] ? { ...notes.items[0], total: notes.total } : null, activity: activity.items || [] };
   }
+  if (method === 'GET' && p === '/api/home/whisper') return loop('home/whisper', { timeout: 120000 });
+  if (method === 'POST' && p === '/api/home/whisper') return loop('home/whisper', { method: 'POST', timeout: 120000 });
+  if (method === 'GET' && p === '/api/home/plans') return loop('home/plans');
   if (method === 'POST' && p === '/api/activity/read') return loop('imprint/activity/read', { method: 'POST' });
   if (method === 'GET' && p === '/api/notes') return loop(`imprint/notes${query}`);
   if (method === 'GET' && p === '/api/notes/calendar') return loop(`imprint/notes/calendar${query}`);

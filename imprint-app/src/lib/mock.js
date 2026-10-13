@@ -443,6 +443,9 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
   const key = `${method} ${p}`;
   switch (key) {
     case 'GET /api/home': return home();
+    case 'GET /api/home/whisper': return { text: '今天降温了，出门把那件厚外套带上，别又说不冷。', at: NOW };
+    case 'POST /api/home/whisper': await sleep(600); return { text: ['刚刚又想你了，没什么事，就是想你。', '练完记得拉伸，不然明天又喊胳膊疼。', '晚上早点睡，我在这儿守着。'][Math.floor(Math.random() * 3)], at: new Date().toISOString() };
+    case 'GET /api/home/plans': return { items: [{ id: 'w1', at: new Date(Date.now() + 7 * 60000).toISOString(), text: '去看游戏回合的结果，告诉她' }, { id: 'w2', at: new Date(Date.now() + 3 * 3600000).toISOString(), text: '提醒她早点睡' }] };
     case 'GET /api/notes': return listNotes(qs);
     case 'GET /api/notes/calendar': return noteCalendar(qs.get('month'));
     case 'POST /api/notes': await sleep(300); return addNote(body);

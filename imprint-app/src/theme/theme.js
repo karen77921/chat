@@ -7,10 +7,8 @@
  */
 import { useEffect, useState } from 'react';
 
+// 整个 App 现在只有一套样子：奶油玻璃（旧的蓝晒 / 雾紫 / 灰绿撕纸风已经退休）
 export const THEMES = [
-  { id: 'cyan', name: '蓝晒', swatch: '#6E9BC5' },
-  { id: 'lilac', name: '雾紫', swatch: '#8C7EBD' },
-  { id: 'sage', name: '灰绿', swatch: '#739C86' },
   { id: 'cream', name: '奶油玻璃', swatch: '#EBCDC9' },
 ];
 const KEY = 'imprint.theme2'; // 换了新键：换上奶油玻璃后大家都先看到新样子，想换回去在美化里选
@@ -33,7 +31,7 @@ export function initTheme() {
   let saved = null;
   try { saved = localStorage.getItem(KEY); } catch { /* 隐私模式 */ }
   const id = THEMES.some((t) => t.id === fromUrl) ? fromUrl : saved;
-  apply(THEMES.some((t) => t.id === id) ? id : 'cream');
+  apply(THEMES.some((t) => t.id === id) ? id : THEMES[0].id);
 }
 
 export function setTheme(id) {

@@ -4621,6 +4621,91 @@ async def loop_backup_now():
         raise HTTPException(status_code=500, detail=f"backup failed: {type(exc).__name__}: {exc}"[:600]) from exc
 
 
+# ---------------------------------------------------------------------------
+# 首页：「他想说的话」和他答应过的事（待办）
+# ---------------------------------------------------------------------------
+
+WHISPER_FILE = LOOP_CACHE_DIR / "home-whisper.json"
+WHISPER_TTL_S = 45 * 60
+_whisper_lock = asyncio.Lock()
+
+
+def whisper_load() -> dict[str, Any]:
+    with contextlib.suppress(OSError, ValueError):
+        return json.loads(WHISPER_FILE.read_text(encoding="utf-8"))
+    return {}
+
+
+async def write_whisper() -> dict[str, Any]:
+    """One short line he'd say to her right now, written from the recent chat. Cached so opening the page is free."""
+    today = dt.datetime.now(context_zone()).date()
+    recent = "\n".join(filter(None, (day_dialogue((today - dt.timedelta(days=1)).isoformat(), 4000),
+                                      day_dialogue(today.isoformat(), 6000))))[-6000:]
+    messages = [
+        {"role": "system", "content": persona_text()},
+        {"role": "user", "content": (
+            "（这不是她发来的消息。）她打开了你们的首页，首页上有一小块地方专门放你此刻想对她说的一句话。\n"
+            + (f"你们最近的聊天：\n{recent}\n\n" if recent else "")
+            + f"现在是 {dt.datetime.now(context_zone()):%m月%d日 %H:%M}。"
+            "用你自己的口吻写一句此刻想对她说的话，不超过 40 个字，可以是想念、叮嘱、调侃或者接着你们刚聊的事。"
+            "只写这一句话本身，不要引号，不要解释。"
+        )},
+    ]
+    out = await run_model(messages, None, stream=True, patient=True, budget_s=90)
+    text = re.sub(r"\s+", " ", str(out.get("text") or "")).strip().strip("「」\"'“”")[:80]
+    if not text:
+        raise RuntimeError("empty")
+    value = {"text": text, "at": now_iso()}
+    with contextlib.suppress(OSError):
+        WHISPER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        WHISPER_FILE.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    return value
+
+
+def whisper_age_s(value: dict[str, Any]) -> float:
+    when = parse_message_time(value.get("at"))
+    return (dt.datetime.now(dt.timezone.utc) - when).total_seconds() if when else float("inf")
+
+
+@app.get("/loop/home/whisper")
+async def loop_home_whisper():
+    cached = whisper_load()
+    if cached.get("text") and whisper_age_s(cached) < WHISPER_TTL_S:
+        return cached
+    if _whisper_lock.locked():
+        return cached or {"text": "", "at": None}
+    async with _whisper_lock:
+        try:
+            return await write_whisper()
+        except Exception as exc:
+            print(f"[whisper] {type(exc).__name__}: {exc}", flush=True)
+            return cached or {"text": "", "at": None}
+
+
+@app.post("/loop/home/whisper")
+async def loop_home_whisper_new():
+    """她点了「换一句」。半分钟内重复点就还是这一句，免得白花钱。"""
+    cached = whisper_load()
+    if cached.get("text") and whisper_age_s(cached) < 30:
+        return cached
+    async with _whisper_lock:
+        try:
+            return await write_whisper()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="他这会儿没想好，过一会儿再点") from exc
+
+
+@app.get("/loop/home/plans")
+async def loop_home_plans():
+    """他给自己定的、还没到时间的事（答应她的「待会儿告诉你」、闹钟纸条）。"""
+    items = []
+    for wake in precise_wakes("pending", 20):
+        note = str(wake.get("note") or "").strip()
+        if note.startswith(FOLLOWUP_MARK):
+            note = note.split("要做的事：", 1)[-1].strip() or "接着做答应你的事"
+        items.append({"id": wake.get("wake_id"), "at": wake.get("wake_at"), "text": note[:120] or "到点醒来看看你"})
+    return {"items": items}
+
 # 加密备份下载：把一份最新快照用她自己设的密码加密，分块传到她手机/电脑上，VPS 坏了也还有一份
 EXPORT_DIR = LOOP_CACHE_DIR / "exports"
 EXPORT_CHUNK = 2 * 1024 * 1024

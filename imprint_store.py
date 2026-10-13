@@ -430,7 +430,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                     name = str(body.get("him_name") or "").strip()
                     if not name or len(name) > 24:
                         raise ValueError("昵称需为 1–24 字")
-                    save_setting("contact", {"himName": name})
+                    save_setting("contact", {**setting("contact"), "himName": name})
                 if body.get("avatar"):
                     avatar = str(body.get("avatar") or "").strip()
                     if len(avatar) > 2048 or not (avatar.startswith("/") or avatar.startswith("https://")):
@@ -581,7 +581,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
 
     def public_names() -> dict[str, str]:
         contact = setting("contact")
-        return {"me": NAMES["me"], "him": str(contact.get("himName") or NAMES["him"])[:24]}
+        return {"me": str(contact.get("meName") or NAMES["me"])[:24], "him": str(contact.get("himName") or NAMES["him"])[:24]}
 
     def listen_public() -> dict:
         tracks = rows("music_track")
@@ -722,10 +722,17 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.post("/settings/contact")
     async def set_contact(request: Request):
         body = await request.json()
-        nickname = str(body.get("himName") or "").strip()
-        if not nickname or len(nickname) > 24:
+        current = setting("contact")
+        updated = dict(current)
+        for key in ("himName", "meName"):  # 他的昵称、她的昵称；只改传了的那个
+            if key in body:
+                value = str(body.get(key) or "").strip()
+                if not value or len(value) > 24:
+                    raise HTTPException(400, "昵称需为 1–24 字")
+                updated[key] = value
+        if updated == current and not any(k in body for k in ("himName", "meName")):
             raise HTTPException(400, "昵称需为 1–24 字")
-        return save_setting("contact", {"himName": nickname})
+        return save_setting("contact", updated)
 
     @router.put("/settings/beauty")
     @router.post("/settings/beauty")

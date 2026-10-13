@@ -475,14 +475,14 @@ function Beauty() {
   const STYLES = [['glass', '磨砂玻璃'], ['paper', '纸片'], ['cyan', '蓝晒信纸']];
   return (
     <>
-      <div className="nc-k" style={{ marginTop: 0 }}>主题色</div>
+      {THEMES.length > 1 && <><div className="nc-k" style={{ marginTop: 0 }}>主题色</div>
       <div className="st-themes" role="radiogroup" aria-label="主题色">
         {THEMES.map((t) => (
           <button key={t.id} type="button" role="radio" aria-checked={theme === t.id} className={`st-theme ${theme === t.id ? 'on' : ''}`} data-preview={t.id} onClick={() => setTheme(t.id)}>
             <i style={{ background: t.swatch }} /><span>{t.name}{theme === t.id ? ' ✓' : ''}</span>
           </button>
         ))}
-      </div>
+      </div></>}
       <div className="card st-avs">
         <span className="st-avs-k">头像</span>
         <button type="button" onClick={() => { who.current = 'him'; avIn.current.click(); }} aria-label="换他的头像"><span className="st-av"><Avatar m={{ id: 'him' }} size={40} /></span>他</button>

@@ -4916,6 +4916,24 @@ async def loop_purchase_rereview(rec_id: str):
     await review_purchase(item)
     return next((x for x in imprint_action(LOOP_CACHE_DIR / "imprint.db", "purchase_list")["items"] if x["id"] == rec_id), item)
 
+# 头像、照片这类不挂在聊天消息上的上传：中转可能不让手机直接取，这里用后端自己的钥匙取回来，按 JSON 转交
+MEDIA_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
+
+
+@app.get("/loop/media/{name}")
+async def loop_media(name: str):
+    if not MEDIA_NAME_RE.match(name) or name.startswith("."):
+        raise HTTPException(status_code=400, detail="bad name")
+    data, _ = await fetch_upload({"url": f"/uploads/{name}"})
+    if data is None:
+        raise HTTPException(status_code=404, detail="not found")
+    if len(data) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="too large")
+    kind = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    if not kind.startswith("image/"):
+        raise HTTPException(status_code=415, detail="not an image")
+    return {"type": kind, "data": base64.b64encode(data).decode()}
+
 # 加密备份下载：把一份最新快照用她自己设的密码加密，分块传到她手机/电脑上，VPS 坏了也还有一份
 EXPORT_DIR = LOOP_CACHE_DIR / "exports"
 EXPORT_CHUNK = 2 * 1024 * 1024

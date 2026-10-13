@@ -56,7 +56,15 @@ export function authedImageUrl(url) {
       if (!res.ok || (type && !type.startsWith('image/') && !type.startsWith('application/octet-stream'))) throw new Error(`HTTP ${res.status} ${type}`);
       return res.blob();
     });
-    blobUrls.set(clean, tryOne(clean).catch(() => tryOne(other))
+    // 最后一招：让后端用自己的钥匙取回来（头像这种不挂在聊天消息上的图，中转可能不给手机直接取）
+    const viaBackend = () => {
+      const name = clean.split('?')[0].split('/').pop();
+      return loop(`media/${encodeURIComponent(name)}`).then(({ type, data }) => {
+        const bytes = Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
+        return new Blob([bytes], { type });
+      });
+    };
+    blobUrls.set(clean, tryOne(clean).catch(() => tryOne(other)).catch(viaBackend)
       .then((blob) => URL.createObjectURL(blob)).catch((err) => { blobUrls.delete(clean); throw err; }));
   }
   return blobUrls.get(clean);

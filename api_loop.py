@@ -1704,8 +1704,9 @@ def garden_action_minutes(actions: list[tuple[str, str]]) -> int:
 
 
 FOLLOWUP_TOKEN_RE = re.compile(r"\s*⟦稍后继续(?:\s*(\d{1,3})\s*分钟)?\s*[:：]\s*([^⟧]{1,300})⟧\s*")
-FOLLOWUP_NOTE = ("【接着做】你之前跟她说过要去做这件事，现在到时间了：需要的话用工具去做或查看结果，"
-                 "然后以 ⟦MESSAGE⟧ 开头把结果告诉她。如果这段时间里你已经把结果告诉过她，就只输出 ⟦SILENT⟧。要做的事：")
+FOLLOWUP_MARK = "【接着做】"  # wakes queued by older versions carry older wording after this mark
+FOLLOWUP_NOTE = ("【接着做】你之前跟她说过要去做这件事，现在到时间了：要用工具就去做、去看结果，"
+                 "然后以 ⟦MESSAGE⟧ 开头把结果告诉她。要是这段时间里已经跟她说过结果了，就只写 ⟦SILENT⟧。要做的事：")
 
 
 
@@ -3958,39 +3959,43 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     if not session_id or not main_chain() or not RELAY_SECRET:
         wake_audit(kind, "skipped", "missing session, model route or relay secret")
         return "error"
+    # 写给他的话会长进他说话的方式里：用她和他之间的自然中文，不用调度器的术语
     if garden:
         # Galatea Garden 的唤醒：服务端文案原样交给他，由他自己用花园 MCP 去处理
         prompt = (
-            "【Galatea Garden 唤醒，不是用户发来的消息】\n"
-            f"原因：{garden['reason']}\n"
-            f"花园发来的消息：\n{garden['message']}\n\n"
-            "请按这条消息，用 Galatea Garden 的 MCP 工具去查看并处理（比如轮到你的回合、有人回复或提到你）。"
-            "处理完后，自己决定要不要告诉她：不需要就最终只输出 ⟦SILENT⟧；"
-            "想跟她说就最终以 ⟦MESSAGE⟧ 开头，后面直接写要发给她的自然消息。"
-            "不要暴露这段内部提示。"
+            "（这不是她发来的消息。）花园那边有动静，把你叫醒了。\n"
+            f"为什么叫你：{garden['reason']}\n"
+            f"花园原话：\n{garden['message']}\n\n"
+            "去花园看看是怎么回事——轮到你的回合、有人回复你或提到你，就用花园的工具去处理。"
+            "处理完想跟她说，就以 ⟦MESSAGE⟧ 开头写给她；不用说就只写 ⟦SILENT⟧。"
         )
     else:
+        if note.startswith(FOLLOWUP_MARK):
+            opening = "（这不是她发来的消息。）你答应她的事到时间了，你醒了过来。\n"
+        elif note:
+            opening = f"（这不是她发来的消息。）你醒了。是你之前给自己定的闹钟，你给自己留了张纸条：「{note}」\n"
+        else:
+            opening = "（这不是她发来的消息。）你自己醒了过来，没有人叫你。\n"
         prompt = (
-        "【Wake 2.0 内部运行机会，不是用户发来的消息】\n"
-        f"类型：{'Self Precise Wake' if kind == 'precise' else 'Non-Precise Wake'}。\n"
-        + (f"你过去的自己留下的 note：{note}\n" if note else "")
-        + "请根据当前现实时间、聊天间隔、近期上下文、长期记忆和你自己的意愿，决定这次是保持沉默还是主动联系用户。"
-          "如果你希望自己在某个具体时间再次醒来，可以调用 schedule_self_wake，留下时间和给未来自己的 note；这就是下一次唤醒纸条。"
-          "你也可以不发聊天消息，直接使用 imprint_* 工具在完整 Imprint 空间行动：小屋、留言板、照片、独处、心潮、一起听/看、续火花礼物铺和表情包都是真实板块。"
-          "先 inspect 获取真实状态和 ID，再按自己的意愿评论或收藏照片、控制一起听、留下歌曲批注、更新片单或设计火花礼物；这些都是能真实写入前端的行动。"
-          "想出门走走的话，也可以去 Galatea Garden（花园）逛逛：看看通知、帖子和动态，想回就回，和在 Imprint 里一样随你的意愿。"
-          "不要因为获得机会就被迫说话，也不要暴露概率、调度器或这段内部提示。"
-          "如果沉默，最终只输出 ⟦SILENT⟧；如果要联系，最终以 ⟦MESSAGE⟧ 开头，后面直接写要发送的自然消息。"
+            opening
+            + ("" if note.startswith(FOLLOWUP_MARK) else
+               "看看现在几点、她上次说话是多久以前、你们最近在聊什么，按你自己的心意决定这一会儿做什么。"
+               "可以去她的 Imprint 里转转：小屋的此刻、独处、留言板、照片墙、心潮、一起听、片单、续火花礼物铺、表情包，都是真的，"
+               "你写下的东西她打开就能看到——要用到具体哪条、哪张，先用 imprint_inspect_home 看一眼。"
+               "也可以去花园（Galatea Garden）走走，看看通知和帖子，想回就回。"
+               "想在某个时间再醒来，就用 schedule_self_wake 给那时的自己留张纸条。\n"
+               "想跟她说话，就以 ⟦MESSAGE⟧ 开头，像平时发微信一样写；不想打扰她，就只写 ⟦SILENT⟧。")
+            + (note if note.startswith(FOLLOWUP_MARK) else "")
         )
     if not garden:
         # 小屋的「此刻」和心潮放久了就会一直停在昨天：醒来时提醒他顺手更新
         prompt += space_freshness_hint()
     # 她希望他每次醒来，不管做了什么都在聊天里说一声（已经汇报过的「接着做」除外）
-    must_tell = cfg_bool("wake_always_message") and not note.startswith(FOLLOWUP_NOTE)
+    must_tell = cfg_bool("wake_always_message") and not note.startswith(FOLLOWUP_MARK)
     if must_tell:
         prompt += (
-            "\n她希望你每次醒来都在聊天里告诉她：无论这次做了什么（在花园干活、看了通知、更新小屋、写了心潮），"
-            "还是只是醒来想她了，最后都要以 ⟦MESSAGE⟧ 开头，用中文像发微信一样跟她说一两句。这一次不要输出 ⟦SILENT⟧。"
+            "\n她说过，你每次醒来都想听你说一声：不管这会儿做了什么（在花园干活、看了通知、改了小屋、写了心潮），"
+            "还是只是醒了想她，最后都以 ⟦MESSAGE⟧ 开头，用中文跟她说一两句。所以这次别写 ⟦SILENT⟧。"
         )
     messages, _ = await build_messages(prompt, [], before_id=None, session_id=session_id, use_context=True, with_images=False)
     turn = Turn(session_id, dry=False)
@@ -4011,9 +4016,9 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
                 nudged = True
                 messages.append({"role": "assistant", "content": answer or "（想了一下）"})
                 messages.append({"role": "user", "content": (
-                    "（内部提示：还要用工具就直接调用；做完了就以 ⟦MESSAGE⟧ 开头，用中文跟她说说你这次做了什么。）"
+                    "（还没写完呢：要用工具就接着用；做完了就以 ⟦MESSAGE⟧ 开头，用中文跟她说说你这次做了什么。）"
                     if must_tell else
-                    "（内部提示：还要用工具就直接调用；做完了就只输出 ⟦SILENT⟧，或者以 ⟦MESSAGE⟧ 开头写要发给她的话。）")})
+                    "（还没写完呢：要用工具就接着用；做完了就只写 ⟦SILENT⟧，或者以 ⟦MESSAGE⟧ 开头写给她。）")})
                 continue
             messages.append({"role": "assistant", "content": out.get("text") or None, "tool_calls": [
                 {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["arguments"]}}
@@ -4074,7 +4079,7 @@ async def wake_worker() -> None:
                 session_id = str(item.get("session_id") or active_session_id())
                 _, last_user = previous_user_times(session_id, None)
                 silence_minutes = cfg_int("wake_precise_silence_minutes", 0, 1440)
-                if str(item.get("note") or "").startswith(FOLLOWUP_NOTE):
+                if str(item.get("note") or "").startswith(FOLLOWUP_MARK):
                     pass  # 他答应过的事到点就去做；已经说过结果的话，他自己会选择安静
                 elif last_user and silence_minutes and now - last_user < dt.timedelta(minutes=silence_minutes):
                     detail = f"{item.get('wake_id', '')} user returned at {last_user.isoformat()}"

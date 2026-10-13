@@ -15,6 +15,7 @@ import { useBeauty } from '../theme/theme.js';
 import Message from '../components/chat/Message.jsx';
 import InputBar from '../components/chat/InputBar.jsx';
 import MessageMenu from '../components/chat/MessageMenu.jsx';
+import { ledgerFrom } from '../lib/ledger.js';
 import '../components/chat/chat.css';
 import AuthImg from '../design/AuthImg.jsx';
 
@@ -27,6 +28,7 @@ export default function Chat({ query }) {
     if (data?.beauty && Object.keys(data.beauty).length) setBeauty(data.beauty);
   }, [data?.beauty]);
   const [menu, setMenu] = useState(null); // { m, rect }
+  const [ledger, setLedger] = useState(null); // 账本里正在看的那条消息
   const [quote, setQuote] = useState(null);
   const [editing, setEditing] = useState(null); // { id, text, then? }
   const [viewer, setViewer] = useState(null); // { images, i }
@@ -156,8 +158,10 @@ export default function Chat({ query }) {
           onRegenerate={c.regenerate}
           onEdit={(m) => setEditing({ id: m.id, text: m.text })}
           onDelete={c.remove}
-          onReact={c.react} />
+          onReact={c.react}
+          onLedger={setLedger} />
       )}
+      {ledger && <Ledger m={ledger} onClose={() => setLedger(null)} />}
       {viewer && <ImageViewer {...viewer} onClose={() => setViewer(null)} onGo={(i) => setViewer((v) => ({ ...v, i }))} />}
       {detailsOpen && <ChatDetails data={data} upload={c.upload} onClose={() => setDetailsOpen(false)} onUpdated={c.reload} />}
       {toast && <div className="ch-toast glass" role="status">{toast}</div>}
@@ -176,6 +180,23 @@ export default function Chat({ query }) {
         </div>
       )}
     </main>
+  );
+}
+
+function Ledger({ m, onClose }) {
+  const groups = ledgerFrom(m.api) || [];
+  return (
+    <Sheet open onClose={onClose} label="这一轮的账本" seed={57}>
+      <div className="kicker" style={{ letterSpacing: '.12em' }}>这一轮的账本</div>
+      <div className="ledger">
+        {groups.map((g) => (
+          <section key={g.title}>
+            <h3>{g.title}</h3>
+            <dl>{g.rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+          </section>
+        ))}
+      </div>
+    </Sheet>
   );
 }
 

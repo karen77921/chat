@@ -3398,6 +3398,15 @@ async def handle_turn(
     timing: dict[str, Any] = {"context_s": round(asyncio.get_running_loop().time() - turn_t0, 1), "model": [], "tool_s": 0.0,
                               **CONTEXT_TIMING.get(session_id or "__default__", {})}
     tools = turn_tools(tool_context_text(text, messages))
+    # 账本：这一轮请求里装了些什么（前端长按他的消息可以看）
+    system_chars = sum(len(str(m.get("content") or "")) for m in messages if m.get("role") == "system")
+    timing["request"] = {
+        "system_chars": system_chars,
+        "history": sum(1 for m in messages if m.get("role") in {"user", "assistant"}),
+        "history_chars": sum(len(json.dumps(m.get("content"), ensure_ascii=False)) for m in messages if m.get("role") != "system"),
+        "tools": len(tools),
+        "tool_chars": len(json.dumps(tools, ensure_ascii=False)),
+    }
     max_steps = cfg_int("max_tool_steps", 0, 50)
     texts: list[str] = []
     narration: list[str] = []

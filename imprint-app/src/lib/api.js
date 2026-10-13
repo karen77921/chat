@@ -113,6 +113,7 @@ export function relayMessage(raw) {
     status: raw?.meta?.api?.error ? 'failed' : (mine && raw?.meta?.deferred && !raw?.meta?.reply_requested ? 'queued' : 'sent'),
     thinking: raw?.meta?.thinking || '', edited: Boolean(raw?.meta?.edited_at),
   };
+  if (!mine && (raw?.meta?.api?.usage || raw?.meta?.api?.timing)) out.api = raw.meta.api; // 长按能看这一轮的账本
   if (raw.kind === 'thinking') {
     // 思考过程只显示成一个可以折叠的「想了一下」，不当成一条正式回复
     out.type = 'thinking'; out.thinking = String(raw.text || '').trim(); out.text = ''; out.quote = undefined;

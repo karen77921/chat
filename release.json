@@ -1,16 +1,16 @@
 {
- "rev": "207c2e1aa73702f33494f8f9d08739025f3e9437",
+ "rev": "f99e2de39aaf0e5aacfab75d47351bda4d7a4460",
  "backend": {
   "api_loop.py": "24f1f75eb21113f3e7fda1b0dfa8bf0cb1eb6169c371dbc25f0510f603c5b24e",
   "imprint_store.py": "5834d963e662b1416e73ee9ded3f81c82e08f54f1d382493df82071598c2f5ad"
  },
  "dist": {
-  "assets/index-Dcen-TnY.js": "83e0e60ec3784213f58c32e89af5d4213717104473160da128f64407789def12",
-  "assets/index-DkCzBs8U.css": "ec8975246b36ca391a84f9b432391eb15ef106758feceef00678d2866720d762",
+  "assets/index-B-4Dc-T0.css": "2542a9948b2e5ead6f71fae5a8c8a0ac80c63560b9be228a0695e979712ec29e",
+  "assets/index-BlsgELql.js": "7c07991e8b26d5cbcdcf1c7f6132008cd69d33202ef7b8e6b60ae66a2f571efe",
   "assets/pingfang-tc-regular-hSesd6OW.woff2": "450776b87c26d7893bfb42852174afb17549513137ad0855801024da1d72c0b3",
-  "index.html": "568ddc599dc046bb2204ec4aab9114496fcd1acba733265466f9d58ce6fba130"
+  "index.html": "c3fa3a95502b523887faed3a95cdcec976e02c6b784ddf336b0764904f23f25b"
  },
- "entry_js": "assets/index-Dcen-TnY.js",
+ "entry_js": "assets/index-BlsgELql.js",
  "known": [
   "018a055e4781ae1fc5686632f29ea8dd73ae79986fd8277ab74fe70c6b6c92e8",
   "03cf0422d910afad7a361cf037d05bbfb511e03b5865f2d5af983f46eb3478e3",

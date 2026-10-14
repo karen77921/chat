@@ -8,7 +8,7 @@ import Icon from '../design/icons.jsx';
 import Sheet from '../design/Sheet.jsx';
 import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
-import mochi from '../assets/mochi-her.png';
+import mochi from '../assets/mochi-him.png';
 import '../components/vocab/vocab.css';
 
 const VIEWS = [['due', '今天复习'], ['wrong', '错词本'], ['new', '待学'], ['all', '全部'], ['mastered', '记牢了']];
@@ -33,7 +33,8 @@ function dueLabel(x, today) {
 
 const NOTE_TILT = ['-2.5deg', '1.8deg', '-1.2deg', '2.4deg'];
 const WEEK = '日一二三四五六';
-const cheer = (left, done) => (left === 0 ? (done ? '今天全部搞定！奖励自己一下～' : '今天没有任务，休息一下也很好') : left <= 5 ? `只剩 ${left} 个啦，马上就好！` : `还有 ${left} 个，一起冲！`);
+/** 他那只年糕在旁边说的话（他的口气） */
+const cheer = (left, done) => (left === 0 ? (done ? '全背完了？过来，奖励你。' : '今天放你一天假。') : left <= 5 ? `就剩 ${left} 个，背完我陪你。` : `${left} 个，慢慢来，我盯着。`);
 
 function Level({ x, total }) {
   if (x.new) return <span className="vb-lv new">待学</span>;

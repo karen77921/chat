@@ -34,10 +34,29 @@ const KIND = {
   memory: { icon: 'leaf', href: '#/tide?tab=memory' },
   photo: { icon: 'photo', href: '#/room?tab=photos' },
 };
-const ENTRIES = [
-  ['聊天', 'chat', '#/chat'], ['小屋', 'room', '#/room'], ['心潮', 'tide', '#/tide'], ['一起', 'play', '#/together'],
-  ['留言板', 'feather', '#/notes'], ['续火花', 'flame', '#/spark'], ['买买申请', 'gift', '#/approvals'], ['存钱罐', 'heart', '#/piggy'], ['单词本', 'pen', '#/words'], ['设置', 'desk', '#/settings'],
+/** 百宝箱：底栏已经有的（首页 / 小屋 / 聊天 / 心潮 / 设置）不再重复，其余的小功能都收在这里，以后加新的也往这里放 */
+const TREASURES = [
+  ['一起', 'play', '#/together', '听歌 · 看片'], ['留言板', 'feather', '#/notes', '写给彼此'], ['搜留言', 'search', '#/notes?search=1', '翻以前的'],
+  ['续火花', 'flame', '#/spark', '礼物铺 · 券'], ['买买申请', 'gift', '#/approvals', '他来批'], ['存钱罐', 'heart', '#/piggy', '他只能看'],
+  ['单词本', 'pen', '#/words', '他会抽查'],
 ];
+const ACT_SHOWN = 4;
+
+/** 连着好几条「他回复了你」（同一个窗口、同一类）合成一条，动态就不会一长串 */
+function groupActivity(list) {
+  const out = [];
+  for (const a of list || []) {
+    const last = out[out.length - 1];
+    if (last && last.kind === a.kind && (last.sessionId || '') === (a.sessionId || '') && (a.kind === 'reply' || a.kind === 'tool')) {
+      last.count += 1;
+      last.unread = (last.unread || 0) + (a.unread || 0);
+      if (a.kind === 'tool' && last.tools.length < 4 && !last.tools.includes(a.text)) last.tools.push(a.text);
+      continue;
+    }
+    out.push({ ...a, count: 1, tools: [a.text] });
+  }
+  return out;
+}
 
 function Face({ src, label }) {
   return (
@@ -66,6 +85,9 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
   const plans = useLoad('/api/home/plans');
   const [asking, setAsking] = useState(false);
   const [naming, setNaming] = useState(false);
+  const [actOpen, setActOpen] = useState(false);
+  const [boxOpen, setBoxOpen] = useState(false);
+  const acts = groupActivity(d?.activity);
   const L = useListen();
   const listen = d?.listen;
   const playing = L?.state ? L.state.playing : listen?.playing;
@@ -165,22 +187,43 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
         <h2>他的动态</h2>
         {unread ? <button type="button" onClick={onReadAll}>全部已读</button> : <a href="#/room">去小屋</a>}
       </div>
-      {d?.activity?.length ? (
+      {acts.length ? (
         <div className="card hm-list">
-          {d.activity.map((a) => (
+          {acts.slice(0, actOpen ? acts.length : ACT_SHOWN).map((a) => (
             <a key={a.id} href={a.kind === 'reply' && a.sessionId ? `#/chat/t?id=${encodeURIComponent(a.sessionId)}` : KIND[a.kind]?.href || '#/room'} className="hm-act">
               <span className="hm-ico"><Icon name={KIND[a.kind]?.icon || 'leaf'} size={15} /></span>
-              <span className="hm-act-t"><b>{a.title}</b><em>{a.text}</em></span>
+              <span className="hm-act-t"><b>{a.title}{a.count > 1 ? <small> · {a.count} 条</small> : null}</b><em>{a.kind === 'tool' && a.count > 1 ? a.tools.join('、') : a.text}</em></span>
               <span className="hm-act-m">{ago(a.at, now)}{a.unread > 0 && <span className="badge">{a.unread}</span>}</span>
             </a>
           ))}
+          {acts.length > ACT_SHOWN && (
+            <button type="button" className="hm-act-more" onClick={() => setActOpen((v) => !v)}>
+              {actOpen ? '收起' : `还有 ${acts.length - ACT_SHOWN} 条`}<Icon name="chev" size={13} />
+            </button>
+          )}
         </div>
       ) : <div className="card hm-pad muted">还没有可记录的动态</div>}
 
-      <nav className="hm-entries" aria-label="所有入口">
-        {ENTRIES.map(([zh, icon, href]) => <a key={href} href={href} className="card"><Icon name={icon} size={18} stroke={1.3} /><span>{zh}</span></a>)}
-        <a href="#/notes?search=1" className="card"><Icon name="search" size={18} stroke={1.3} /><span>搜留言</span></a>
-      </nav>
+      <button type="button" className="card hm-box" onClick={() => setBoxOpen(true)} aria-label="打开百宝箱">
+        <span className="hm-box-ic"><Icon name="gift" size={20} stroke={1.4} /></span>
+        <span className="hm-box-t"><b>百宝箱</b><em>{TREASURES.map(([zh]) => zh).join(' · ')}</em></span>
+        <span className="hm-round"><Icon name="chev" size={14} /></span>
+      </button>
+      {boxOpen && (
+        <Sheet open onClose={() => setBoxOpen(false)} label="百宝箱" seed={23}>
+          <div className="hm-box-sheet">
+            <h3><span className="hand">treasure box</span>百宝箱</h3>
+            <nav className="hm-treasures" aria-label="百宝箱">
+              {TREASURES.map(([zh, icon, href, sub]) => (
+                <a key={href} href={href} onClick={() => setBoxOpen(false)}>
+                  <span className="hm-tr-ic"><Icon name={icon} size={20} stroke={1.4} /></span>
+                  <b>{zh}</b><em>{sub}</em>
+                </a>
+              ))}
+            </nav>
+          </div>
+        </Sheet>
+      )}
 
       {naming && <Names names={names} onClose={() => setNaming(false)} onSaved={() => { setNaming(false); onNamesSaved?.(); }} />}
     </main>

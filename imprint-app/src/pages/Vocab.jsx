@@ -8,6 +8,7 @@ import Icon from '../design/icons.jsx';
 import Sheet from '../design/Sheet.jsx';
 import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
+import mochi from '../assets/mochi-her.png';
 import '../components/vocab/vocab.css';
 
 const VIEWS = [['due', '今天复习'], ['wrong', '错词本'], ['new', '待学'], ['all', '全部'], ['mastered', '记牢了']];
@@ -30,8 +31,14 @@ function dueLabel(x, today) {
   return days === 1 ? '明天复习' : `${days} 天后复习`;
 }
 
-function Dots({ stage, total }) {
-  return <span className="vb-dots" aria-label={`第 ${stage} 轮`}>{Array.from({ length: total }, (_, i) => <i key={i} className={i < stage ? 'on' : ''} />)}</span>;
+const NOTE_TILT = ['-2.5deg', '1.8deg', '-1.2deg', '2.4deg'];
+const WEEK = '日一二三四五六';
+const cheer = (left, done) => (left === 0 ? (done ? '今天全部搞定！奖励自己一下～' : '今天没有任务，休息一下也很好') : left <= 5 ? `只剩 ${left} 个啦，马上就好！` : `还有 ${left} 个，一起冲！`);
+
+function Level({ x, total }) {
+  if (x.new) return <span className="vb-lv new">待学</span>;
+  if (x.mastered) return <span className="vb-stamp sm">记牢</span>;
+  return <span className="vb-lv" title={`第 ${x.stage || 0} 轮`}>Lv.{(x.stage || 0) + 1}<i style={{ width: `${(((x.stage || 0) + 1) / total) * 100}%` }} /></span>;
 }
 
 export default function Vocab() {
@@ -50,6 +57,13 @@ export default function Vocab() {
     const inBook = book == null ? all : all.filter((x) => (x.book || '') === book);
     return k ? inBook.filter((x) => x.word.toLowerCase().includes(k) || (x.meaning || '').toLowerCase().includes(k)) : inBook;
   }, [data, q, book]);
+  const him = data?.names?.him || '他';
+  const now = new Date();
+
+  const startReview = async () => {
+    const got = view === 'due' ? data : await api('/api/vocab/due');
+    if (got?.items?.length) setStudying({ list: got.items });
+  };
   const startLearn = async () => {
     const got = await api('/api/vocab/do/learn', { method: 'POST', body: {} });
     if (got?.items?.length) setStudying({ list: got.items, learn: true });
@@ -63,66 +77,82 @@ export default function Vocab() {
     await api('/api/vocab/do/delete_book', { method: 'POST', body: { book: name } });
     setBook(null); reload();
   };
-  const him = data?.names?.him || '他';
 
-  const startReview = async () => {
-    const got = view === 'due' ? data : await api('/api/vocab/due');
-    if (got?.items?.length) setStudying({ list: got.items });
-  };
+  const newToday = st ? Math.min(st.learn_left, st.new) : 0;
+  const left = st ? st.due + newToday : 0;
+  const pct = st ? Math.round((st.done_today / Math.max(1, st.done_today + left)) * 100) : 0;
 
   return (
     <main className="vb">
       <header className="vb-head">
-        <a href="#/" className="rbtn" aria-label="返回"><Icon name="back" size={18} stroke={1.5} /></a>
-        <h1><span className="hand">words</span><span>单词本</span></h1>
-        <p>按遗忘曲线排复习：第 1、2、4、7、15、30 天各过一遍。记得就往后推，忘了重新计时。{him}也看得到今天该复习哪些，会找机会抽你。</p>
+        <a href="#/" className="vb-back" aria-label="返回"><Icon name="back" size={18} stroke={1.6} /></a>
+        <span className="vb-date">{now.getMonth() + 1}.{now.getDate()} 周{WEEK[now.getDay()]}</span>
+        <h1><mark>单词本</mark><small>WORD BOOK</small></h1>
       </header>
 
-      {!data && <div className="card vb-pad">正在翻…</div>}
-      {data?.available === false && <div className="card vb-pad">暂时连不上，过一会儿再来。</div>}
+      {!data && <div className="vb-paper vb-pad">正在翻本子…</div>}
+      {data?.available === false && <div className="vb-paper vb-pad">暂时连不上，过一会儿再来。</div>}
       {st && (
         <>
-          <section className="card vb-stats">
-            <div className="hot"><b className="serif">{st.due}</b><em>今天要复习</em></div>
-            <div><b className="serif">{st.wrong}</b><em>错词</em></div>
-            <div><b className="serif">{st.total}</b><em>一共</em></div>
-            <div><b className="serif">{st.mastered}</b><em>记牢了</em></div>
-          </section>
-          <div className="vb-acts">
-            <button type="button" className="btn-main" disabled={!st.due} onClick={startReview}>{st.due ? `开始复习 · ${st.due} 个` : '今天复习完啦'}</button>
-            <button type="button" className="mini-btn" onClick={() => setAdding(true)}><Icon name="plus" size={14} />录词 / 导入</button>
-          </div>
-          {st.new > 0 && (
-            <section className="card vb-learn">
-              <div className="vb-learn-h"><b>单词书</b><em>待学 {st.new} 个 · 今天学了 {st.learned_today}/{st.daily_new}</em></div>
-              <div className="vb-tabs vb-daily"><small>每天新学</small>{DAILY.map((n) => <button key={n} type="button" className={`chip ${st.daily_new === n ? 'on' : ''}`} onClick={() => setDaily(n)}>{n}</button>)}</div>
-              <button type="button" className="btn-main" disabled={!st.learn_left} onClick={startLearn}>{st.learn_left ? `学今天的新词 · ${Math.min(st.learn_left, st.new)} 个` : '今天的新词学完啦'}</button>
-            </section>
-          )}
-          <div className="vb-tabs" role="tablist">
-            {VIEWS.map(([k, n]) => <button key={k} type="button" role="tab" aria-selected={view === k} className={`chip ${view === k ? 'on' : ''}`} onClick={() => setView(k)}>{n}</button>)}
-          </div>
-          {books.length > 0 && view !== 'due' && (
-            <div className="vb-tabs vb-books">
-              <button type="button" className={`chip ${book == null ? 'on' : ''}`} onClick={() => setBook(null)}>全部本子</button>
-              {books.map((b) => <button key={b.name} type="button" className={`chip ${book === b.name ? 'on' : ''}`} onClick={() => setBook(b.name)}>{b.name} · {b.total}</button>)}
-              {book != null && <button type="button" className="cl-link st-delmcp" onClick={() => dropBook(book)}><Icon name="trash" size={14} stroke={1.5} />删掉这本</button>}
+          <section className="vb-today">
+            <i className="vb-pin" aria-hidden="true" />
+            <div className="vb-today-h">
+              <b>今日任务</b>
+              {st.streak > 0 && <span className="vb-streak">🔥 连续 {st.streak} 天</span>}
             </div>
-          )}
-          {view !== 'due' && <label className="pill vb-search"><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜单词或释义" /></label>}
-          <div className="card vb-list">
-            {items.map((x) => (
-              <button key={x.id} type="button" className={`vb-row ${x.wrong ? 'bad' : ''}`} onClick={() => setPicked(x)}>
-                <span className="vb-w"><b>{x.word}</b><em>{x.meaning || '（没写释义）'}{x.book ? <i> · {x.book}</i> : null}</em></span>
-                <span className="vb-meta">
-                  <small>{x.new ? '待学' : dueLabel(x, st.today)}</small>
-                  <Dots stage={x.mastered ? st.offsets.length : x.stage || 0} total={st.offsets.length} />
-                  {x.wrong > 0 && <small className="vb-bad">错 {x.wrong} 次</small>}
-                </span>
+            <div className="vb-bar" aria-label={`今天完成 ${pct}%`}><i style={{ width: `${pct}%` }} /><span>{st.done_today ? `今天已经过了 ${st.done_today} 个` : '今天还没开始'}</span></div>
+            <div className="vb-tasks">
+              <button type="button" className="vb-task sky" disabled={!st.due} onClick={startReview}>
+                {st.due ? <><b>{st.due}</b><em>个要复习</em></> : <span className="vb-stamp">复习完成</span>}
               </button>
+              <button type="button" className="vb-task pink" disabled={!newToday} onClick={startLearn}>
+                {newToday ? <><b>{newToday}</b><em>个新词</em></> : <span className="vb-stamp">{st.new ? '新词学完' : '没有新词'}</span>}
+              </button>
+            </div>
+            <div className="vb-mochi" aria-hidden="true">
+              <span className="vb-say">{cheer(left, st.done_today)}</span>
+              <img src={mochi} alt="" draggable="false" />
+            </div>
+          </section>
+
+          <div className="vb-notes">
+            {[['错词', st.wrong, 'coral'], ['一共', st.total, 'yellow'], ['记牢了', st.mastered, 'mint'], ['待学', st.new, 'sky']].map(([k, v, c], n) => (
+              <div key={k} className={`vb-note ${c}`} style={{ '--tilt': NOTE_TILT[n] }}><b>{v}</b><em>{k}</em></div>
             ))}
-            {!items.length && <p className="vb-empty">{view === 'due' ? '今天没有要复习的词。' : view === 'wrong' ? '错词本是空的，厉害。' : view === 'new' ? '没有待学的词。导入一本单词书试试。' : '这里还没有词。点「录词」开始吧。'}</p>}
           </div>
+
+          {st.new > 0 && (
+            <div className="vb-daily"><span>每天新学</span>{DAILY.map((n) => <button key={n} type="button" className={st.daily_new === n ? 'on' : ''} onClick={() => setDaily(n)}>{n}</button>)}</div>
+          )}
+
+          <section className="vb-book">
+            <nav className="vb-index" role="tablist">
+              {VIEWS.map(([k, n], i) => <button key={k} type="button" role="tab" aria-selected={view === k} className={`t${i} ${view === k ? 'on' : ''}`} onClick={() => setView(k)}>{n}</button>)}
+            </nav>
+            <div className="vb-page">
+              <button type="button" className="vb-addline" onClick={() => setAdding(true)}><Icon name="plus" size={15} />录词 / 导入单词书</button>
+              {books.length > 0 && view !== 'due' && (
+                <div className="vb-books">
+                  <button type="button" className={book == null ? 'on' : ''} onClick={() => setBook(null)}>全部本子</button>
+                  {books.map((b) => <button key={b.name} type="button" className={book === b.name ? 'on' : ''} onClick={() => setBook(b.name)}>{b.name} · {b.total}</button>)}
+                  {book != null && <button type="button" className="vb-del" onClick={() => dropBook(book)}><Icon name="trash" size={13} stroke={1.5} />删掉这本</button>}
+                </div>
+              )}
+              {view !== 'due' && <label className="vb-search"><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜单词或释义" /></label>}
+              {items.map((x) => (
+                <button key={x.id} type="button" className={`vb-row ${x.wrong ? 'bad' : ''}`} onClick={() => setPicked(x)}>
+                  <span className="vb-w"><b>{x.word}</b><em>{x.meaning || '（没写释义）'}{x.book ? <i> · {x.book}</i> : null}</em></span>
+                  <span className="vb-meta">
+                    <Level x={x} total={st.offsets.length} />
+                    <small>{x.new ? '' : dueLabel(x, st.today)}</small>
+                    {x.wrong > 0 && <small className="vb-x">{'✗'.repeat(Math.min(x.wrong, 5))}</small>}
+                  </span>
+                </button>
+              ))}
+              {!items.length && <p className="vb-empty">{view === 'due' ? '今天没有要复习的词 ✿' : view === 'wrong' ? '错词本是空的，厉害！' : view === 'new' ? '没有待学的词，导入一本单词书试试。' : '这一页还是空白的。'}</p>}
+            </div>
+          </section>
+          <p className="vb-foot">第 1、2、4、7、15、30 天各复习一次 · 记得往后推，忘了重新计时 · {him}看得到今天的任务，会来抽查你</p>
         </>
       )}
 
@@ -224,41 +254,61 @@ function AddWords({ onClose, onDone }) {
   );
 }
 
-/** 复习：一张一张翻，看释义前先自己想 */
+/** 复习 / 学新词：一张索引卡，点一下翻面；连对有连击，做完撒花 */
 function Study({ list, learn, onClose }) {
   const [i, setI] = useState(0);
   const [flip, setFlip] = useState(false);
-  const [score, setScore] = useState({ ok: 0, bad: 0 });
+  const [marks, setMarks] = useState([]);
+  const [combo, setCombo] = useState(0);
   const [busy, setBusy] = useState(false);
   const done = i >= list.length;
   const x = list[i];
+  const ok = marks.filter(Boolean).length;
   const answer = async (correct) => {
     setBusy(true);
     try { await api(`/api/vocab/${x.id}/review`, { method: 'POST', body: { correct } }); } catch { /* 记不上也让她往下翻 */ }
-    setScore((s) => ({ ok: s.ok + (correct ? 1 : 0), bad: s.bad + (correct ? 0 : 1) }));
-    setFlip(false); setI((n) => n + 1); setBusy(false);
+    setMarks((m) => [...m, correct]);
+    setCombo((c) => (correct ? c + 1 : 0));
+    setFlip(false);
+    setTimeout(() => { setI((n) => n + 1); setBusy(false); }, 180);
   };
   return (
-    <Sheet open onClose={onClose} label="复习" seed={92}>
+    <Sheet open onClose={onClose} label={learn ? '学新词' : '复习'} seed={92}>
       <div className="vb-study">
         {!done ? (
           <>
-            <small className="vb-prog">{learn ? '新词 · ' : ''}{i + 1} / {list.length}{x.wrong ? ` · 错过 ${x.wrong} 次` : ''}</small>
-            <button type="button" className="card vb-card" onClick={() => setFlip(true)} aria-label={flip ? '释义' : '点一下看释义'}>
-              <b className="serif">{x.word}</b>
-              {flip ? <span>{x.meaning || '（没写释义）'}{x.note ? <i>{x.note}</i> : null}</span> : <em>{learn ? '认不认识？想一下再点开' : '先在心里想一下，再点我看释义'}</em>}
+            <div className="vb-track">
+              {list.map((_, n) => <i key={n} className={n < marks.length ? (marks[n] ? 'ok' : 'no') : n === i ? 'now' : ''} />)}
+            </div>
+            <div className="vb-study-h">
+              <span>{learn ? '新词' : '复习'} {i + 1}/{list.length}</span>
+              {combo >= 2 && <span key={combo} className="vb-combo">连对 ×{combo}</span>}
+            </div>
+            <button type="button" className={`vb-flip ${flip ? 'on' : ''}`} onClick={() => setFlip((f) => !f)} aria-label={flip ? '翻回去' : '翻面看释义'}>
+              <span className="vb-face front">
+                {x.wrong > 0 && <span className="vb-tag">错过 {x.wrong} 次</span>}
+                <b>{x.word}</b>
+                <em>{learn ? '认不认识？点我翻面' : '先想一想，再点我翻面'}</em>
+              </span>
+              <span className="vb-face back">
+                <small>{x.word}</small>
+                <b>{x.meaning || '（没写释义）'}</b>
+                {x.note && <em>{x.note}</em>}
+              </span>
             </button>
             <div className="vb-ans">
-              <button type="button" className="vb-no" disabled={busy} onClick={() => answer(false)}>{learn ? '不认识' : '忘了'}</button>
-              <button type="button" className="btn-main" disabled={busy} onClick={() => answer(true)}>{learn ? '认识' : '记得'}</button>
+              <button type="button" className="vb-btn no" disabled={busy} onClick={() => answer(false)}>✗ {learn ? '不认识' : '忘了'}</button>
+              <button type="button" className="vb-btn ok" disabled={busy} onClick={() => answer(true)}>✓ {learn ? '认识' : '记得'}</button>
             </div>
           </>
         ) : (
           <div className="vb-end">
-            <b className="serif">{score.ok} / {list.length}</b>
-            <p>{learn ? `学了 ${list.length} 个新词，明天开始第一次复习。${score.bad ? `不认识的 ${score.bad} 个进了错词本，会多看几遍。` : ''}`
-              : score.bad ? `忘了的 ${score.bad} 个明天再来一遍，已经进错词本。` : '全记得，今天的复习完成了。'}</p>
-            <button type="button" className="btn-main" onClick={onClose}>好</button>
+            <div className="vb-confetti" aria-hidden="true">{Array.from({ length: 18 }, (_, n) => <i key={n} style={{ '--n': n }} />)}</div>
+            <img src={mochi} alt="" className="vb-end-mochi" draggable="false" />
+            <b>{ok} / {list.length}</b>
+            <p>{learn ? `学了 ${list.length} 个新词，明天开始第一次复习。${marks.length - ok ? `不认识的 ${marks.length - ok} 个进了错词本，会多见几次。` : ''}`
+              : marks.length - ok ? `忘了的 ${marks.length - ok} 个明天再来一遍，已经进错词本。` : '全记得！今天的复习完成了。'}</p>
+            <button type="button" className="vb-btn ok wide" onClick={onClose}>收工</button>
           </div>
         )}
       </div>

@@ -466,7 +466,7 @@ let vocab = [
   { id: 'v4', word: 'take off', meaning: '起飞；脱下', stage: 6, start: dayISO(-40), due: '', mastered: true, wrong: 0, right: 6, log: [] },
 ];
 let vDaily = 20;
-const vStats = () => ({ new: vocab.filter((x) => x.new).length, learned_today: vocab.filter((x) => x.learned === dayISO()).length, daily_new: vDaily,
+const vStats = () => ({ done_today: vocab.reduce((n, x) => n + (x.log || []).filter((l) => l.at.slice(0, 10) === dayISO()).length, 0), streak: 3, new: vocab.filter((x) => x.new).length, learned_today: vocab.filter((x) => x.learned === dayISO()).length, daily_new: vDaily,
   learn_left: Math.max(0, vDaily - vocab.filter((x) => x.learned === dayISO()).length),
   books: [...new Set(vocab.map((x) => x.book || ''))].map((name) => ({ name, total: vocab.filter((x) => (x.book || '') === name).length, new: vocab.filter((x) => (x.book || '') === name && x.new).length })), total: vocab.length, due: vocab.filter((x) => !x.new && !x.mastered && x.due <= dayISO()).length, wrong: vocab.filter((x) => x.wrong && !x.mastered).length,
   mastered: vocab.filter((x) => x.mastered).length, today: dayISO(), offsets: OFFS });
@@ -482,6 +482,7 @@ function vocabReview(id, ok) {
   const x = vocab.find((v) => v.id === id);
   if (x.new) { x.new = false; x.learned = dayISO(); x.start = dayISO(); x.due = dayISO(1); if (!ok) x.wrong += 1; return { item: x, stats: vStats() }; }
   if (ok) { x.stage += 1; x.right += 1; } else { x.stage = 0; x.wrong += 1; x.start = dayISO(); }
+  x.log = [...(x.log || []), { at: new Date().toISOString(), ok, by: 'me' }];
   x.mastered = x.stage >= OFFS.length; x.due = x.mastered ? '' : dayISO(Math.max(1, OFFS[x.stage] || 1));
   return { item: x, stats: vStats() };
 }

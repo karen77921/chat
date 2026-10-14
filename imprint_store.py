@@ -349,11 +349,25 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                     b["total"] += 1
                     b["new"] += 1 if x.get("new") else 0
                 learned = sum(1 for x in items if x.get("learned") == today.isoformat())
+                days: set[str] = set()
+                done_today = 0
+                for x in items:
+                    for entry in x.get("log") or []:
+                        day = local_day(entry.get("at"))
+                        if day:
+                            days.add(day)
+                            done_today += day == today.isoformat()
+                cursor = today if today.isoformat() in days else today - dt.timedelta(days=1)
+                streak = 0
+                while cursor.isoformat() in days:  # 连着几天背过单词
+                    streak += 1
+                    cursor -= dt.timedelta(days=1)
                 return {"total": len(items), "due": sum(1 for x in items if is_due(x)),
                         "wrong": sum(1 for x in items if int(x.get("wrong") or 0) > 0 and not x.get("mastered") and not x.get("new")),
                         "mastered": sum(1 for x in items if x.get("mastered")),
                         "new": sum(1 for x in items if x.get("new")), "learned_today": learned,
                         "daily_new": daily_new, "learn_left": max(0, daily_new - learned),
+                        "done_today": done_today, "streak": streak,
                         "books": sorted(books.values(), key=lambda b: (b["name"] == "", b["name"])),
                         "today": today.isoformat(), "offsets": list(VOCAB_OFFSETS)}
 

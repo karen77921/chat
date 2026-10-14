@@ -368,6 +368,8 @@ async function compat(path, opts) {
   }
   if (method === 'GET' && p === '/api/prompts') return loop('prompts');
   if (method === 'PUT' && p === '/api/prompts') return loop('prompts', { ...opts, method: 'POST' });
+  if (method === 'GET' && p === '/api/context') return loop('config');
+  if (method === 'PUT' && p === '/api/context') return loop('config', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/persona') return loop('persona');
   if (method === 'PUT' && p === '/api/persona') return loop('persona', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/home/whisper') return loop('home/whisper', { timeout: 120000 });

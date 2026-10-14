@@ -6,7 +6,7 @@ gateway reports. Costs a few cents. Reads the route from the server config and
 never prints the API key.
 
 Usage on the VPS:
-  curl -fsSL raw.githubusercontent.com/karen77921/chat/claude/frontend-deployment-check-3dedhf/diagnose-cache-probe.py | sudo python3 - [route_number]
+  curl -fsSL $B/diagnose-cache-probe.py | sudo python3 - [route_number] [model_name | models]
 """
 import json
 import sys
@@ -19,6 +19,15 @@ CONFIG = "/root/companion-loop/api_loop.config.json"
 index = int(sys.argv[1]) - 1 if len(sys.argv) > 1 else 0
 route = [r for r in json.load(open(CONFIG, encoding="utf-8")).get("main_chain") or [] if r.get("url") and r.get("key")][index]
 base, key, model = route["url"].rstrip("/"), route["key"], route["model"]
+if len(sys.argv) > 2 and sys.argv[2] == "models":
+    # 列出这条线路上有哪些 Claude 模型名，方便挑一个换着测
+    req = urllib.request.Request(base + "/models", headers={"Authorization": "Bearer " + key, "User-Agent": "imprint-cache-probe/1"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        names = sorted({m.get("id", "") for m in json.loads(resp.read().decode()).get("data", []) if "claude" in str(m.get("id", "")).lower()})
+    print("这条线路上的 Claude 模型：\n  " + "\n  ".join(names))
+    sys.exit(0)
+if len(sys.argv) > 2:
+    model = sys.argv[2]  # 换一个模型名测：同一个站，不同模型名的缓存经常不一样
 print("route %d: %s  model=%s" % (index + 1, urllib.parse.urlparse(base).hostname, model.encode("ascii", "replace").decode()))
 
 # A long, stable block well above every Claude model's minimum cacheable length.

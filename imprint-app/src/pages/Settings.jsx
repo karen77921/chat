@@ -406,6 +406,7 @@ function Features() {
           <button type="button" className={`cl-link st-delmcp${confirmDel ? ' on' : ''}`} disabled={editBusy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />{confirmDel ? '再点一下，确定删除' : '删除这个 MCP'}</button>
         </Sheet>
       )}
+      <ContextSize />
       <GardenWake />
       <BackupExport />
     </>
@@ -469,6 +470,33 @@ function GardenWake() {
             )}
           </>
         )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- 每轮带多少：中转不支持缓存时，这是最直接的省 token ---------- */
+const HISTORY_CHOICES = [[16, '16 条'], [24, '24 条（推荐）'], [40, '40 条'], [60, '60 条'], [80, '80 条']];
+const IMAGE_CHOICES = [[0, '不带'], [1, '最近 1 张'], [2, '最近 2 张']];
+function ContextSize() {
+  const { data, setData } = useLoad('/api/context');
+  const [note, setNote] = useState('');
+  if (!data || data.available === false) return null;
+  const set = async (patch) => {
+    setNote('');
+    try { setData({ ...data, ...(await api('/api/context', { method: 'PUT', body: patch })) }); setNote('改好了，下一句就按这个来。'); }
+    catch (e) { setNote(e?.message || '没改成'); }
+  };
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>context</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>每轮带多少</h2><span className="go">省 token</span></div>
+      <div className="card st-list st-garden">
+        <p className="st-tip">他每说一句话，都要把人设、聊天记录、工具重新读一遍。中转不支持缓存时，带得越多越贵、越慢。更早的聊天会被压缩成摘要，他不会因为少带几条就忘了你们的事；真要找原话，他也能自己翻聊天记录。</p>
+        <div className="nc-k">聊天记录带最近几条（现在 {data.history_n} 条）</div>
+        <div className="st-gacts">{HISTORY_CHOICES.map(([n, label]) => <button key={n} type="button" className={`chip ${data.history_n === n ? 'on' : ''}`} onClick={() => set({ history_n: n })}>{label}</button>)}</div>
+        <div className="nc-k">聊天里的图片重新给他看几张（每张大约 1500 token）</div>
+        <div className="st-gacts">{IMAGE_CHOICES.map(([n, label]) => <button key={n} type="button" className={`chip ${data.history_images === n ? 'on' : ''}`} onClick={() => set({ history_images: n })}>{label}</button>)}</div>
+        {note && <p className="st-tip st-gnote" role="status">{note}</p>}
       </div>
     </>
   );

@@ -1156,6 +1156,27 @@ def user_content(text: str, notes: list[str], parts: list[dict[str, Any]]) -> An
 # ---------------------------------------------------------------------------
 
 HISTORY_STEP = 20  # 聊天记录一次丢 20 条旧的，而不是每轮丢 1 条：开头不动，提示词缓存才接得上
+_cache_seen_at: float = 0.0  # 上游最近一次真的回报了缓存读/写（time.monotonic）
+
+
+def note_cache_usage(usage: dict[str, Any]) -> None:
+    """Remember that the provider really caches. Only then are the cache-friendly but larger request shapes worth it."""
+    global _cache_seen_at
+    details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+    if any(int(x or 0) > 0 for x in (details.get("cached_tokens"), details.get("cache_write_tokens"),
+                                      usage.get("cache_read_input_tokens"), usage.get("cache_creation_input_tokens"))):
+        import time
+        _cache_seen_at = time.monotonic()
+
+
+def cache_effective() -> bool:
+    """True only if the provider reported cache activity in the last 6 hours.
+
+    Without real caching, the stepped history window and sticky tool list just send more tokens at full
+    price (a per-token relay bills every one of them), so we fall back to the lean shapes.
+    """
+    import time
+    return bool(_cache_seen_at) and time.monotonic() - _cache_seen_at < 6 * 3600
 
 
 def stepped_history(rows: list[dict[str, Any]], keep: int, total: int) -> list[dict[str, Any]]:
@@ -1165,7 +1186,7 @@ def stepped_history(rows: list[dict[str, Any]], keep: int, total: int) -> list[d
     every turn and the provider's prefix cache never hits past the system prompt. Instead the window
     start only moves forward in steps of HISTORY_STEP, staying put for ~10 rounds at a time.
     """
-    if keep <= 0 or total <= keep:
+    if keep <= 0 or total <= keep or not cache_effective():
         return rows[-keep:] if keep > 0 else []
     drop = ((total - keep) // HISTORY_STEP) * HISTORY_STEP
     want = total - drop  # between keep and keep + STEP - 1
@@ -2920,6 +2941,8 @@ def sticky_tools(session_id: str, picked: list[dict[str, Any]]) -> list[dict[str
     prompt cache misses for everything after it. So the list only grows now and then, never shuffles.
     Reset when the window's history is compacted (the cache is rebuilt then anyway).
     """
+    if not cache_effective():
+        return picked  # 上游不缓存：攒工具只会白白多花 token，只带这一轮要用的
     by_name = {t["function"]["name"]: t for t in all_tools()}
     names = [n for n in _session_tools.get(session_id or "", []) if n in by_name]
     for spec in picked:
@@ -3670,6 +3693,7 @@ async def handle_turn(
             fallback_from = out.get("tried") or fallback_from
             cache_meta = out.get("prompt_cache") if isinstance(out.get("prompt_cache"), dict) else {}
             if isinstance(out.get("usage"), dict) and out["usage"]:
+                note_cache_usage(out["usage"])
                 for key, value in out["usage"].items():
                     if isinstance(value, (int, float)) and not isinstance(value, bool):
                         turn.usage[key] = turn.usage.get(key, 0) + value

@@ -620,6 +620,31 @@ class ChatHistorySearchTest(unittest.TestCase):
 
 
 class CacheFriendlyPrefixTest(unittest.TestCase):
+    _real_cache_effective = staticmethod(api_loop.cache_effective)
+
+    def setUp(self):
+        patcher = mock.patch.object(api_loop, "cache_effective", lambda: True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_without_cache_evidence_window_and_tools_stay_minimal(self):
+        def spec(name):
+            return {"type": "function", "function": {"name": name, "parameters": {"type": "object"}}}
+
+        with mock.patch.object(api_loop, "cache_effective", lambda: False):
+            rows = [{"id": i} for i in range(1, 44)]
+            self.assertEqual(api_loop.stepped_history(rows, 24, 43), rows[-24:])
+            picked = [spec("c")]
+            self.assertIs(api_loop.sticky_tools("z", picked), picked)
+
+    def test_cache_counts_only_after_upstream_reports_hits(self):
+        effective = CacheFriendlyPrefixTest._real_cache_effective
+        with mock.patch.object(api_loop, "_cache_seen_at", 0.0):
+            api_loop.note_cache_usage({"prompt_tokens": 100, "prompt_tokens_details": {"cached_tokens": 0}})
+            self.assertFalse(effective())
+            api_loop.note_cache_usage({"prompt_tokens_details": {"cached_tokens": 50}})
+            self.assertTrue(effective())
+
     def test_history_window_start_only_moves_every_step(self):
         keep, step = 24, api_loop.HISTORY_STEP
         starts = []

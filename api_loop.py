@@ -2680,7 +2680,7 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
         "name": "imprint_manage_space",
-        "description": "Manage remaining real Imprint UI actions. spark_use marks a coupon/gift that YOU hold as used (id from 【券和礼物】, text = how/why you used it); use it when you actually cash it in, and tell her. Destructive, scarce-card, point-spending, activation and appearance operations require the user's explicit current request, except changing your own avatar (appearance with avatar), which is your own choice. Inspect first for real IDs.",
+        "description": "Manage remaining real Imprint UI actions. spark_use marks a coupon/gift that YOU hold as used (id from 【券和礼物】, text = how/why you used it); use it when you actually cash it in, and tell her. Destructive, scarce-card (spark_use_card), activation and appearance operations require the user's explicit current request, except these, which are your own choice: changing your own avatar (appearance with avatar), and spark_redeem — spending YOUR OWN Spark points to get her a gift or coupon from the shop (it is your wallet; decide when, pick holder me = it's hers to use, or him = you keep it; then tell her what you got her and why). Inspect first for real IDs.",
         "parameters": {
             "type": "object",
             "properties": {

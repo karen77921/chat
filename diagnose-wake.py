@@ -36,7 +36,7 @@ def short(value, limit=60):
 
 
 active = subprocess.run(["systemctl", "is-active", "companion-api-loop"], capture_output=True, text=True).stdout.strip()
-print("service:", active or "未知")
+print("service:", active or "unknown")
 try:
     data = json.load(urllib.request.urlopen("http://127.0.0.1:3020/loop/wake", timeout=10))
 except OSError as exc:
@@ -76,7 +76,7 @@ print("\nlast 24 hours:")
 labels = {"message": "sent-msg", "silent": "woke-quiet", "error": "ERROR", "skipped": "skipped", "user-active": "you-were-chatting",
           "scheduled": "set-alarm", "cancelled": "cancel-alarm", "bridge-down": "garden-DOWN", "received": "garden-ping"}
 for (kind, result), n in sorted(tally.items(), key=lambda x: -x[1]):
-    print("  %-10s %-14s %d 次" % (kind, labels.get(result, result), n))
+    print("  %-10s %-18s %d" % (kind, labels.get(result, result), n))
 if not day:
     print("  (nothing)")
 print("\nlatest 8:")

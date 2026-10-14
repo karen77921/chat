@@ -79,6 +79,15 @@ for name in release["backend"]:
 print(f"      {len(files)} 个文件都对得上")
 PY
 
+# 读 PDF 用的小库：没有就装一下（装不上也不影响更新，他只是暂时读不了 PDF）
+PY_VENV=/root/companion-loop/venv/bin/python
+if sudo test -x "${PY_VENV}" && ! sudo "${PY_VENV}" -c 'import pypdf' 2>/dev/null; then
+  echo '      顺手装一下读 PDF 用的 pypdf…'
+  sudo "${PY_VENV}" -m pip install -q --disable-pip-version-check pypdf 2>/dev/null \
+    || sudo "${PY_VENV}" -m pip install -q --disable-pip-version-check -i https://pypi.tuna.tsinghua.edu.cn/simple pypdf 2>/dev/null \
+    || echo '      pypdf 没装上（网络问题），先跳过；他暂时读不了 PDF'
+fi
+
 echo '[3/7] 备份当前版本…'
 TAG="rel-$(date +%Y%m%d-%H%M%S)-${SHORT}"
 SITE_BACKUP="${SITE}.backup-${TAG}"

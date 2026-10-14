@@ -843,6 +843,56 @@ class CacheCheckTest(unittest.TestCase):
         self.assertIn("虚高", by["billing"]["status"])
 
 
+def tiny_pdf(lines):
+    """手搓一个两页的小 PDF（不依赖任何库），用来测读 PDF。"""
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>", None, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for text in lines:
+        stream = f"BT /F1 18 Tf 72 720 Td ({text}) Tj ET".encode()
+        objs.append(f"<< /Length {len(stream)} >>\nstream\n{stream.decode()}\nendstream")
+        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {len(objs)} 0 R >>")
+        kids.append(f"{len(objs)} 0 R")
+    objs[1] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(kids)} >>"
+    out, offsets = b"%PDF-1.4\n", []
+    for n, body in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{n} 0 obj\n{body}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return out
+
+
+class PdfTest(unittest.TestCase):
+    def test_pdf_text_is_read_and_paged(self):
+        data = tiny_pdf(["Hello Imprint", "Second page here"])
+        text, total = api_loop.pdf_text(data)
+        self.assertEqual(total, 2)
+        self.assertIn("Hello Imprint", text)
+        self.assertIn("第 2 页", text)
+        text2, _ = api_loop.pdf_text(data, start=2, pages=1)
+        self.assertNotIn("Hello Imprint", text2)
+        note = api_loop.pdf_note("讲义.pdf", "att-abc.pdf", data)
+        self.assertTrue(note.startswith("[PDF: 讲义.pdf，共 2 页"))
+        self.assertIn("没有文字", api_loop.pdf_note("扫描.pdf", "x.pdf", tiny_pdf([""])))
+        self.assertIn("读不出文字", api_loop.pdf_note("坏.pdf", "x.pdf", b"not a pdf"))
+        self.assertIn("read_pdf，name=att-abc.pdf", api_loop.att_label({"name": "讲义.pdf", "url": "/relay/uploads/att-abc.pdf"}))
+
+    def test_read_pdf_tool_fetches_by_stored_name(self):
+        data = tiny_pdf(["Hello Imprint"])
+
+        async def fake_fetch(att):
+            return (data, None) if att["url"] == "/uploads/att-abc.pdf" else (None, None)
+
+        with mock.patch.object(api_loop, "fetch_upload", fake_fetch):
+            turn = api_loop.Turn("s", dry=False)
+            ok = asyncio.run(turn.run_tool("read_pdf", json.dumps({"name": "att-abc.pdf"})))
+            bad = asyncio.run(turn.run_tool("read_pdf", json.dumps({"name": "../etc/passwd"})))
+        self.assertIn("Hello Imprint", ok)
+        self.assertTrue(bad.startswith("ERROR"))
+        self.assertIn("read_pdf", {t["function"]["name"] for t in api_loop.turn_tools("看看这个 PDF")})
+
+
 class DoodleTest(unittest.TestCase):
     def test_svg_is_cleaned_of_scripts_links_and_external_images(self):
         dirty = ('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" onload="alert(1)">'

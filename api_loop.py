@@ -1150,13 +1150,72 @@ def vision_enabled() -> bool:
     return str(load_config().get("vision", CONFIG_DEFAULTS["vision"])).lower() != "off"
 
 
+PDF_INLINE_CHARS = 12_000  # 她刚发的 PDF：这一轮先给他看这么多字，后面的他用 read_pdf 自己翻
+
+
+def is_pdf(name: str, mime: str) -> bool:
+    return mime == "application/pdf" or str(name or "").lower().endswith(".pdf")
+
+
+def pdf_text(data: bytes, start: int = 1, pages: int = 30) -> tuple[str, int]:
+    """→ (那几页的文字, 总页数)。先用 pypdf，没有就用系统的 pdftotext；都没有就抛 RuntimeError。"""
+    start = max(1, start)
+    try:
+        import io
+        from pypdf import PdfReader
+    except ImportError:
+        if not shutil.which("pdftotext"):
+            raise RuntimeError("服务器上还没有读 PDF 的工具（跑一次 imprint-update 会自动装上 pypdf）")
+        import subprocess
+        end = start + pages - 1
+        out = subprocess.run(["pdftotext", "-f", str(start), "-l", str(end), "-layout", "-", "-"], input=data,
+                             capture_output=True, timeout=60)
+        total = 0
+        if shutil.which("pdfinfo"):
+            info = subprocess.run(["pdfinfo", "-"], input=data, capture_output=True, timeout=30).stdout.decode("utf-8", "replace")
+            found = re.search(r"Pages:\s+(\d+)", info)
+            total = int(found.group(1)) if found else 0
+        return out.stdout.decode("utf-8", "replace").strip(), total
+    reader = PdfReader(io.BytesIO(data))
+    if reader.is_encrypted:
+        try:
+            reader.decrypt("")
+        except Exception as exc:
+            raise RuntimeError("这个 PDF 加了密码，打不开") from exc
+    total = len(reader.pages)
+    chunks = []
+    for index in range(start - 1, min(total, start - 1 + pages)):
+        try:
+            text = (reader.pages[index].extract_text() or "").strip()
+        except Exception:
+            text = ""
+        chunks.append(f"--- 第 {index + 1} 页 ---\n{text}" if text else f"--- 第 {index + 1} 页 ---\n（这一页没有文字，可能是图片或扫描件）")
+    return "\n\n".join(chunks), total
+
+
+def pdf_note(name: str, stored: str, data: bytes) -> str:
+    try:
+        text, total = pdf_text(data)
+    except Exception as exc:  # 读不了也要让他知道是什么文件、为什么读不了
+        return f"[PDF: {name}] 读不出文字：{exc}。可以请她截图关键页发给你。"
+    words = re.sub(r"--- 第 \d+ 页 ---|（这一页没有文字，可能是图片或扫描件）", "", text).strip()
+    if not words:
+        return f"[PDF: {name}，{total or '?'} 页] 这是扫描件 / 图片做的 PDF，没有文字层，读不出来。请她截图关键页发给你。"
+    more = f"\n…（后面还有，用 read_pdf 工具 name={stored} 从第几页往后翻）" if len(text) > PDF_INLINE_CHARS or (total and total > 30) else ""
+    return f"[PDF: {name}，共 {total or '?'} 页，以下是读出来的文字]\n{text[:PDF_INLINE_CHARS]}{more}"
+
+
 def is_textish(name: str, mime: str) -> bool:
     return (mime or "").startswith("text/") or Path(name or "").suffix.lower() in TEXTISH_EXT
 
 
 def att_label(att: dict[str, Any]) -> str:
     kind = att.get("kind") or ("image" if str(att.get("mime") or "").startswith("image/") else "file")
-    return f"[{'图片' if kind == 'image' else '文件'}: {att.get('name') or 'file'}]"
+    name = att.get("name") or "file"
+    if is_pdf(name, str(att.get("mime") or "")):
+        stored = str(att.get("url") or "").rsplit("/", 1)[-1]
+        return f"[PDF: {name} · 想再看内容用 read_pdf，name={stored}]"
+    return f"[{'图片' if kind == 'image' else '文件'}: {name}]"
 
 
 async def attachment_parts(atts: list[dict[str, Any]], *, with_images: bool) -> tuple[list[dict[str, Any]], list[str]]:
@@ -1180,6 +1239,9 @@ async def attachment_parts(atts: list[dict[str, Any]], *, with_images: bool) -> 
         if is_image and with_images and len(data) <= IMAGE_MAX_BYTES:
             parts.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"}})
             notes.append(att_label(att))
+        elif is_pdf(name, mime):
+            stored = str(att.get("url") or "").rsplit("/", 1)[-1]
+            notes.append(await asyncio.to_thread(pdf_note, name, stored, data))
         elif is_textish(name, mime) and len(data) <= TEXT_INLINE_MAX:
             try:
                 body = data.decode("utf-8")
@@ -2589,6 +2651,20 @@ def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
+        "name": "read_pdf",
+        "description": "Read the text of a PDF she sent in chat. name = the stored file name shown in the chat note "
+                       "(read_pdf，name=...). start_page / pages to page through long files (max 20 pages per call). "
+                       "Scanned PDFs have no text; then ask her for screenshots.",
+        "parameters": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "start_page": {"type": "integer", "minimum": 1},
+                           "pages": {"type": "integer", "minimum": 1, "maximum": 20}},
+            "required": ["name"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "draw_doodle",
         "description": "Draw something yourself as SVG (a doodle, a little drawing for her, a sticker of your own, a sketch of "
                        "what you're doing now) and send it. Write one complete <svg> with viewBox='0 0 512 512': hand-drawn "
@@ -3045,6 +3121,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
         add_builtin("imprint_list_purchases", "imprint_review_purchase")
     if any(word in query for word in ("画", "涂鸦", "表情包", "贴纸", "doodle", "draw", "sketch")):
         add_builtin("draw_doodle")
+    if any(word in query for word in ("pdf", "PDF", "文档", "论文", "讲义", "课件", "read_pdf")):
+        add_builtin("read_pdf")
     if any(word in query for word in ("附件", "文件", "发给我", "传给我", "下载", "attach")):
         add_builtin("attach_file")
     if any(word in query for word in ("唤醒", "醒来", "定时", "提醒", "主动找", "wake")):
@@ -3163,7 +3241,7 @@ def sanitize_svg(raw: str) -> bytes:
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
 
 
-TOOLBOX_TOPICS = "画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
@@ -3416,6 +3494,18 @@ class Turn:
         if public_name == "cancel_self_wake":
             wake_id = str(args.get("wake_id") or "").strip()
             return json.dumps({"ok": cancel_precise_wake(wake_id), "wake_id": wake_id}, ensure_ascii=False)
+        if public_name == "read_pdf":
+            stored = str(args.get("name") or "").strip().rsplit("/", 1)[-1]
+            if not MEDIA_NAME_RE.match(stored) or stored.startswith("."):
+                return "ERROR: 文件名不对，用聊天记录里 read_pdf，name= 后面那串"
+            data, _ = await fetch_upload({"url": f"/uploads/{stored}"})
+            if data is None:
+                return "ERROR: 找不到这个文件"
+            try:
+                text, total = await asyncio.to_thread(pdf_text, data, int(args.get("start_page") or 1), min(int(args.get("pages") or 10), 20))
+            except Exception as exc:
+                return f"ERROR: {exc}"
+            return (f"共 {total or '?'} 页\n" + text)[:30_000]
         if public_name == "draw_doodle":
             try:
                 svg = sanitize_svg(str(args.get("svg") or ""))

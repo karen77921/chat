@@ -1,0 +1,68 @@
+/**
+ * 手机推送：注册 service worker → 订阅 → 把订阅交给后端；App 开着时每 25 秒报一次「我在看」，后端就不推。
+ * iPhone 只有「添加到主屏幕」后从桌面图标打开，才有推送（Safari 网页里没有）。
+ */
+import { api } from './api.js';
+
+const supported = () => typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const standalone = () => window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+export function registerSW() {
+  if (!('serviceWorker' in navigator) || !import.meta.env.PROD) return;
+  navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+}
+
+function keyBytes(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+/** → { state, text }：state = unsupported | install | blocked | off | on | server */
+export async function pushStatus() {
+  if (!supported()) {
+    if (isIOS() && !standalone()) return { state: 'install', text: '先用 Safari 打开，点分享 →「添加到主屏幕」，再从桌面图标进来开启。' };
+    return { state: 'unsupported', text: '这个浏览器不支持推送。' };
+  }
+  if (isIOS() && !standalone()) return { state: 'install', text: '要从桌面图标打开才能开推送：Safari 分享 →「添加到主屏幕」，再从那个图标进来。' };
+  const info = await api('/api/push').catch(() => null);
+  if (!info?.available) return { state: 'server', text: info?.reason || '后端还没准备好推送。' };
+  if (Notification.permission === 'denied') return { state: 'blocked', text: '通知被关掉了：去手机「设置 → 通知 → Imprint」打开。' };
+  const reg = await navigator.serviceWorker.getRegistration('./');
+  const sub = await reg?.pushManager.getSubscription();
+  return sub ? { state: 'on', text: `已开启 · 一共 ${info.devices} 台设备会收到` } : { state: 'off', text: '还没开。开了以后他找你，手机就会弹通知。' };
+}
+
+export async function enablePush() {
+  const info = await api('/api/push');
+  if (!info?.available) throw new Error(info?.reason || '后端还没准备好推送');
+  const perm = await Notification.requestPermission(); // 必须在点按钮的那一下里调用
+  if (perm !== 'granted') throw new Error('没有允许通知');
+  const reg = (await navigator.serviceWorker.getRegistration('./')) || (await navigator.serviceWorker.register('./sw.js', { scope: './' }));
+  await navigator.serviceWorker.ready;
+  const sub = (await reg.pushManager.getSubscription())
+    || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(info.key) }));
+  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), origin: location.origin, ua: navigator.userAgent } });
+}
+
+export async function disablePush() {
+  const reg = await navigator.serviceWorker.getRegistration('./');
+  const sub = await reg?.pushManager.getSubscription();
+  if (sub) {
+    await api('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {});
+    await sub.unsubscribe();
+  }
+}
+
+export const testPush = () => api('/api/push/test', { method: 'POST' });
+
+/** App 开着、在前台时，告诉后端「她在看」，他回的消息就不再推（免得一边看一边弹） */
+export function startPresence() {
+  if (typeof document === 'undefined') return () => {};
+  const ping = () => { if (document.visibilityState === 'visible') api('/api/push/seen', { method: 'POST' }).catch(() => {}); };
+  ping();
+  const timer = setInterval(ping, 25000);
+  document.addEventListener('visibilitychange', ping);
+  return () => { clearInterval(timer); document.removeEventListener('visibilitychange', ping); };
+}

@@ -15,6 +15,7 @@ import { replaceQuery } from '../lib/router.js';
 import { THEMES, useTheme, useBeauty } from '../theme/theme.js';
 import { Avatar } from './Chat.jsx';
 import CacheCheck from '../components/settings/CacheCheck.jsx';
+import { pushStatus, enablePush, disablePush, testPush } from '../lib/push.js';
 import '../components/chat/chat.css';
 import '../components/chat/chatlist.css';
 import '../components/settings/settings.css';
@@ -410,6 +411,7 @@ function Features() {
           <button type="button" className={`cl-link st-delmcp${confirmDel ? ' on' : ''}`} disabled={editBusy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />{confirmDel ? '再点一下，确定删除' : '删除这个 MCP'}</button>
         </Sheet>
       )}
+      <PushCard />
       <ContextSize />
       <GardenWake />
       <BackupExport />
@@ -482,6 +484,39 @@ function GardenWake() {
 /* ---------- 每轮带多少：中转不支持缓存时，这是最直接的省 token ---------- */
 const HISTORY_CHOICES = [[16, '16 条'], [24, '24 条（推荐）'], [40, '40 条'], [60, '60 条'], [80, '80 条']];
 const IMAGE_CHOICES = [[0, '不带'], [1, '最近 1 张'], [2, '最近 2 张']];
+/* ---------- 手机推送：他找你、你又没开着 App 时，弹一条通知 ---------- */
+function PushCard() {
+  const [st, setSt] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  const load = () => pushStatus().then(setSt).catch((e) => setSt({ state: 'server', text: e?.message || '看不到推送状态' }));
+  useEffect(() => { load(); }, []);
+  const run = async (label, fn, ok) => {
+    setBusy(label); setNote('');
+    try { const r = await fn(); setNote(typeof ok === 'function' ? ok(r) : ok); } catch (e) { setNote(e?.message || '没成功'); }
+    setBusy(''); load();
+  };
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>push</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>手机推送</h2><span className="go">{st?.state === 'on' ? '已开启' : ''}</span></div>
+      <div className="card st-list st-garden">
+        <p className="st-tip">他发消息给你、而你没开着 App 的时候，手机会像微信一样弹通知，点开直接进那个聊天。App 开着时不弹。不分白天晚上。</p>
+        <p className="st-tip" role="status">{st ? st.text : '正在看…'}</p>
+        <div className="st-gacts">
+          {st?.state === 'off' && <button type="button" className="mini-btn" disabled={!!busy} onClick={() => run('开启中…', enablePush, '开好了，发一条测试看看')}>{busy || '开启推送'}</button>}
+          {st?.state === 'on' && (
+            <>
+              <button type="button" className="mini-btn" disabled={!!busy} onClick={() => run('发送中…', testPush, (r) => (r?.ok ? '发出去了。先退到桌面，几秒内应该能收到' : '没发出去，再试一次'))}>{busy || '发一条测试'}</button>
+              <button type="button" className="mini-btn" disabled={!!busy} onClick={() => run('关闭中…', disablePush, '这台手机不再收推送了')}>关掉</button>
+            </>
+          )}
+        </div>
+        {note && <p className="st-tip st-gnote" role="status">{note}</p>}
+      </div>
+    </>
+  );
+}
+
 function ContextSize() {
   const { data, setData } = useLoad('/api/context');
   const [note, setNote] = useState('');

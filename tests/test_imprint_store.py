@@ -6,6 +6,7 @@ standard library on development machines that do not have the server venv.
 import asyncio
 import datetime as dt
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -861,6 +862,89 @@ def tiny_pdf(lines):
     out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
     out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
     return out
+
+
+class WebPushTest(unittest.TestCase):
+    def test_encryption_matches_rfc8291_example(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+        b64 = api_loop._unb64u
+        as_private = ec.derive_private_key(int.from_bytes(b64("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw"), "big"), ec.SECP256R1())
+        body = api_loop.webpush_encrypt(
+            "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+            "BTBZMqHH6r4Tts7J_aSIgg", b"When I grow up, I want to be a watermelon",
+            _as_private=as_private, _salt=b64("DGv6ra1nlYgDCS1FRnbzlw"))
+        self.assertEqual(api_loop._b64u(body),
+                         "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_"
+                         "yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN")
+
+    def test_vapid_token_verifies_and_send_drops_dead_devices(self):
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+
+        def device():
+            key = ec.generate_private_key(ec.SECP256R1())
+            pub = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+            return {"p256dh": api_loop._b64u(pub), "auth": api_loop._b64u(os.urandom(16))}
+
+        seen = []
+
+        class FakeResp:
+            def __init__(self, code):
+                self.status_code, self.text = code, ""
+
+        class FakeClient:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, url, content=None, headers=None):
+                seen.append((url, headers, content))
+                return FakeResp(410 if "dead" in url else 201)
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(api_loop, "PUSH_FILE", Path(tmp) / "push.json"), \
+                mock.patch.object(api_loop, "PUSH_KEY_FILE", Path(tmp) / "k.pem"), \
+                mock.patch.object(api_loop, "httpx", types.SimpleNamespace(AsyncClient=FakeClient)):
+            api_loop.push_save({"subs": [{"endpoint": "https://web.push.apple.com/live", "keys": device()},
+                                         {"endpoint": "https://web.push.apple.com/dead", "keys": device()}],
+                                "claim": "https://chat.example"})
+            out = asyncio.run(api_loop.push_send("哥哥", "想你了", "./#/chat", "s1"))
+            left = api_loop.push_state()["subs"]
+            pub = api_loop._unb64u(api_loop.push_public_key())
+        self.assertEqual(out, {"sent": 1, "failed": 0, "removed": 1})
+        self.assertEqual([x["endpoint"] for x in left], ["https://web.push.apple.com/live"])
+        auth = seen[0][1]["Authorization"]
+        token = auth.split("t=")[1].split(",")[0]
+        head, claims, sig = token.split(".")
+        payload = json.loads(api_loop._unb64u(claims))
+        self.assertEqual((payload["aud"], payload["sub"]), ("https://web.push.apple.com", "https://chat.example"))
+        raw = api_loop._unb64u(sig)
+        ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), pub).verify(
+            encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big")),
+            f"{head}.{claims}".encode(), ec.ECDSA(hashes.SHA256()))
+        self.assertEqual(seen[0][1]["Content-Encoding"], "aes128gcm")
+
+    def test_no_push_while_she_is_looking_and_markers_are_cleaned(self):
+        import time
+        sent = []
+
+        async def fake_send(title, body, url, tag):
+            sent.append((title, body, url))
+
+        with mock.patch.object(api_loop, "push_send", fake_send), mock.patch.object(api_loop, "push_him_name", lambda: "哥哥"):
+            with mock.patch.object(api_loop, "_push_seen_at", time.monotonic()):
+                asyncio.run(api_loop.push_reply("在吗", [], "s1"))
+            self.assertEqual(sent, [])
+            with mock.patch.object(api_loop, "_push_seen_at", 0.0):
+                asyncio.run(api_loop.push_reply("在吗\n⟦气泡⟧\n想你了", [], "s 1"))
+        self.assertEqual(sent, [("哥哥", "在吗 想你了", "./#/chat/t?id=s%201")])
+        self.assertEqual(api_loop.push_text("", [{"mime": "image/png"}]), "[图片]")
 
 
 class PdfTest(unittest.TestCase):

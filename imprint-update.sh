@@ -79,13 +79,18 @@ for name in release["backend"]:
 print(f"      {len(files)} 个文件都对得上")
 PY
 
-# 读 PDF 用的小库：没有就装一下（装不上也不影响更新，他只是暂时读不了 PDF）
+# 后端用到的小库：读 PDF 的 pypdf、手机推送要用的 cryptography。没有就装（装不上也不影响更新，只是那一项暂时用不了）
 PY_VENV=/root/companion-loop/venv/bin/python
-if sudo test -x "${PY_VENV}" && ! sudo "${PY_VENV}" -c 'import pypdf' 2>/dev/null; then
-  echo '      顺手装一下读 PDF 用的 pypdf…'
-  sudo "${PY_VENV}" -m pip install -q --disable-pip-version-check pypdf 2>/dev/null \
-    || sudo "${PY_VENV}" -m pip install -q --disable-pip-version-check -i https://pypi.tuna.tsinghua.edu.cn/simple pypdf 2>/dev/null \
-    || echo '      pypdf 没装上（网络问题），先跳过；他暂时读不了 PDF'
+if sudo test -x "${PY_VENV}"; then
+  for pkg in pypdf cryptography; do
+    mod="${pkg}"
+    if ! sudo "${PY_VENV}" -c "import ${mod}" 2>/dev/null; then
+      echo "      顺手装一下 ${pkg}…"
+      sudo "${PY_VENV}" -m pip install -q --disable-pip-version-check "${pkg}" 2>/dev/null \
+        || sudo "${PY_VENV}" -m pip install -q --disable-pip-version-check -i https://pypi.tuna.tsinghua.edu.cn/simple "${pkg}" 2>/dev/null \
+        || echo "      ${pkg} 没装上（网络问题），先跳过"
+    fi
+  done
 fi
 
 echo '[3/7] 备份当前版本…'

@@ -524,6 +524,9 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'POST /api/vocab/' + (p.split('/')[3] || '') + '/review': return vocabReview(p.split('/')[3], body.correct);
     case 'POST /api/vocab/' + (p.split('/')[3] || '') + '/edit': { const x = vocab.find((v) => v.id === p.split('/')[3]); Object.assign(x, body); return x; }
     case 'DELETE /api/vocab/' + (p.split('/')[3] || ''): vocab = vocab.filter((v) => v.id !== p.split('/')[3]); return { ok: true };
+    case 'GET /api/push': return { available: true, reason: '', key: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', devices: 1 };
+    case 'POST /api/push/seen': case 'POST /api/push/subscribe': case 'POST /api/push/unsubscribe': return { ok: true, devices: 1 };
+    case 'POST /api/push/test': return { ok: true, sent: 1 };
     case 'GET /api/prompts': return { items: state.prompts ?? [{ id: 'p1', title: '小金库规矩', text: '让她开心 +2 到 5 块，惹她生气 -10 块。每笔都记在留言板。', on: true }] };
     case 'PUT /api/prompts': state.prompts = body.items.map((x, i) => ({ id: x.id || `p${Date.now()}${i}`, ...x })); return { items: state.prompts };
     case 'GET /api/context': return { history_n: state.historyN ?? 80, history_images: state.historyImages ?? 2 };

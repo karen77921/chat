@@ -1090,7 +1090,180 @@ async def relay_out(payload: dict[str, Any]) -> tuple[bool, Any]:
         body: Any = resp.json()
     except Exception:
         body = resp.text[:500]
-    return resp.status_code < 300, body
+    ok = resp.status_code < 300
+    if ok and (payload.get("type") == "reply" or (payload.get("type") == "reply_delta" and payload.get("done"))):
+        # 他说了一句完整的话：她没在看 App 的话，推到手机上
+        text = str(payload.get("final_text") or payload.get("text") or "")
+        if text or payload.get("attachments"):
+            _keep_task(asyncio.create_task(push_reply(text, payload.get("attachments") or [], str(payload.get("api_session") or ""))))
+    return ok, body
+
+
+# ---------------------------------------------------------------------------
+# 手机推送（Web Push）：他发了消息、她又没开着 App，就弹一条通知；点开直接进那个聊天窗口
+# ---------------------------------------------------------------------------
+
+PUSH_FILE = LOOP_CACHE_DIR / "push.json"
+PUSH_KEY_FILE = LOOP_CACHE_DIR / "push-vapid.pem"
+PUSH_SEEN_WINDOW_S = 75  # App 开着时每 25 秒报一次「我在看」；这么久没报就当她没在看
+_push_seen_at = 0.0
+_bg_tasks: set = set()
+
+
+def _keep_task(task: "asyncio.Task") -> None:
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+def push_missing() -> str:
+    """推送组件齐不齐：缺什么就返回一句人话，齐了返回空串。只用 cryptography（有现成的安装包，不用现场编译）。"""
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+    except ImportError:
+        return "服务器还没装推送组件（跑一次 imprint-update 会自动装上 cryptography）"
+    return ""
+
+
+def _b64u(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _unb64u(text: str) -> bytes:
+    return base64.urlsafe_b64decode(str(text) + "=" * (-len(str(text)) % 4))
+
+
+def webpush_encrypt(p256dh: str, auth: str, plaintext: bytes, *, _as_private: Any = None, _salt: bytes | None = None) -> bytes:
+    """RFC 8291 / 8188（aes128gcm）：用手机给的公钥加密推送内容，只有那台手机解得开。"""
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    ua_public = _unb64u(p256dh)
+    ua_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), ua_public)
+    as_private = _as_private or ec.generate_private_key(ec.SECP256R1())
+    as_public = as_private.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    shared = as_private.exchange(ec.ECDH(), ua_key)
+    ikm = HKDF(algorithm=hashes.SHA256(), length=32, salt=_unb64u(auth),
+               info=b"WebPush: info\x00" + ua_public + as_public).derive(shared)
+    salt = _salt or os.urandom(16)
+    cek = HKDF(algorithm=hashes.SHA256(), length=16, salt=salt, info=b"Content-Encoding: aes128gcm\x00").derive(ikm)
+    nonce = HKDF(algorithm=hashes.SHA256(), length=12, salt=salt, info=b"Content-Encoding: nonce\x00").derive(ikm)
+    body = AESGCM(cek).encrypt(nonce, plaintext + b"\x02", None)  # \x02 = 最后一段
+    return salt + (4096).to_bytes(4, "big") + bytes([len(as_public)]) + as_public + body
+
+
+def vapid_authorization(endpoint: str, claim: str) -> str:
+    """VAPID：用服务器自己的私钥签一个小凭证，推送服务（苹果 / 谷歌）认这个才放行。"""
+    import time
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+    key = serialization.load_pem_private_key(PUSH_KEY_FILE.read_bytes(), password=None)
+    parsed = urllib.parse.urlparse(endpoint)
+    header = _b64u(json.dumps({"typ": "JWT", "alg": "ES256"}, separators=(",", ":")).encode())
+    claims = _b64u(json.dumps({"aud": f"{parsed.scheme}://{parsed.netloc}", "exp": int(time.time()) + 12 * 3600, "sub": claim},
+                              separators=(",", ":")).encode())
+    r, s_ = decode_dss_signature(key.sign(f"{header}.{claims}".encode(), ec.ECDSA(hashes.SHA256())))
+    token = f"{header}.{claims}.{_b64u(r.to_bytes(32, 'big') + s_.to_bytes(32, 'big'))}"
+    return f"vapid t={token}, k={push_public_key()}"
+
+
+def push_state() -> dict[str, Any]:
+    with contextlib.suppress(Exception):
+        data = json.loads(PUSH_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            data.setdefault("subs", [])
+            return data
+    return {"subs": []}
+
+
+def push_save(state: dict[str, Any]) -> None:
+    PUSH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PUSH_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    tmp.replace(PUSH_FILE)
+
+
+def push_public_key() -> str:
+    """VAPID 公钥（给手机订阅用）；第一次用时生成一对，私钥只留在服务器上。"""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    if not PUSH_KEY_FILE.exists():
+        PUSH_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        key = ec.generate_private_key(ec.SECP256R1())
+        pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+        fd = os.open(str(PUSH_KEY_FILE), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(pem)
+    key = serialization.load_pem_private_key(PUSH_KEY_FILE.read_bytes(), password=None)
+    raw = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def push_him_name() -> str:
+    with contextlib.suppress(Exception):
+        with sqlite3.connect(str(LOOP_CACHE_DIR / "imprint.db"), timeout=5) as conn:
+            row = conn.execute("SELECT payload FROM records WHERE id='setting_contact'").fetchone()
+        name = json.loads(row[0]).get("himName") if row else ""
+        if name:
+            return str(name)[:24]
+    return "他"
+
+
+def push_text(text: str, attachments: list[Any]) -> str:
+    body = re.sub(r"⟦[^⟧]*⟧", " ", str(text or ""))
+    body = re.sub(r"\s+", " ", body).strip()
+    if not body and attachments:
+        body = "[图片]" if any(str((a or {}).get("mime") or "").startswith("image/") for a in attachments if isinstance(a, dict)) else "[文件]"
+    return body[:140] + ("…" if len(body) > 140 else "")
+
+
+async def _push_send_one(client: httpx.AsyncClient, sub: dict[str, Any], data: str, claim: str) -> int:
+    """→ HTTP 状态码（0 = 网络错）。410/404 说明这台手机的订阅已经失效。"""
+    try:
+        body = webpush_encrypt(sub["keys"]["p256dh"], sub["keys"]["auth"], data.encode("utf-8"))
+        resp = await client.post(sub["endpoint"], content=body, headers={
+            "Authorization": vapid_authorization(sub["endpoint"], claim), "Content-Encoding": "aes128gcm",
+            "Content-Type": "application/octet-stream", "TTL": str(24 * 3600), "Urgency": "high"})
+        if resp.status_code >= 300:
+            print(f"[push] {urllib.parse.urlparse(sub['endpoint']).netloc} -> HTTP {resp.status_code} {resp.text[:200]}", flush=True)
+        return resp.status_code
+    except Exception as exc:
+        print(f"[push] send failed: {type(exc).__name__}: {exc}", flush=True)
+        return 0
+
+
+async def push_send(title: str, body: str, url: str, tag: str) -> dict[str, int]:
+    if push_missing():
+        return {"sent": 0, "failed": 0, "removed": 0}
+    state = push_state()
+    if not state["subs"]:
+        return {"sent": 0, "failed": 0, "removed": 0}
+    push_public_key()  # 确保私钥在
+    claim = state.get("claim") or "mailto:imprint@example.com"
+    data = json.dumps({"title": title, "body": body, "url": url, "tag": tag}, ensure_ascii=False)
+    async with httpx.AsyncClient(timeout=20, trust_env=True) as client:
+        codes = await asyncio.gather(*(_push_send_one(client, sub, data, claim) for sub in state["subs"]))
+    dead = {sub["endpoint"] for sub, code in zip(state["subs"], codes) if code in (404, 410)}
+    if dead:
+        state = push_state()
+        state["subs"] = [x for x in state["subs"] if x["endpoint"] not in dead]
+        push_save(state)
+    return {"sent": sum(1 for c in codes if 200 <= c < 300), "failed": sum(1 for c in codes if not 200 <= c < 300 and c not in (404, 410)),
+            "removed": len(dead)}
+
+
+async def push_reply(text: str, attachments: list[Any], session_id: str) -> None:
+    import time
+    if time.monotonic() - _push_seen_at < PUSH_SEEN_WINDOW_S:
+        return  # 她正开着 App，看得到，不打扰
+    body = push_text(text, attachments)
+    if not body:
+        return
+    url = "./#/chat/t?id=" + urllib.parse.quote(session_id) if session_id else "./#/chat"
+    with contextlib.suppress(Exception):
+        await push_send(push_him_name(), body, url, session_id or "imprint")
 
 
 async def relay_upload(data: bytes, name: str, mime: str) -> dict[str, Any] | None:
@@ -6168,6 +6341,60 @@ async def loop_cache_check_run(request: Request):
         _cache_check_state.update(running=True, step="准备", index=index, error="")
         _cache_check_state["task"] = asyncio.create_task(_cache_check_job(index))  # 留个引用，别被回收
     return {"running": True, "step": _cache_check_state["step"]}
+
+
+@app.get("/loop/push")
+async def loop_push_info():
+    missing = push_missing()
+    key = ""
+    if not missing:
+        with contextlib.suppress(Exception):
+            key = push_public_key()
+    return {"available": not missing and bool(key), "reason": missing, "key": key, "devices": len(push_state()["subs"])}
+
+
+@app.post("/loop/push/subscribe")
+async def loop_push_subscribe(request: Request):
+    body = await request.json()
+    sub = body.get("subscription") if isinstance(body.get("subscription"), dict) else {}
+    endpoint = str(sub.get("endpoint") or "")
+    keys = sub.get("keys") if isinstance(sub.get("keys"), dict) else {}
+    if not endpoint.startswith("https://") or not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(status_code=400, detail="订阅信息不完整")
+    state = push_state()
+    state["subs"] = [x for x in state["subs"] if x.get("endpoint") != endpoint][-9:]
+    state["subs"].append({"endpoint": endpoint, "keys": {"p256dh": str(keys["p256dh"]), "auth": str(keys["auth"])},
+                          "ua": str(body.get("ua") or "")[:160], "at": now_iso()})
+    origin = str(body.get("origin") or request.headers.get("origin") or "")
+    if origin.startswith("https://"):
+        state["claim"] = origin  # 苹果的推送服务要一个真实的 https 地址或邮箱做联系人
+    push_save(state)
+    return {"ok": True, "devices": len(state["subs"])}
+
+
+@app.post("/loop/push/unsubscribe")
+async def loop_push_unsubscribe(request: Request):
+    endpoint = str((await request.json()).get("endpoint") or "")
+    state = push_state()
+    state["subs"] = [x for x in state["subs"] if x.get("endpoint") != endpoint]
+    push_save(state)
+    return {"ok": True, "devices": len(state["subs"])}
+
+
+@app.post("/loop/push/seen")
+async def loop_push_seen():
+    global _push_seen_at
+    import time
+    _push_seen_at = time.monotonic()
+    return {"ok": True}
+
+
+@app.post("/loop/push/test")
+async def loop_push_test():
+    if push_missing():
+        raise HTTPException(status_code=503, detail=push_missing())
+    result = await push_send(push_him_name(), "这是一条测试通知。以后我找你，你就能看到了。", "./#/chat", "imprint-test")
+    return {"ok": result["sent"] > 0, **result}
 
 
 @app.post("/loop/models")

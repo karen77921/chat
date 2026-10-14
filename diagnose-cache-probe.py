@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Probe whether the first model route really supports Claude prompt caching.
 
-Sends the same ~6k-token prompt twice in two styles and prints the usage the
+Sends the same ~6k-token prompt twice in several styles (incl. Claude Code style fixed session id) and prints the usage the
 gateway reports. Costs a few cents. Reads the route from the server config and
 never prints the API key.
 
@@ -10,6 +10,7 @@ Usage on the VPS:
 """
 import json
 import sys
+import uuid
 import time
 import urllib.error
 import urllib.parse
@@ -65,6 +66,29 @@ def native_style():
                                                "anthropic-version": "2023-06-01"})
 
 
+# Claude Code 形态的中转：同一个 session id 才算同一个缓存范围，每次新 id 就只写不读
+CC_SESSION = str(uuid.uuid5(uuid.NAMESPACE_URL, "imprint:cache-probe:" + marker))
+CC_USER = "user_%s_account__session_%s" % (uuid.uuid5(uuid.NAMESPACE_URL, "imprint:probe-user").hex * 2, CC_SESSION)
+CC_HEADERS = {"X-Claude-Code-Session-Id": CC_SESSION, "anthropic-beta": "claude-code-20250219,prompt-caching-2024-07-31",
+              "x-app": "cli"}
+
+
+def native_cc_style():
+    root = base[:-3] if base.endswith("/v1") else base
+    body = {"model": model, "max_tokens": 5, "metadata": {"user_id": CC_USER},
+            "system": [{"type": "text", "text": marker + filler, "cache_control": {"type": "ephemeral"}}],
+            "messages": [{"role": "user", "content": "Reply with OK."}]}
+    return post(root + "/v1/messages", body, {"x-api-key": key, "Authorization": "Bearer " + key,
+                                               "anthropic-version": "2023-06-01", **CC_HEADERS})
+
+
+def openai_cc_style():
+    body = {"model": model, "max_tokens": 5, "metadata": {"user_id": CC_USER}, "user": CC_SESSION, "messages": [
+        {"role": "system", "content": [{"type": "text", "text": marker + filler, "cache_control": {"type": "ephemeral"}}]},
+        {"role": "user", "content": "Reply with OK."}]}
+    return post(base + "/chat/completions", body, {"Authorization": "Bearer " + key, **CC_HEADERS})
+
+
 def openai_stream_style():
     """Same request, but streamed like real chat turns. Some relays only cache one of the two paths."""
     body = {"model": model, "max_tokens": 5, "stream": True, "stream_options": {"include_usage": True},
@@ -96,7 +120,9 @@ def openai_stream_style():
 
 for name, call in (("A  OpenAI-compatible /chat/completions", openai_style),
                    ("A2 same, streamed (how real chat turns go)", openai_stream_style),
-                   ("B  Claude native /v1/messages", native_style)):
+                   ("B  Claude native /v1/messages", native_style),
+                   ("C  /v1/messages + fixed Claude Code session id", native_cc_style),
+                   ("D  /chat/completions + fixed Claude Code session id", openai_cc_style)):
     print("\n" + name)
     for attempt in (1, 2):
         took, data, error = call()

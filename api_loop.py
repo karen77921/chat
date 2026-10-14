@@ -2784,7 +2784,7 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
         "name": "imprint_inspect_home",
-        "description": "Inspect the complete real Imprint space: room, notes, photos, solo life, stickers, Heart Tide, dreams, together-listen playlist/current track, watch list, Spark streak/cards/points, gift shop and collection. Use before acting when IDs or current state matter.",
+        "description": "Inspect the complete real Imprint space: room, notes, photos, solo life, stickers, Heart Tide, dreams, together-listen playlist/current track, watch list, Spark streak/cards/points, gift shop and collection. Use before acting when IDs or current state matter. Also returns app_map: where every page of the app is (bottom tabs, the 百宝箱 treasure box at the bottom of the home page, 单词本, 续火花, 存钱罐...) and which tool reaches it, plus a 单词本 summary.",
         "parameters": {"type": "object", "properties": {}},
     },
 }, {

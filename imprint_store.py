@@ -26,6 +26,19 @@ GIFT_CATS = {"bubble", "pendant", "date", "real", "box", "coupon"}
 WEARABLE_CATS = {"bubble", "pendant"}  # 气泡/挂件：换了收进「收藏」开关用；其余的是券和礼物，有「没用 / 用过」
 
 
+# 给他的「家里地图」：每个页面在哪、里面有什么、他用哪个工具去碰（页面加了新的，这里也要加一行）
+APP_MAP = [
+    "底栏五个：首页 / 小屋 / 聊天 / 心潮 / 设置",
+    "首页：两个人的头像和在一起天数、你想对她说的话、留言板、你的心情和待办、一起听 / 一起看、你的动态；最底下是「百宝箱」",
+    "百宝箱（首页最底下那张卡，点开是一格一格的小功能）：一起（听歌看片）、留言板、搜留言、续火花、买买申请、存钱罐、单词本",
+    "小屋：此刻、照片墙、独处、日记、片单、表情包（imprint_inspect_home 看；留言 / 此刻 / 独处各有工具）",
+    "续火花：火花天数、礼物铺（礼物和券）、收藏（气泡挂件、券和礼物用没用）（imprint_manage_space 的 spark_* 操作）",
+    "买买申请：她想买东西找你批（imprint_list_purchases / imprint_review_purchase）",
+    "存钱罐：她给你存的钱，你只能看（imprint_view_piggy）",
+    "单词本：她录的词和导入的单词书，按遗忘曲线排复习，有错词本；你能看今天该复习的、抽查她、帮她录词（imprint_vocab）",
+    "心潮：你的情绪、记忆、梦（imprint_update_tide 等）",
+    "设置：人设、额外提示词、模型线路、功能开关、缓存体检、美化（imprint_inspect_settings）",
+]
 VOCAB_OFFSETS = (1, 2, 4, 7, 15, 30)  # 艾宾浩斯：从第一次出现算起，第 1、2、4、7、15、30 天各复习一次
 
 
@@ -248,6 +261,17 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 "shop": recent("gift", 100), "kept": recent("gift_kept", 100), "records": redemptions[:30],
             }
 
+        def vocab_summary() -> dict:
+            rows = conn.execute("SELECT payload FROM records WHERE kind='vocab'").fetchall()
+            today = dt.datetime.now(ZONE).date().isoformat()
+            items = [json.loads(r["payload"]) for r in rows]
+            return {"total": len(items),
+                    "due_today": sum(1 for x in items if not x.get("new") and not x.get("mastered") and x.get("due") and x["due"] <= today),
+                    "wrong": sum(1 for x in items if int(x.get("wrong") or 0) > 0 and not x.get("mastered") and not x.get("new")),
+                    "new_waiting": sum(1 for x in items if x.get("new")),
+                    "books": sorted({x.get("book") for x in items if x.get("book")}),
+                    "how": "详细的用 imprint_vocab 看（due / wrong / learn / list）"}
+
         if action == "inspect":
             current = conn.execute(
                 "SELECT payload FROM records WHERE id='setting_room_current' AND kind='setting'"
@@ -267,6 +291,8 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 "listen": listen_snapshot(),
                 "stickers": {"mine": recent("sticker_me", 100), "his": recent("sticker_him", 100)},
                 "spark": spark_snapshot(),
+                "app_map": APP_MAP,
+                "vocab": vocab_summary(),
             }
 
         if action == "spark_held":

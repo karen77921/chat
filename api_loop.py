@@ -3051,9 +3051,18 @@ def friendly_model_error(detail: str) -> str:
         reasons.append("另一条线路余额或额度不足（402）")
     if "HTTP 401" in text or "HTTP 403" in text:
         reasons.append("有线路的 API 密钥无效或无权限")
+    if "HTTP 529" in text or "overloaded" in text.lower():
+        reasons.append("上游 Claude 过载了（529），过一会儿再试")
+    if re.search(r"HTTP 5\d\d", text) and "HTTP 529" not in text:
+        reasons.append("中转站自己出错了（5xx）")
+    if "HTTP 400" in text and re.search(r"too long|context|token", text, re.I):
+        reasons.append("这一轮带的内容太长了，超出模型上限")
+    elif "HTTP 400" in text:
+        reasons.append("中转拒绝了这次请求（400）")
     if not reasons:
         reasons.append("模型线路暂时不可用")
-    return "这次没有生成成功：" + "；".join(dict.fromkeys(reasons)) + "。请在设置的 API 线路中保留至少一条可用线路后重试。"
+    return ("这次没有生成成功：" + "；".join(dict.fromkeys(reasons))
+            + "。点「重新生成」再试；一直不行就长按这条看「账本」里的上游原话，或检查设置里的 API 线路。")
 
 
 def attach_allowed(path: Path) -> bool:
@@ -3440,6 +3449,7 @@ async def stream_chat(route: dict[str, str], messages: list[dict[str, Any]], too
     text_parts: list[str] = []
     think_parts: list[str] = []
     usage: dict[str, Any] = {}
+    finish = ""
     acc: dict[int, dict[str, Any]] = {}
     # Never leave the PWA in an endless typing state. A healthy compatible gateway
     # either emits SSE activity or fails within this bounded idle window.
@@ -3489,6 +3499,8 @@ async def stream_chat(route: dict[str, str], messages: list[dict[str, Any]], too
                     if isinstance(ev.get("usage"), dict):
                         usage = normalize_usage(ev["usage"])
                     choice = (ev.get("choices") or [{}])[0]
+                    if choice.get("finish_reason"):
+                        finish = str(choice["finish_reason"])
                     delta = choice.get("delta") or {}
                     think = delta.get("reasoning_content") or delta.get("reasoning") or ""
                     if think:
@@ -3502,7 +3514,7 @@ async def stream_chat(route: dict[str, str], messages: list[dict[str, Any]], too
                         if isinstance(tc, dict):
                             _merge_tool_call(acc, tc, pos)
                 break
-    return {"text": "".join(text_parts).strip(), "thinking": "".join(think_parts).strip(), "tool_calls": _finish_tool_calls(acc), "usage": usage,
+    return {"text": "".join(text_parts).strip(), "thinking": "".join(think_parts).strip(), "tool_calls": _finish_tool_calls(acc), "usage": usage, "finish": finish,
             "prompt_cache": {"mode": cache_mode, "ttl": route_cache_ttl(route), "fallback": cache_fallback}}
 
 
@@ -3553,6 +3565,7 @@ async def complete_chat(route: dict[str, str], messages: list[dict[str, Any]], t
         "thinking": (msg.get("reasoning_content") or "").strip(),
         "tool_calls": _finish_tool_calls(acc),
         "usage": normalize_usage(data.get("usage") or {}),
+        "finish": str(((data.get("choices") or [{}])[0]).get("finish_reason") or ""),
         "prompt_cache": {"mode": cache_mode, "ttl": route_cache_ttl(route), "fallback": cache_fallback},
     }
 
@@ -3736,6 +3749,7 @@ async def handle_turn(
     cache_meta: dict[str, Any] = {}
     step = 0
     empty_retry = False
+    last_finish = ""
     garden_actions: list[tuple[str, str]] = []
     try:
         while True:
@@ -3753,9 +3767,11 @@ async def handle_turn(
             calls = out.get("tool_calls") or []
             step_text = out.get("text") or ""
             thinking = out.get("thinking") or ""
-            if not step_text and thinking and not calls:
+            last_finish = str(out.get("finish") or "")
+            if not step_text and thinking and not calls and "claude" not in str(out.get("model") or "").lower():
                 # Some OpenAI-compatible gateways (seen with Qwen3-VL after a tool result) put the
                 # whole final answer in reasoning_content and leave content empty. Promote it.
+                # Claude 的思考是它自己的内心独白（常常是英文），绝不能当回复发给她。
                 step_text, thinking = thinking, ""
             await close_thinking(thinking)
             model_used = out.get("model") or model_used
@@ -3777,12 +3793,13 @@ async def handle_turn(
             if step_text:
                 # 调工具前的自言自语（「我先去看看…」）单独放，最后没别的话可说时才用
                 (narration if calls else texts).append(step_text)
-            if not calls and not texts and step > 0 and not empty_retry:
-                # Some gateways occasionally return a completely empty message right after a
-                # tool result. Ask once more instead of showing "did not produce a reply".
+            if not calls and not texts and not empty_retry and last_finish not in {"content_filter", "refusal"}:
+                # Some gateways occasionally return a completely empty message (after a tool result,
+                # or only thinking and no words). Ask once more instead of showing an empty reply.
                 empty_retry = True
-                print(f"[turn] empty answer after {step} tool step(s) for {session_id or 'default'}; retrying once", flush=True)
-                messages.append({"role": "user", "content": "（工具结果已经在上面了。请直接用文字回复她，不要再调用工具。）"})
+                print(f"[turn] empty answer after {step} tool step(s) for {session_id or 'default'} (finish={last_finish or '-'}); retrying once", flush=True)
+                messages.append({"role": "user", "content": "（工具结果已经在上面了。请直接用文字回复她，不要再调用工具。）" if step > 0
+                                 else "（刚才你只想了没说出口。请直接用中文回复她。）"})
                 tools = None
                 max_steps = 0
                 continue
@@ -3864,8 +3881,15 @@ async def handle_turn(
                                               {"message_id": target, "sticker_id": react_match.group(1)})
         if not reply and reaction:
             reply = f"[表情：{reaction['stickerId']}]"  # 只贴了回应没说话时，顺手把同一个表情也发出来
+    if not reply and not error:
+        if last_finish in {"content_filter", "refusal"}:
+            reply = "⚠️ 这一条被上游的安全过滤拦下了，他没能说出口（不是你的问题）。换个说法，或者点「重新生成」再试一次。"
+            error = f"empty reply, finish_reason={last_finish}"
+        else:
+            reply = "⚠️ 他这次没说出话来：上游返回了空内容。点「重新生成」再试一次。"
+            error = f"empty reply, finish_reason={last_finish or 'none'}"
     if not reply:
-        reply = "(The API loop did not produce a reply.)"
+        reply = "⚠️ 他这次没说出话来，点「重新生成」再试一次。"
     meta: dict[str, Any] = {
         "runtime": "api_loop",
         "model": model_used,

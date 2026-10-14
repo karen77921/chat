@@ -21,6 +21,23 @@ from fastapi import APIRouter, HTTPException, Request
 NAMES = {"me": "我", "him": "他"}  # 没设置昵称时的占位；Ombre 是记忆系统的名字，不是他的名字
 ZONE = ZoneInfo("Asia/Shanghai")
 REDEEM_LOCK = threading.RLock()
+GIFT_CATS = {"bubble", "pendant", "date", "real", "box", "coupon"}
+WEARABLE_CATS = {"bubble", "pendant"}  # 气泡/挂件：换了收进「收藏」开关用；其余的是券和礼物，有「没用 / 用过」
+
+
+def gift_records(records: list[dict], gifts: list[dict]) -> list[dict]:
+    """兑换记录补齐分类、在谁手里、用没用（旧记录没有这些字段）。"""
+    cats = {g["id"]: g.get("cat") for g in gifts}
+    out = []
+    for rec in records:
+        cat = rec.get("cat") or cats.get(rec.get("itemId")) or ""
+        item = {**rec, "cat": cat, "holder": rec.get("holder") or "me"}
+        if cat in WEARABLE_CATS:
+            item["state"] = "kept"
+        else:
+            item["state"] = "used" if rec.get("status") == "used" else "unused"
+        out.append(item)
+    return out
 TIDE_EMOTIONS = [
     ("calm", "平静"), ("missing", "想念"), ("tired", "疲惫"), ("joy", "愉快"),
     ("curious", "好奇"), ("lonely", "孤单"), ("tender", "温柔"), ("secure", "安心"),
@@ -200,6 +217,12 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 "stickers": {"mine": recent("sticker_me", 100), "his": recent("sticker_him", 100)},
                 "spark": spark_snapshot(),
             }
+
+        if action == "spark_held":
+            items = gift_records(recent("gift_redeem", 500), recent("gift", 500))
+            day_ago = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48)).isoformat()
+            return {"unused": [x for x in items if x["state"] == "unused"],
+                    "recent_used": [x for x in items if x["state"] == "used" and str(x.get("usedAt") or "") >= day_ago]}
 
         if action == "stickers":
             return {"mine": recent("sticker_me", 100), "his": recent("sticker_him", 100)}
@@ -402,7 +425,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
         if action == "add_gift":
             name = str(body.get("name") or "").strip()
             category = str(body.get("category") or "").strip()
-            if not name or len(name) > 60 or category not in {"bubble", "pendant", "date", "real", "box"}:
+            if not name or len(name) > 60 or category not in GIFT_CATS:
                 raise ValueError("礼物需包含 1–60 字名称和有效分类")
             try:
                 cost = max(1, min(100000, int(body.get("cost") or 1)))
@@ -468,12 +491,29 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                     raise ValueError("礼物不存在")
                 if state["wallets"]["him"] < int(gift.get("cost") or 0):
                     raise ValueError("他的火花积分不够")
+                holder = "him" if body.get("holder") == "him" else "me"  # 默认是他换给她的
+                wearable = gift.get("cat") in WEARABLE_CATS
                 record = add("gift_redeem", {"itemId": gift["id"], "name": gift["name"], "cost": int(gift["cost"]),
-                                               "by": "him", "status": "given", "note": str(body.get("text") or "")[:120]})
+                                               "cat": gift.get("cat") or "", "by": "him", "holder": holder,
+                                               "status": "kept" if wearable else "unused",
+                                               "note": str(body.get("text") or "")[:120]})
                 if gift.get("cat") in {"bubble", "pendant"}:
                     add("gift_kept", {"itemId": gift["id"], "name": gift["name"], "cat": gift["cat"],
                                       "art": gift.get("art") or gift["cat"], "active": False})
                 return record
+            if operation == "spark_use":
+                found = conn.execute("SELECT at,payload FROM records WHERE kind='gift_redeem' AND id=?", (rec_id,)).fetchone()
+                if not found:
+                    raise ValueError("找不到这张券/礼物，先看【券和礼物】里的 id")
+                item = gift_records([{**json.loads(found["payload"]), "id": rec_id, "at": found["at"]}], recent("gift", 500))[0]
+                if item["holder"] != "him":
+                    raise ValueError("这张在她手里，只有她能用；你可以提醒她")
+                if item["state"] != "unused":
+                    raise ValueError("这张已经用过了" if item["state"] == "used" else "气泡和挂件不用「用掉」")
+                payload = json.loads(found["payload"])
+                payload.update(status="used", usedAt=iso_now(), usedBy="him", usedNote=str(body.get("text") or "")[:200])
+                conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(payload, ensure_ascii=False), rec_id))
+                return {**payload, "id": rec_id}
             if operation == "spark_activate":
                 found = conn.execute("SELECT payload FROM records WHERE kind='gift_kept' AND id=?", (rec_id,)).fetchone()
                 if not found:
@@ -1096,12 +1136,14 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         week = [{"date": (today - dt.timedelta(days=i)).isoformat(),
                  "done": (today - dt.timedelta(days=i)).isoformat() in completed} for i in range(6, -1, -1)]
         spent = len(rows("spark_card_use"))
-        spent_points = sum(int(item.get("cost") or 0) for item in rows("gift_redeem") if item.get("by") == "me")
+        redeemed = rows("gift_redeem")
+        spent_points = sum(int(item.get("cost") or 0) for item in redeemed if item.get("by") == "me")
+        his_points = sum(int(item.get("cost") or 0) for item in redeemed if item.get("by") == "him")
         return {"available": True, "now": iso_now(), "names": public_names(),
                 "streak": {"days": streak, "today": {"me": "me" in days.get(today.isoformat(), set()),
                                                       "him": "him" in days.get(today.isoformat(), set())}},
                 "week": week, "cards": {"count": max(0, len(completed) // 7 - spent), "every": 7},
-                "wallets": {"me": max(0, len(completed) - spent_points), "him": len(completed)}, "milestones": []}
+                "wallets": {"me": max(0, len(completed) - spent_points), "him": max(0, len(completed) - his_points)}, "milestones": []}
 
     @router.post("/spark/cards/use")
     async def use_spark_card(request: Request):
@@ -1127,7 +1169,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         body = await request.json()
         name = str(body.get("name") or "").strip()
         category = str(body.get("cat") or "").strip()
-        if not name or len(name) > 60 or category not in {"bubble", "pendant", "date", "real", "box"}:
+        if not name or len(name) > 60 or category not in GIFT_CATS:
             raise HTTPException(400, "请填写礼物名称和分类")
         try:
             cost = int(body.get("cost"))
@@ -1136,6 +1178,26 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         if cost < 1 or cost > 100000:
             raise HTTPException(400, "积分需在 1–100000 之间")
         return put("gift", {"name": name, "cat": category, "art": category, "sub": str(body.get("sub") or "")[:120], "cost": cost, "owned": False})
+
+    @router.delete("/spark/shop/{gift_id}")
+    def remove_gift(gift_id: str):
+        delete("gift", gift_id)  # 换过的记录留着，名字也在
+        return {"ok": True}
+
+    @router.post("/spark/records/{rec_id}/use")
+    async def use_gift(rec_id: str, request: Request):
+        body = await request.json()
+        found = next((x for x in gift_records(rows("gift_redeem"), rows("gift")) if x["id"] == rec_id), None)
+        if not found:
+            raise HTTPException(404, "没有这条记录")
+        if found["holder"] != "me":
+            raise HTTPException(400, "这张在他手里，等他来用")
+        if found["state"] != "unused":
+            raise HTTPException(400, "已经用过了")
+
+        def mark(payload: dict) -> None:
+            payload.update(status="used", usedAt=iso_now(), usedBy="me", usedNote=str(body.get("note") or "")[:200])
+        return gift_records([change("gift_redeem", rec_id, mark)], rows("gift"))[0]
 
     @router.post("/spark/redeem")
     async def redeem_gift(request: Request):
@@ -1154,8 +1216,10 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
                 if state["wallets"]["me"] < gift["cost"]:
                     raise HTTPException(400, "积分不够")
                 rec_id, at = uuid.uuid4().hex, iso_now()
-                payload = {"itemId": gift["id"], "name": gift["name"], "cost": gift["cost"],
-                           "by": "me", "status": "kept", "note": "已收好"}
+                wearable = gift["cat"] in WEARABLE_CATS
+                payload = {"itemId": gift["id"], "name": gift["name"], "cost": gift["cost"], "cat": gift["cat"],
+                           "by": "me", "holder": "him" if body.get("holder") == "him" else "me",
+                           "status": "kept" if wearable else "unused", "note": str(body.get("note") or "")[:120]}
                 conn.execute("INSERT INTO records VALUES(?,?,?,?)", (rec_id, "gift_redeem", at, json.dumps(payload, ensure_ascii=False)))
                 if gift["cat"] in ("bubble", "pendant"):
                     kept = {"itemId": gift["id"], "name": gift["name"], "cat": gift["cat"],
@@ -1166,7 +1230,8 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
 
     @router.get("/spark/kept")
     def spark_kept():
-        return {"available": True, "kept": rows("gift_kept"), "records": rows("gift_redeem")}
+        return {"available": True, "names": public_names(), "kept": rows("gift_kept"),
+                "records": gift_records(rows("gift_redeem"), rows("gift"))}
 
     @router.post("/spark/kept/{rec_id}/active")
     async def activate_gift(rec_id: str, request: Request):

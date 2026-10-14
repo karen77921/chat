@@ -120,6 +120,34 @@ class ImprintStoreTest(unittest.TestCase):
         self.call("DELETE", "/piggy/{rec_id}", taken["id"])
         self.assertEqual(self.call("GET", "/piggy")["balance"], 20)
 
+    def test_coupons_know_who_holds_them_and_get_used_once(self):
+        gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))
+        self.assertEqual(gift["art"], "coupon")
+        with sqlite3.connect(self.store) as conn:
+            for rid, holder in (("a" * 32, "him"), ("b" * 32, "me")):
+                conn.execute("INSERT INTO records VALUES(?,?,?,?)", (rid, "gift_redeem", "2026-10-14T00:00:00+00:00", json.dumps(
+                    {"itemId": gift["id"], "name": "撒娇券", "cost": 1, "by": "me", "holder": holder, "status": "unused"})))
+        held = imprint_action(self.store, "spark_held")
+        self.assertEqual({x["holder"] for x in held["unused"]}, {"me", "him"})
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            text = api_loop.gifts_context_text()
+        self.assertIn("在你手里", text)
+        self.assertIn("在她手里", text)
+        with self.assertRaises(ValueError):  # 她手里的他不能替她用
+            imprint_action(self.store, "manage_space", {"operation": "spark_use", "id": "b" * 32})
+        used = imprint_action(self.store, "manage_space", {"operation": "spark_use", "id": "a" * 32, "text": "哄她"})
+        self.assertEqual(used["usedBy"], "him")
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "manage_space", {"operation": "spark_use", "id": "a" * 32})
+        with self.assertRaises(HTTPException):  # 他手里的她也不能在页面上用掉
+            self.call("POST", "/spark/records/{rec_id}/use", "a" * 32, Request({}))
+        mine = self.call("POST", "/spark/records/{rec_id}/use", "b" * 32, Request({"note": "要抱抱"}))
+        self.assertEqual((mine["state"], mine["usedNote"]), ("used", "要抱抱"))
+        self.call("DELETE", "/spark/shop/{gift_id}", gift["id"])
+        kept = self.call("GET", "/spark/kept")
+        self.assertEqual(len(kept["records"]), 2)  # 下架礼物不影响换过的记录
+        self.assertEqual(self.call("GET", "/spark/shop")["items"], [])
+
     def test_purchase_request_review_and_withdraw_keep_a_timeline(self):
         item = imprint_action(self.store, "purchase_create", {"title": "冰淇淋", "price": "5", "reason": "想吃"})
         self.assertEqual((item["status"], item["price"]), ("pending", 5.0))

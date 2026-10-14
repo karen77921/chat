@@ -1,5 +1,6 @@
 /**
- * 08 续火花（赠送页）：每天互相说一句话就续上一天；攒积分在礼物铺换小礼物；收藏里用上气泡 / 挂件、看兑换记录。
+ * 08 续火花（赠送页）：每天互相说一句话就续上一天；攒积分在礼物铺换小礼物；收藏里用上气泡 / 挂件、
+ * 券和礼物（谁手里、用没用）、兑换记录。他每一轮都能看到没用掉的券和礼物。
  * 网址：#/spark   ?tab=spark|shop|kept
  * 数据：GET /api/spark、/api/spark/shop、/api/spark/kept，POST /api/spark/redeem 等（字段见 src/lib/mock.js 和 docs/08-续火花.md）
  */
@@ -17,9 +18,11 @@ import '../components/chat/chatlist.css';
 import '../components/spark/spark.css';
 
 const TABS = [['spark', '火花', 'flame'], ['shop', '礼物铺', 'gift'], ['kept', '收藏', 'sparkle']];
-const CATS = [['', '全部'], ['bubble', '气泡'], ['pendant', '挂件'], ['date', '约会'], ['real', '真礼物'], ['box', '盲盒']];
+const CATS = [['', '全部'], ['bubble', '气泡'], ['pendant', '挂件'], ['date', '约会'], ['real', '真礼物'], ['coupon', '券'], ['box', '盲盒']];
 const ME = { id: 'me', name: '我', color: '#AED0EE' };
 const HIM = { id: 'him', name: '他' };
+/** 两个人的头像：设置 → 美化 里换的那两张 */
+const people = (data) => [{ ...ME, avatar: data?.avatars?.me || undefined }, { ...HIM, name: data?.names?.him || '他', avatar: data?.avatars?.him || undefined }];
 
 export default function Spark({ query }) {
   const [tab, setTab] = useState(TABS.some(([k]) => k === query.tab) ? query.tab : 'spark');
@@ -59,7 +62,7 @@ function SparkTab() {
   if (data.available === false) return <div className="card cl-empty sp-pad">暂时连不上，过一会儿再来看看。</div>;
   if (data.recording === false) return <div className="card cl-empty sp-pad">还没有你们的火花记录。不会用参考天数代替；真实统计接入后再从你们的聊天开始计算。</div>;
   const names = data.names;
-  const him = { ...HIM, name: names?.him };
+  const [me, him] = people(data);
   const missed = data.week.find((d) => !d.done && d.date < data.now?.slice(0, 10));
   const useCard = async () => {
     if (!data.cards.count) { setTip('还没有可用的续火卡。每累计续上 7 天会得到一张。'); return; }
@@ -82,7 +85,7 @@ function SparkTab() {
       </div>
 
       <div className="card sp-who">
-        <span><span className="sp-av"><Avatar m={ME} size={30} /></span>你 · <b className={data.streak.today.me ? 'ok' : ''}>{data.streak.today.me ? '已说过话' : '还没说'}</b></span>
+        <span><span className="sp-av"><Avatar m={me} size={30} /></span>你 · <b className={data.streak.today.me ? 'ok' : ''}>{data.streak.today.me ? '已说过话' : '还没说'}</b></span>
         <span><span className="sp-av"><Avatar m={him} size={30} /></span>{names?.him} · <b className={data.streak.today.him ? 'ok' : ''}>{data.streak.today.him ? '已回过话' : '还没回'}</b></span>
       </div>
 
@@ -104,7 +107,7 @@ function SparkTab() {
 
       <div className="sec-head sp-sec"><span className="en" style={{ fontSize: 24 }}>two purses</span><h2 className="zh" style={{ margin: 0, fontSize: 14 }}>两只小钱袋</h2><span className="go">积分分开攒</span></div>
       <div className="sp-purses">
-        <div className="card sp-purse"><span className="sp-pav"><Avatar m={ME} size={32} /></span><em>你的钱包</em><b className="serif">{data.wallets.me}</b><small>积分</small></div>
+        <div className="card sp-purse"><span className="sp-pav"><Avatar m={me} size={32} /></span><em>你的钱包</em><b className="serif">{data.wallets.me}</b><small>积分</small></div>
         <div className="card sp-purse him"><span className="sp-pav"><Avatar m={him} size={32} /></span><em>{names?.him} 的钱包</em><b className="serif">{data.wallets.him}</b><small>积分 · 他给你换</small></div>
       </div>
 
@@ -134,7 +137,14 @@ function ShopTab() {
   if (!data) return <div className="card cl-empty sp-pad">正在翻…</div>;
   if (data.available === false) return <div className="card cl-empty sp-pad">暂时连不上，过一会儿再来看看。</div>;
   if (data.recording === false) return <div className="card cl-empty sp-pad">礼物铺尚未接入真实积分与兑换，参考商品已清空。</div>;
-  const him = { ...HIM, name: names.him };
+  const [me, him] = people(data);
+  const removeGift = async (g) => {
+    try {
+      await api(`/api/spark/shop/${g.id}`, { method: 'DELETE' });
+      setItem(null); setData((d) => ({ ...d, items: d.items.filter((x) => x.id !== g.id) }));
+      setTip(`「${g.name}」下架了，换过的记录还在`); setTimeout(() => setTip(''), 2400);
+    } catch (error) { setTip(error?.message || '没删掉，再试一次'); }
+  };
   const saveGift = async () => {
     try {
       await api('/api/spark/shop', { method: 'POST', body: draft });
@@ -157,7 +167,7 @@ function ShopTab() {
         <div className="sp-grid">
           {data.items.map((g) => (
             <button key={g.id} type="button" className="card sp-gift press" onClick={() => setItem(g)} aria-label={`${g.name}，${g.cost} 分`}>
-              <GiftArt art={g.art} me={ME} him={him} />
+              <GiftArt art={g.art} me={me} him={him} label={g.name} />
               <b>{g.name}</b>
               <em>{g.sub}</em>
               <span className="sp-gift-f"><span><span className="serif">{g.cost}</span>分</span><span className={g.owned ? 'ok' : ''}>{g.owned ? '已收好' : '看看 →'}</span></span>
@@ -167,11 +177,11 @@ function ShopTab() {
         </div>
       </Band>
       {item && (
-        <Redeem item={item} wallets={data.wallets} names={names} me={ME} him={him} onClose={() => setItem(null)}
+        <Redeem item={item} wallets={data.wallets} names={names} me={me} him={him} onClose={() => setItem(null)} onDelete={() => removeGift(item)}
           onDone={(r, wallet) => {
             setItem(null);
             if (r.wallets) setData((d) => ({ ...d, wallets: r.wallets, items: d.items.map((x) => (x.id === item.id && (x.cat === 'bubble' || x.cat === 'pendant') ? { ...x, owned: true } : x)) }));
-            setTip(wallet === 'him' ? `问过 ${names.him} 了，他点头就换好` : '换好了，在「收藏」里');
+            setTip(wallet === 'him' ? `问过 ${names.him} 了，他点头就换好` : item.cat === 'bubble' || item.cat === 'pendant' ? '换好了，在「收藏」里打开就能用' : '换好了，在「收藏 → 券和礼物」里');
             setTimeout(() => setTip(''), 2400);
           }} />
       )}
@@ -188,57 +198,117 @@ function ShopTab() {
 }
 
 function KeptTab() {
-  const [sub, setSub] = useState('kept');
+  const [sub, setSub] = useState('coupons');
+  const [open, setOpen] = useState(null);
   const { data, setData } = useLoad('/api/spark/kept');
   if (!data) return <div className="card cl-empty sp-pad">正在翻…</div>;
   if (data.available === false) return <div className="card cl-empty sp-pad">暂时连不上，过一会儿再来看看。</div>;
   if (data.recording === false) return <div className="card cl-empty sp-pad">这里还没有你们收藏或兑换的小礼物。</div>;
+  const [me, him] = people(data);
+  const hisName = data.names?.him || '他';
   const toggle = (k) => {
     const active = !k.active;
     setData((d) => ({ ...d, kept: d.kept.map((x) => (x.cat === k.cat ? { ...x, active: x.id === k.id ? active : active ? false : x.active } : x)) }));
     api(`/api/spark/kept/${k.id}/active`, { method: 'POST', body: { active } });
   };
+  const goods = data.records.filter((r) => r.state !== 'kept');
+  const groups = [
+    ['在你手里 · 随时找他兑现', goods.filter((r) => r.state === 'unused' && r.holder === 'me')],
+    [`在${hisName}手里 · 他想用会跟你说`, goods.filter((r) => r.state === 'unused' && r.holder === 'him')],
+    ['用过的', goods.filter((r) => r.state === 'used')],
+  ];
+  const day = (iso) => { const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日`; };
   return (
     <div className="sp-body">
       <div className="sp-cats" role="tablist">
-        <button type="button" role="tab" aria-selected={sub === 'kept'} className={`chip ${sub === 'kept' ? 'on' : ''}`} onClick={() => setSub('kept')}>气泡与挂件</button>
-        <button type="button" role="tab" aria-selected={sub === 'records'} className={`chip ${sub === 'records' ? 'on' : ''}`} onClick={() => setSub('records')}>兑换记录</button>
+        {[['coupons', '券和礼物'], ['kept', '气泡与挂件'], ['records', '兑换记录']].map(([k, n]) => (
+          <button key={k} type="button" role="tab" aria-selected={sub === k} className={`chip ${sub === k ? 'on' : ''}`} onClick={() => setSub(k)}>{n}</button>
+        ))}
       </div>
       <Band tone="l1" seed={52} className="sp-band">
+        {sub === 'coupons' && (
+          <>
+            {groups.map(([title, list]) => list.length > 0 && (
+              <div key={title}>
+                <div className="nc-k sp-gk">{title}</div>
+                {list.map((r) => (
+                  <button key={r.id} type="button" className={`card sp-rec press ${r.state}`} onClick={() => setOpen(r)}>
+                    <span className="sp-rec-i"><Icon name={r.cat === 'coupon' ? 'sparkle' : 'gift'} size={18} /></span>
+                    <span><b>{r.name}</b><em>{r.by === 'him' ? `${hisName}换的` : '你换的'} · {day(r.at)}{r.state === 'used' ? ` · ${r.usedBy === 'him' ? hisName : '你'}${day(r.usedAt)}用掉` : ''}</em></span>
+                    <span className={`sp-rec-s ${r.state}`}>{r.state === 'used' ? '用过' : '没用'}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+            {!goods.length && <div className="card cl-empty">还没有券和礼物。<br />在礼物铺换一张，会出现在这里。</div>}
+          </>
+        )}
         {sub === 'kept' && (
           <>
-            {data.kept.map((k) => {
-              const d = new Date(k.at);
-              return (
-                <div key={k.id} className="card sp-kept">
-                  <GiftArt art={k.art} me={ME} him={HIM} />
-                  <div>
-                    <b>{k.name}</b>
-                    <em>{k.cat === 'bubble' ? '气泡' : '挂件'} · {d.getMonth() + 1}月{d.getDate()}日换的</em>
-                    <label className="sp-use"><span>{k.active ? '使用中' : '没用上'}</span><input type="checkbox" className="switch" checked={!!k.active} onChange={() => toggle(k)} /></label>
-                  </div>
+            {data.kept.map((k) => (
+              <div key={k.id} className="card sp-kept">
+                <GiftArt art={k.art} me={me} him={him} />
+                <div>
+                  <b>{k.name}</b>
+                  <em>{k.cat === 'bubble' ? '气泡' : '挂件'} · {day(k.at)}换的</em>
+                  <label className="sp-use"><span>{k.active ? '使用中' : '没用上'}</span><input type="checkbox" className="switch" checked={!!k.active} onChange={() => toggle(k)} /></label>
                 </div>
-              );
-            })}
+              </div>
+            ))}
             {!data.kept.length && <div className="card cl-empty">还没有新气泡和挂件。<br />喜欢哪一套，再把它收进来。</div>}
           </>
         )}
         {sub === 'records' && (
           <>
-            {data.records.map((r) => {
-              const d = new Date(r.at);
-              return (
-                <div key={r.id} className="card sp-rec">
-                  <span className="sp-rec-i"><Icon name="gift" size={18} /></span>
-                  <span><b>{r.name}</b><em>{r.by === 'him' ? '他换给你' : '你换的'} · {d.getMonth() + 1}月{d.getDate()}日</em></span>
-                  <span className={`sp-rec-s ${r.status}`}>{r.note}</span>
-                </div>
-              );
-            })}
+            {data.records.map((r) => (
+              <div key={r.id} className="card sp-rec">
+                <span className="sp-rec-i"><Icon name="gift" size={18} /></span>
+                <span><b>{r.name}</b><em>{r.by === 'him' ? `${hisName}换的` : '你换的'} · {day(r.at)} · {r.cost} 分</em></span>
+                <span className={`sp-rec-s ${r.state}`}>{r.state === 'kept' ? '已收好' : r.state === 'used' ? '用过' : '没用'}</span>
+              </div>
+            ))}
             {!data.records.length && <div className="card cl-empty">还没有换过东西</div>}
           </>
         )}
       </Band>
+      {open && <UseGift rec={open} hisName={hisName} onClose={() => setOpen(null)}
+        onUsed={(r) => { setData((d) => ({ ...d, records: d.records.map((x) => (x.id === r.id ? { ...x, ...r } : x)) })); setOpen(null); }} />}
     </div>
+  );
+}
+
+/** 一张券 / 一份礼物：在谁手里、用没用；在她手里的可以在这里用掉 */
+function UseGift({ rec, hisName, onClose, onUsed }) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const when = (iso) => new Date(iso).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const use = async () => {
+    setBusy(true); setErr('');
+    try { onUsed(await api(`/api/spark/records/${rec.id}/use`, { method: 'POST', body: { note: note.trim() } })); }
+    catch (e) { setErr(e?.message || '没记上，再试一次'); }
+    setBusy(false);
+  };
+  return (
+    <Sheet open onClose={onClose} label={rec.name} seed={54}>
+      <div className="sp-use-sheet">
+        <GiftArt art={rec.cat === 'coupon' ? 'coupon' : 'gift'} label={rec.name} tall />
+        <h2 className="sp-r-name">{rec.name}</h2>
+        <p className="sp-r-sub">
+          {rec.by === 'him' ? `${hisName}换的` : '你换的'} · {when(rec.at)} · 现在在{rec.holder === 'him' ? `${hisName}手里` : '你手里'}
+          {rec.note ? <><br />附言：{rec.note}</> : null}
+        </p>
+        {rec.state === 'used' && <p className="sp-r-sub">{rec.usedBy === 'him' ? hisName : '你'}在 {when(rec.usedAt)} 用掉了{rec.usedNote ? `：${rec.usedNote}` : ''}</p>}
+        {rec.state === 'unused' && rec.holder === 'me' && (
+          <>
+            <label className="pill nc-in"><span className="sr">怎么用的</span><input value={note} maxLength={200} placeholder={`用来干嘛（可不写），${hisName}会看到`} onChange={(e) => setNote(e.target.value)} /></label>
+            {err && <div className="ws-err" role="alert">{err}</div>}
+            <button type="button" className="btn-main nc-go" disabled={busy} onClick={use}>{busy ? '记上…' : '现在用掉'}</button>
+            <p className="sp-r-sub">点了就算用掉，{hisName}下一句就知道，要认账的。</p>
+          </>
+        )}
+        {rec.state === 'unused' && rec.holder === 'him' && <p className="sp-r-sub">这张在{hisName}手里。他每说一句话前都能看到自己手里有哪些券，想用的时候会跟你说，用掉后这里会变成「用过」。</p>}
+      </div>
+    </Sheet>
   );
 }

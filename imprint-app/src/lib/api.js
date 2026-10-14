@@ -396,12 +396,17 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/room/solo') return loop('imprint/room/solo');
   if (method === 'GET' && p === '/api/room/diary') return loop('imprint/room/diary');
   if (method === 'POST' && p === '/api/room/diary/write') return loop('diary/write/today', { ...opts, timeout: 5 * 60 * 1000 });
-  if (method === 'GET' && p === '/api/spark') return loop('imprint/spark');
+  if (method === 'GET' && (p === '/api/spark' || p === '/api/spark/shop' || p === '/api/spark/kept')) {
+    // 火花页也要用真头像：跟买买申请一样，顺手把设置里的头像带上
+    const path = p === '/api/spark' ? 'imprint/spark' : p === '/api/spark/shop' ? `imprint/spark/shop${query}` : 'imprint/spark/kept';
+    const [data, settings] = await Promise.all([loop(path), loop('imprint/settings').catch(() => ({}))]);
+    return { ...data, avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) } };
+  }
+  if (method === 'DELETE' && (m = /^\/api\/spark\/shop\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/spark/shop/${m[1]}`, { method: 'DELETE' });
+  if (method === 'POST' && (m = /^\/api\/spark\/records\/([0-9a-f]+)\/use$/.exec(p))) return loop(`imprint/spark/records/${m[1]}/use`, opts);
   if (method === 'POST' && p === '/api/spark/cards/use') return loop('imprint/spark/cards/use', opts);
-  if (method === 'GET' && p === '/api/spark/shop') return loop(`imprint/spark/shop${query}`);
   if (method === 'POST' && p === '/api/spark/shop') return loop('imprint/spark/shop', opts);
   if (method === 'POST' && p === '/api/spark/redeem') return loop('imprint/spark/redeem', opts);
-  if (method === 'GET' && p === '/api/spark/kept') return loop('imprint/spark/kept');
   if (method === 'POST' && (m = /^\/api\/spark\/kept\/([^/]+)\/active$/.exec(p))) return loop(`imprint/spark/kept/${m[1]}/active`, opts);
   if (method === 'GET' && p === '/api/together/watch') return loop('imprint/together/watch');
   if (method === 'POST' && p === '/api/together/watch/list') return loop('imprint/together/watch/list', opts);

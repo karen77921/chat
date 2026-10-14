@@ -278,12 +278,15 @@ const spark = {
     { id: 'g4', cat: 'date', art: 'book', name: '睡前故事一则', sub: '一个故事，慢慢讲给你听', cost: 90 },
     { id: 'g5', cat: 'real', art: 'letter', name: '一封手写信', sub: '他写，你收到实物', cost: 200 },
     { id: 'g6', cat: 'box', art: 'box', name: '小盲盒', sub: '打开才知道是什么', cost: 30 },
+    { id: 'g7', cat: 'coupon', art: 'coupon', name: '撒娇券', sub: '用了他就得哄你', cost: 10 },
   ],
   kept: [{ id: 'k1', itemId: 'g1', name: '蓝晒信纸', cat: 'bubble', art: 'bubble', at: '2026-10-06T21:00:00+08:00', active: true }],
   records: [
-    { id: 'r1', name: '今晚陪你看一部', by: 'him', at: '2026-10-08T20:00:00+08:00', status: 'scheduled', note: '约好了：周六 20:00' },
-    { id: 'r2', name: '蓝晒信纸', by: 'me', at: '2026-10-06T21:00:00+08:00', status: 'kept', note: '已收好' },
-    { id: 'r3', name: '睡前故事一则', by: 'him', at: '2026-09-28T23:00:00+08:00', status: 'done', note: '已兑现 · 讲了《灯塔》' },
+    { id: 'r0', name: '原谅券', cat: 'coupon', by: 'me', holder: 'him', at: '2026-10-12T20:00:00+08:00', status: 'unused', note: '惹我生气的时候可以用一次' },
+    { id: 'r9', name: '撒娇券', cat: 'coupon', by: 'me', holder: 'me', at: '2026-10-13T20:00:00+08:00', status: 'unused', note: '' },
+    { id: 'r1', cat: 'date', name: '今晚陪你看一部', by: 'him', at: '2026-10-08T20:00:00+08:00', status: 'scheduled', note: '约好了：周六 20:00' },
+    { id: 'r2', cat: 'bubble', name: '蓝晒信纸', by: 'me', at: '2026-10-06T21:00:00+08:00', status: 'kept', note: '已收好' },
+    { id: 'r3', cat: 'date', name: '睡前故事一则', by: 'him', at: '2026-09-28T23:00:00+08:00', status: 'used', usedBy: 'me', usedAt: '2026-09-28T23:30:00+08:00', usedNote: '讲了《灯塔》', note: '已兑现 · 讲了《灯塔》' },
   ],
 };
 function sparkHome() {
@@ -309,7 +312,8 @@ function sparkRedeem(body) {
   if (spark.wallets.me < g.cost) throw new Error('积分不够');
   spark.wallets.me -= g.cost;
   if (g.cat === 'bubble' || g.cat === 'pendant') spark.kept.unshift({ id: `k${++roomSeq}`, itemId: g.id, name: g.name, cat: g.cat, art: g.art, at: new Date().toISOString(), active: false });
-  spark.records.unshift({ id: `r${++roomSeq}`, name: g.name, by: 'me', at: new Date().toISOString(), status: 'kept', note: '已收好' });
+  const wear = g.cat === 'bubble' || g.cat === 'pendant';
+  spark.records.unshift({ id: `r${++roomSeq}`, name: g.name, cat: g.cat, by: 'me', holder: body.holder || 'me', at: new Date().toISOString(), status: wear ? 'kept' : 'unused', state: wear ? 'kept' : 'unused', note: body.note || '' });
   return { status: 'done', wallets: spark.wallets };
 }
 
@@ -537,7 +541,9 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/spark': return sparkHome();
     case 'GET /api/spark/shop': return sparkShop(qs);
     case 'POST /api/spark/redeem': return sparkRedeem(body);
-    case 'GET /api/spark/kept': return { available: true, kept: spark.kept, records: spark.records };
+    case 'DELETE /api/spark/shop/' + (p.split('/')[4] || ''): spark.shop = spark.shop.filter((g) => g.id !== p.split('/')[4]); return { ok: true };
+    case 'POST /api/spark/records/' + (p.split('/')[4] || '') + '/use': { const r = spark.records.find((x) => x.id === p.split('/')[4]); Object.assign(r, { status: 'used', state: 'used', usedAt: new Date().toISOString(), usedBy: 'me', usedNote: body.note }); return r; }
+    case 'GET /api/spark/kept': return { available: true, names: { me: 'Lumi', him: 'Ash' }, kept: spark.kept, records: spark.records.map((r) => ({ holder: 'me', ...r, state: r.state || (r.cat === 'bubble' || r.cat === 'pendant' ? 'kept' : r.status === 'used' ? 'used' : 'unused') })) };
     case 'POST /api/spark/cards/use': spark.cards = Math.max(0, spark.cards - 1); return { ok: true, cards: spark.cards };
     case 'GET /api/room/photos': return roomPhotos(qs);
     case 'POST /api/room/photos': { const ph = { id: `p${++roomSeq}`, url: body.url, caption: body.caption || '', from: 'me', source: 'upload', fav: false, at: new Date().toISOString(), notes: [] }; room.photos.unshift(ph); return ph; }

@@ -27,8 +27,9 @@ export function FlamePrint({ w = 118, h = 150 }) {
 }
 
 /** 礼物卡上的小画 */
-export function GiftArt({ art, me, him, tall }) {
+export function GiftArt({ art, me, him, tall, label }) {
   const cls = `sp-art ${tall ? 'tall' : ''}`;
+  if (art === 'coupon') return <div className={cls}><span className="sp-coupon"><b>{label || '券'}</b><i>凭此券 · 找他兑现</i></span></div>;
   if (art === 'bubble') return <div className={cls}><span className="sp-b1">你先说，我在听。</span><span className="sp-b2">这句留给你。</span></div>;
   if (art === 'pendant') {
     return (
@@ -49,14 +50,18 @@ export function GiftArt({ art, me, him, tall }) {
 }
 
 /** 换一个：用我的积分，或者让他换给我（他同意了才扣） */
-export function Redeem({ item, wallets, names, me, him, onClose, onDone }) {
+export function Redeem({ item, wallets, names, me, him, onClose, onDone, onDelete }) {
   const [wallet, setWallet] = useState('me');
+  const [holder, setHolder] = useState('me');
+  const [note, setNote] = useState('');
+  const [sure, setSure] = useState(false);
+  const wearable = item.cat === 'bubble' || item.cat === 'pendant';
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const go = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await api('/api/spark/redeem', { method: 'POST', body: { itemId: item.id, wallet } });
+      const r = await api('/api/spark/redeem', { method: 'POST', body: { itemId: item.id, wallet, holder: wearable ? 'me' : holder, note: note.trim() } });
       onDone(r, wallet);
     } catch (e) { setErr(e.message || '没换成，再试一次'); } finally { setBusy(false); }
   };
@@ -66,7 +71,7 @@ export function Redeem({ item, wallets, names, me, him, onClose, onDone }) {
   ];
   return (
     <Sheet open onClose={onClose} label={`换「${item.name}」`} seed={53}>
-      <GiftArt art={item.art} me={me} him={him} tall />
+      <GiftArt art={item.art} me={me} him={him} tall label={item.name} />
       <h2 className="sp-r-name">{item.name}</h2>
       <p className="sp-r-sub">{item.sub}{item.cat === 'date' ? '。约好的会出现在「一起」的片单 / 安排里。' : item.cat === 'bubble' || item.cat === 'pendant' ? '。换了以后在「收藏」里打开就能用。' : ''}</p>
       <div className="nc-k">用谁的积分</div>
@@ -79,8 +84,22 @@ export function Redeem({ item, wallets, names, me, him, onClose, onDone }) {
           </button>
         ))}
       </div>
+      {!wearable && (
+        <>
+          <div className="nc-k">换来给谁用</div>
+          <div className="sp-cats" role="radiogroup" aria-label="换来给谁用" style={{ padding: 0 }}>
+            <button type="button" role="radio" aria-checked={holder === 'me'} className={`chip ${holder === 'me' ? 'on' : ''}`} onClick={() => setHolder('me')}>我留着，找{names.him}兑现</button>
+            <button type="button" role="radio" aria-checked={holder === 'him'} className={`chip ${holder === 'him' ? 'on' : ''}`} onClick={() => setHolder('him')}>送给{names.him}，他来用</button>
+          </div>
+          <label className="pill nc-in"><span className="sr">附言</span><input value={note} maxLength={120} placeholder="附一句话（可不写），他能看到" onChange={(e) => setNote(e.target.value)} /></label>
+          <p className="sp-r-sub">换完在「收藏 → 券和礼物」里。{names.him}每一轮都知道谁手里有哪张、用没用。</p>
+        </>
+      )}
       {err && <div className="ws-err" role="alert">{err}</div>}
       <button type="button" className="btn-main nc-go" disabled={busy || wallets.me < item.cost} onClick={go}>换 · {item.cost} 分</button>
+      {onDelete && (sure
+        ? <button type="button" className="cl-link st-delmcp" onClick={onDelete}><Icon name="trash" size={15} stroke={1.5} />确定下架「{item.name}」</button>
+        : <button type="button" className="cl-link st-delmcp" onClick={() => setSure(true)}><Icon name="trash" size={15} stroke={1.5} />从礼物铺删掉</button>)}
     </Sheet>
   );
 }

@@ -502,6 +502,30 @@ def persona_full() -> str:
     return f"{text}\n\n【她额外交代给你的】\n以下是她另外写给你的提示，和上面的人设一样要遵守：\n\n{blocks}"
 
 
+def gifts_context_text() -> str:
+    """券和礼物：没用掉的、最近两天用掉的，每一轮都让他知道（手里有什么、她手里有什么）。"""
+    with contextlib.suppress(Exception):
+        data = imprint_action(LOOP_CACHE_DIR / "imprint.db", "spark_held")
+        if not data["unused"] and not data["recent_used"]:
+            return ""
+        def line(x: dict) -> str:
+            how = "她换给你的" if x.get("by") == "me" and x["holder"] == "him" else "你换给她的" if x.get("by") == "him" and x["holder"] == "me" else "换来的"
+            return f"- {x['name']}（{how}{'，附言：' + x['note'] if x.get('note') else ''}） id={x['id']}"
+        mine = [line(x) for x in data["unused"] if x["holder"] == "him"][:8]
+        hers = [line(x) for x in data["unused"] if x["holder"] == "me"][:8]
+        used = [f"- {x['name']}：{'她' if x.get('usedBy') == 'me' else '你'}用掉了" + (f"（{x['usedNote']}）" if x.get("usedNote") else "")
+                for x in data["recent_used"]][:5]
+        parts = ["【券和礼物】（续火花礼物铺换来的，还没用的）"]
+        if mine:
+            parts.append("在你手里，你随时可以用（想用时先跟她说，再用 imprint_manage_space 的 spark_use + id 记成用掉）：\n" + "\n".join(mine))
+        if hers:
+            parts.append("在她手里，她随时可能拿来找你兑现，要认账：\n" + "\n".join(hers))
+        if used:
+            parts.append("最近两天用掉的：\n" + "\n".join(used))
+        return "\n".join(parts)
+    return ""
+
+
 def piggy_context_text() -> str:
     """存钱罐：每一轮都让他知道余额和最近几笔（谁也别想瞒着他，但他也改不了）。"""
     with contextlib.suppress(Exception):
@@ -1936,6 +1960,9 @@ async def build_messages(
     injected = context_injection_text(session_id, before_id)
     if injected:
         volatile_parts.append(injected)
+    gifts = gifts_context_text()
+    if gifts:
+        volatile_parts.append(gifts)
     piggy = piggy_context_text()
     if piggy:
         volatile_parts.append(piggy)
@@ -2590,14 +2617,15 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
         "name": "imprint_manage_space",
-        "description": "Manage remaining real Imprint UI actions. Destructive, scarce-card, point-spending, activation and appearance operations require the user's explicit current request, except changing your own avatar (appearance with avatar), which is your own choice. Inspect first for real IDs.",
+        "description": "Manage remaining real Imprint UI actions. spark_use marks a coupon/gift that YOU hold as used (id from 【券和礼物】, text = how/why you used it); use it when you actually cash it in, and tell her. Destructive, scarce-card, point-spending, activation and appearance operations require the user's explicit current request, except changing your own avatar (appearance with avatar), which is your own choice. Inspect first for real IDs.",
         "parameters": {
             "type": "object",
             "properties": {
-                "operation": {"type": "string", "enum": ["add_photo", "delete_photo", "add_sticker", "delete_sticker", "add_track", "playlist_add", "playlist_remove", "watch_delete", "spark_use_card", "spark_redeem", "spark_activate", "appearance"]},
+                "operation": {"type": "string", "enum": ["add_photo", "delete_photo", "add_sticker", "delete_sticker", "add_track", "playlist_add", "playlist_remove", "watch_delete", "spark_use_card", "spark_redeem", "spark_use", "spark_activate", "appearance"]},
                 "id": {"type": "string"}, "url": {"type": "string"}, "name": {"type": "string"},
                 "text": {"type": "string"}, "artist": {"type": "string"}, "duration_s": {"type": "number"},
                 "date": {"type": "string"}, "active": {"type": "boolean"}, "him_name": {"type": "string"},
+                "holder": {"type": "string", "enum": ["me", "him"], "description": "spark_redeem only: who keeps the coupon/gift (me = her, default; him = you)"},
                 "bubble": {"type": "string", "enum": ["glass", "paper", "cyan"]},
                 "alpha": {"type": "number"}, "wallpaper": {"type": "string"},
                 "avatar": {"type": "string", "description": "appearance only: your own new avatar, an HTTPS image URL or an uploaded /relay path"}
@@ -2808,7 +2836,7 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
-                "category": {"type": "string", "enum": ["bubble", "pendant", "date", "real", "box"]},
+                "category": {"type": "string", "enum": ["bubble", "pendant", "date", "real", "box", "coupon"], "description": "coupon = 券, e.g. 撒娇券 / 原谅券"},
                 "description": {"type": "string"},
                 "cost": {"type": "integer", "minimum": 1, "maximum": 100000},
             },
@@ -2936,7 +2964,7 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
                     "imprint_update_tide", "imprint_record_dream", "imprint_record_awareness", "imprint_manage_space")
     if any(word in query for word in ("心潮", "情绪", "驱力", "梦", "觉察", "反思")):
         add_builtin("imprint_inspect_home", "imprint_update_tide", "imprint_record_dream", "imprint_record_awareness")
-    if any(word in query for word in ("续火花", "火花", "续火卡", "积分", "礼物铺", "礼物", "收藏", "气泡", "挂件", "spark")):
+    if any(word in query for word in ("续火花", "火花", "续火卡", "积分", "礼物铺", "礼物", "收藏", "气泡", "挂件", "券", "spark")):
         add_builtin("imprint_inspect_home", "imprint_add_spark_gift", "imprint_manage_space")
     if any(word in query for word in ("一起听", "歌单", "歌曲", "音乐", "播放", "暂停", "下一首", "上一首", "批注", "track")):
         add_builtin("imprint_inspect_home", "imprint_control_listen", "imprint_note_track", "imprint_manage_space")

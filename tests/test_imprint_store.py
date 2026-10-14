@@ -149,6 +149,24 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(len(kept["records"]), 2)  # 下架礼物不影响换过的记录
         self.assertEqual(self.call("GET", "/spark/shop")["items"], [])
 
+    def test_vocab_import_goes_to_a_daily_queue(self):
+        text = "\n".join(f"word{i} /wɜːd/ n. 词{i}" for i in range(30)) + "\nUnit 2\nword,meaning"
+        out = self.call("POST", "/vocab", Request({"text": text, "queue": True, "book": "四级"}))
+        self.assertEqual(len(out["added"]), 30)
+        self.assertEqual(out["added"][0]["note"], "/wɜːd/")
+        st = out["stats"]
+        self.assertEqual((st["new"], st["due"], st["learn_left"]), (30, 0, 20))
+        self.assertEqual(st["books"], [{"name": "四级", "total": 30, "new": 30}])
+        learn = self.call("POST", "/vocab/do/{op}", "learn", Request({}))
+        self.assertEqual([x["word"] for x in learn["items"][:2]], ["word0", "word1"])  # 按书里的顺序
+        r = self.call("POST", "/vocab/{rec_id}/review", learn["items"][0]["id"], Request({"correct": True}))
+        self.assertFalse(r["item"]["new"])
+        self.assertEqual(r["stats"]["learn_left"], 19)
+        self.call("POST", "/vocab/do/{op}", "settings", Request({"daily_new": 5}))
+        self.assertEqual(len(self.call("POST", "/vocab/do/{op}", "learn", Request({}))["items"]), 4)
+        gone = self.call("POST", "/vocab/do/{op}", "delete_book", Request({"book": "四级"}))
+        self.assertEqual((gone["deleted"], gone["stats"]["total"]), (30, 0))
+
     def test_vocab_follows_ebbinghaus_and_wrong_restarts(self):
         out = self.call("POST", "/vocab", Request({"text": "apple 苹果\ntake off 起飞\nabandon: 放弃"}))
         self.assertEqual(len(out["added"]), 3)

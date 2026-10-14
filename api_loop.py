@@ -513,11 +513,17 @@ def vocab_context_text() -> str:
     with contextlib.suppress(Exception):
         data = imprint_action(LOOP_CACHE_DIR / "imprint.db", "vocab", {"operation": "due", "limit": 8})
         st = data["stats"]
-        if not st["due"]:
+        learn = st["learn_left"] if st.get("new") else 0
+        if not st["due"] and not learn:
             return ""
-        sample = "、".join(x["word"] for x in data["items"][:8])
-        return (f"【单词本】今天有 {st['due']} 个词该复习了（比如：{sample}），错词本里还有 {st['wrong']} 个。"
-                "合适的时候可以抽查她：一次问一个，用 imprint_vocab 的 review 记下对错。别在她忙、难过或聊正事的时候硬抽。")
+        parts = []
+        if st["due"]:
+            sample = "、".join(x["word"] for x in data["items"][:8])
+            parts.append(f"今天有 {st['due']} 个词该复习了（比如：{sample}），错词本里还有 {st['wrong']} 个")
+        if learn:
+            parts.append(f"今天还有 {learn} 个新词没学（单词书里待学 {st['new']} 个）")
+        return ("【单词本】" + "；".join(parts) + "。合适的时候可以抽查她或者陪她学：一次问一个，"
+                "用 imprint_vocab 的 review 记下对错（新词第一次答也算学过了）。别在她忙、难过或聊正事的时候硬抽。")
     return ""
 
 
@@ -2582,14 +2588,14 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "function": {
         "name": "imprint_vocab",
         "description": "Her vocabulary book (单词本) with Ebbinghaus reviews on day 1/2/4/7/15/30. due = words due today "
-                       "(wrong ones first); wrong = her mistake list; list = all (q to search); review = record one answer when "
+                       "(wrong ones first); wrong = her mistake list; learn = today's new words from her imported books; list = all (q to search); review = record one answer when "
                        "you quiz her (id or word + correct true/false: right pushes the next review later, wrong restarts it); "
                        "add = add words she tells you (words: one per line, 'apple 苹果'). Quiz her one word at a time and "
                        "record each answer right away. Never invent words she did not give you.",
         "parameters": {
             "type": "object",
             "properties": {
-                "operation": {"type": "string", "enum": ["due", "wrong", "list", "review", "add"]},
+                "operation": {"type": "string", "enum": ["due", "wrong", "learn", "list", "review", "add"]},
                 "id": {"type": "string"}, "word": {"type": "string"}, "correct": {"type": "boolean"},
                 "words": {"type": "string", "description": "add only: one word per line, e.g. 'apple 苹果'"},
                 "q": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200},
@@ -3293,7 +3299,7 @@ class Turn:
             "imprint_review_purchase": "purchase_review",
         }
         if public_name == "imprint_vocab":
-            if str(args.get("operation") or "") not in {"due", "wrong", "list", "review", "add"}:
+            if str(args.get("operation") or "") not in {"due", "wrong", "learn", "list", "review", "add"}:
                 return "ERROR: 单词本你只能看、抽查记录和帮她录词；删改让她自己在页面上做"
             args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
         if public_name in imprint_actions:

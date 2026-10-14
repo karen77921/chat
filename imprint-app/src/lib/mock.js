@@ -465,18 +465,22 @@ let vocab = [
   { id: 'v3', word: 'serendipity', meaning: '意外发现美好事物的运气', stage: 2, start: dayISO(-3), due: dayISO(1), wrong: 0, right: 2, log: [] },
   { id: 'v4', word: 'take off', meaning: '起飞；脱下', stage: 6, start: dayISO(-40), due: '', mastered: true, wrong: 0, right: 6, log: [] },
 ];
-const vStats = () => ({ total: vocab.length, due: vocab.filter((x) => !x.mastered && x.due <= dayISO()).length, wrong: vocab.filter((x) => x.wrong && !x.mastered).length,
+let vDaily = 20;
+const vStats = () => ({ new: vocab.filter((x) => x.new).length, learned_today: vocab.filter((x) => x.learned === dayISO()).length, daily_new: vDaily,
+  learn_left: Math.max(0, vDaily - vocab.filter((x) => x.learned === dayISO()).length),
+  books: [...new Set(vocab.map((x) => x.book || ''))].map((name) => ({ name, total: vocab.filter((x) => (x.book || '') === name).length, new: vocab.filter((x) => (x.book || '') === name && x.new).length })), total: vocab.length, due: vocab.filter((x) => !x.new && !x.mastered && x.due <= dayISO()).length, wrong: vocab.filter((x) => x.wrong && !x.mastered).length,
   mastered: vocab.filter((x) => x.mastered).length, today: dayISO(), offsets: OFFS });
 function vocabView(v) {
-  const items = v === 'due' ? vocab.filter((x) => !x.mastered && x.due <= dayISO()) : v === 'wrong' ? vocab.filter((x) => x.wrong && !x.mastered) : v === 'mastered' ? vocab.filter((x) => x.mastered) : vocab;
+  const items = v === 'new' ? vocab.filter((x) => x.new) : v === 'due' ? vocab.filter((x) => !x.new && !x.mastered && x.due <= dayISO()) : v === 'wrong' ? vocab.filter((x) => x.wrong && !x.mastered) : v === 'mastered' ? vocab.filter((x) => x.mastered) : vocab;
   return { available: true, names: { me: 'Lumi', him: 'Ash' }, items, stats: vStats() };
 }
 function vocabAdd(body) {
-  const added = body.text.split('\n').filter((l) => l.trim()).map((l, i) => { const [w, ...m] = l.trim().split(/\s+/); return { id: `v${Date.now()}${i}`, word: w, meaning: m.join(' '), stage: 0, start: dayISO(), due: dayISO(1), wrong: body.wrong ? 1 : 0, right: 0, log: [] }; });
+  const added = body.text.split('\n').filter((l) => l.trim()).map((l, i) => { const [w, ...m] = l.trim().split(/\s+/); return { id: `v${Date.now()}${i}`, word: w, meaning: m.join(' '), stage: 0, start: body.queue ? '' : dayISO(), due: body.queue ? '' : dayISO(1), new: !!body.queue, book: body.book || '', wrong: body.wrong ? 1 : 0, right: 0, log: [] }; });
   vocab = [...added, ...vocab]; return { added, updated: [], stats: vStats() };
 }
 function vocabReview(id, ok) {
   const x = vocab.find((v) => v.id === id);
+  if (x.new) { x.new = false; x.learned = dayISO(); x.start = dayISO(); x.due = dayISO(1); if (!ok) x.wrong += 1; return { item: x, stats: vStats() }; }
   if (ok) { x.stage += 1; x.right += 1; } else { x.stage = 0; x.wrong += 1; x.start = dayISO(); }
   x.mastered = x.stage >= OFFS.length; x.due = x.mastered ? '' : dayISO(Math.max(1, OFFS[x.stage] || 1));
   return { item: x, stats: vStats() };
@@ -512,6 +516,10 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'POST /api/cache-check': if (state.cc && !body.force) return { running: false, reused: true, result: state.cc }; state.ccUntil = Date.now() + 3000; return { running: true, step: '准备' };
     case 'GET /api/vocab/due': case 'GET /api/vocab/wrong': case 'GET /api/vocab/all': case 'GET /api/vocab/mastered': return vocabView(p.split('/')[3]);
     case 'POST /api/vocab': return vocabAdd(body);
+    case 'GET /api/vocab/new': return vocabView('new');
+    case 'POST /api/vocab/do/learn': return { items: vocab.filter((x) => x.new).slice(0, 20 - vocab.filter((x) => x.learned === dayISO()).length), stats: vStats() };
+    case 'POST /api/vocab/do/settings': vDaily = body.daily_new; return { stats: vStats() };
+    case 'POST /api/vocab/do/delete_book': vocab = vocab.filter((x) => x.book !== body.book); return { ok: true };
     case 'POST /api/vocab/' + (p.split('/')[3] || '') + '/review': return vocabReview(p.split('/')[3], body.correct);
     case 'POST /api/vocab/' + (p.split('/')[3] || '') + '/edit': { const x = vocab.find((v) => v.id === p.split('/')[3]); Object.assign(x, body); return x; }
     case 'DELETE /api/vocab/' + (p.split('/')[3] || ''): vocab = vocab.filter((v) => v.id !== p.split('/')[3]); return { ok: true };

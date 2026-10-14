@@ -355,8 +355,9 @@ async function compat(path, opts) {
   if ((method === 'GET' || method === 'PUT') && (m = /^\/api\/chats\/([^/]+)\/reply-options$/.exec(p))) {
     return loop(`reply-options/${m[1]}`, method === 'PUT' ? { ...opts, method: 'POST' } : undefined);
   }
-  if (method === 'GET' && (m = /^\/api\/vocab\/(due|wrong|all|mastered)$/.exec(p))) return loop(`imprint/vocab/list/${m[1]}`);
-  if (method === 'POST' && p === '/api/vocab') return loop('imprint/vocab', opts);
+  if (method === 'GET' && (m = /^\/api\/vocab\/(due|wrong|all|mastered|new)$/.exec(p))) return loop(`imprint/vocab/list/${m[1]}`);
+  if (method === 'POST' && p === '/api/vocab') return loop('imprint/vocab', { ...opts, timeout: 60000 });
+  if (method === 'POST' && (m = /^\/api\/vocab\/do\/(learn|settings|delete_book)$/.exec(p))) return loop(`imprint/vocab/do/${m[1]}`, opts);
   if (method === 'POST' && (m = /^\/api\/vocab\/([0-9a-f]+)\/(review|edit)$/.exec(p))) return loop(`imprint/vocab/${m[1]}/${m[2]}`, opts);
   if (method === 'DELETE' && (m = /^\/api\/vocab\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/vocab/${m[1]}`, { method: 'DELETE' });
   if (method === 'GET' && p === '/api/piggy') return loop('imprint/piggy');

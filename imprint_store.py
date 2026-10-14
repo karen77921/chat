@@ -29,24 +29,50 @@ WEARABLE_CATS = {"bubble", "pendant"}  # 气泡/挂件：换了收进「收藏�
 VOCAB_OFFSETS = (1, 2, 4, 7, 15, 30)  # 艾宾浩斯：从第一次出现算起，第 1、2、4、7、15、30 天各复习一次
 
 
+VOCAB_POS = re.compile(r"(?:\s+|^)((?:n|v|vt|vi|adj|adv|prep|conj|pron|num|art|int|interj|aux|abbr|phr)\.(?:\s*[&/,]?\s*(?:n|v|vt|vi|adj|adv|prep|conj|pron|num)\.)*)\s*$", re.I)
+VOCAB_PHONETIC = re.compile(r"\s*(?:/[^/\n]{1,60}/|\[[^\]\n]{1,60}\]|英\s*\[[^\]]*\]|美\s*\[[^\]]*\])\s*")
+
+
 def parse_vocab_lines(text: str) -> list[dict]:
-    """「apple 苹果」「apple: 苹果」「take off｜起飞」一行一个；释义可以不写。"""
+    """一行一个词。认得这些写法：「apple 苹果」「apple: 苹果」「take off｜起飞」「apple,苹果」（csv）、
+    「apple\t苹果」（tsv / Excel）、「abandon /əˈbændən/ v. 放弃」（单词书导出：音标收进备注，词性挪到释义前面）。
+    没有英文字母的行（标题、Unit 1 之类的空行）跳过；释义可以不写。"""
     out = []
-    for line in str(text or "").splitlines():
-        line = line.strip().lstrip("-•*0123456789.、) ").strip()
-        if not line:
+    for raw in str(text or "").splitlines():
+        line = raw.strip().strip("\ufeff").lstrip("-•*·").strip()
+        line = re.sub(r"^\d{1,5}\s*[.、)）]\s*", "", line).strip()  # 「12. apple」「12、apple」
+        if not line or not re.search(r"[A-Za-z]", line):
             continue
-        sep = re.search(r"\s*[\t:：=｜|]\s*", line)
-        cjk = re.search(r"[^\x00-\x7f]", line)
-        if sep and (not cjk or sep.start() <= cjk.start()):
-            word, meaning = line[:sep.start()], line[sep.end():]
-        elif cjk and cjk.start() > 0:  # 英文在前、中文释义在后：从第一个中文字切开
-            word, meaning = line[:cjk.start()], line[cjk.start():]
+        cells = next((line.split(d) for d in ("\t", ",", "，") if d in line and (d != "，" or "," not in line)), None)
+        if cells and len(cells) >= 2 and re.search(r"[A-Za-z]", cells[0]) and not re.search(r"[^\x00-\x7f]", cells[0].replace("ə", "")):
+            cells = [c.strip().strip('"') for c in cells]
+            word, meaning, note = cells[0], next((c for c in cells[1:] if c and not VOCAB_PHONETIC.fullmatch(c)), ""), ""
+            phon = next((c for c in cells[1:] if c and VOCAB_PHONETIC.fullmatch(c)), "")
+            note = phon
         else:
-            word, meaning = line, ""
+            phon = VOCAB_PHONETIC.search(line)
+            note = phon.group(0).strip() if phon else ""
+            if phon:
+                line = (line[:phon.start()] + " " + line[phon.end():]).strip()
+            sep = re.search(r"\s*[:：=｜|]\s*", line)
+            cjk = re.search(r"[^\x00-\x7f]", line)
+            if sep and (not cjk or sep.start() <= cjk.start()):
+                word, meaning = line[:sep.start()], line[sep.end():]
+            elif cjk and cjk.start() > 0:  # 英文在前、中文释义在后：从第一个中文字切开
+                word, meaning = line[:cjk.start()], line[cjk.start():]
+            else:
+                word, meaning = line, ""
         word, meaning = " ".join(word.strip(" -—").split()), meaning.strip()
+        pos = VOCAB_POS.search(word)
+        if pos and pos.start() > 0:  # 「abandon v.」→ 词性挪到释义前面
+            meaning = f"{pos.group(1)} {meaning}".strip()
+            word = word[:pos.start()].strip()
+        if re.fullmatch(r"(?i)(unit|lesson|list|chapter|day|part|section|module|week)\s*\d+.*", word):
+            continue  # 「Unit 1」「List 3」这种标题
+        if word.lower() in {"word", "words", "english", "vocabulary", "term"} and meaning.lower() in {"", "meaning", "translation", "definition", "释义", "中文", "chinese"}:
+            continue  # 表头
         if word:
-            out.append({"word": word[:80], "meaning": meaning[:200]})
+            out.append({"word": word[:80], "meaning": meaning[:200], "note": note[:200]})
     return out
 
 
@@ -312,29 +338,43 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 item["due"] = max(today + dt.timedelta(days=1), start + dt.timedelta(days=VOCAB_OFFSETS[stage])).isoformat()
 
             def is_due(x: dict) -> bool:
-                return not x.get("mastered") and bool(x.get("due")) and x["due"] <= today.isoformat()
+                return not x.get("new") and not x.get("mastered") and bool(x.get("due")) and x["due"] <= today.isoformat()
+
+            daily_new = int(setting("vocab").get("daily_new") or 20)
 
             def stats(items: list[dict]) -> dict:
+                books: dict[str, dict] = {}
+                for x in items:
+                    b = books.setdefault(x.get("book") or "", {"name": x.get("book") or "", "total": 0, "new": 0})
+                    b["total"] += 1
+                    b["new"] += 1 if x.get("new") else 0
+                learned = sum(1 for x in items if x.get("learned") == today.isoformat())
                 return {"total": len(items), "due": sum(1 for x in items if is_due(x)),
-                        "wrong": sum(1 for x in items if int(x.get("wrong") or 0) > 0 and not x.get("mastered")),
+                        "wrong": sum(1 for x in items if int(x.get("wrong") or 0) > 0 and not x.get("mastered") and not x.get("new")),
                         "mastered": sum(1 for x in items if x.get("mastered")),
-                        "today_added": sum(1 for x in items if x.get("start") == today.isoformat() and not int(x.get("right") or 0)),
+                        "new": sum(1 for x in items if x.get("new")), "learned_today": learned,
+                        "daily_new": daily_new, "learn_left": max(0, daily_new - learned),
+                        "books": sorted(books.values(), key=lambda b: (b["name"] == "", b["name"])),
                         "today": today.isoformat(), "offsets": list(VOCAB_OFFSETS)}
 
             if op == "add":
                 words = body.get("words")
                 rows = words if isinstance(words, list) else parse_vocab_lines(str(words or body.get("text") or ""))
                 wrong = bool(body.get("wrong"))
+                queue = bool(body.get("queue"))  # 整本导入：先放进待学，每天学几个，别一下子全压到明天
+                book = str(body.get("book") or "").strip()[:40]
                 items = load_all()
                 by_word = {x["word"].casefold(): x for x in items}
                 added, updated = [], []
-                for row in rows[:300]:
+                for row in rows[:500]:
                     word = str((row or {}).get("word") or "").strip()[:80]
                     if not word:
                         continue
                     meaning = str(row.get("meaning") or "").strip()[:200]
                     old = by_word.get(word.casefold())
                     if old:
+                        if queue and not (wrong or row.get("wrong")):
+                            continue  # 导入时已经有的词不动
                         if meaning:
                             old["meaning"] = meaning
                         if wrong or row.get("wrong"):  # 又背错了：从头计时
@@ -344,8 +384,12 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                         continue
                     item = {"word": word, "meaning": meaning, "note": str(row.get("note") or "")[:200], "stage": 0,
                             "start": today.isoformat(), "wrong": 1 if (wrong or row.get("wrong")) else 0, "right": 0,
-                            "log": [], "by": str(body.get("by") or "me")}
-                    schedule(item)
+                            "log": [], "by": str(body.get("by") or "me"), "book": book}
+                    if queue and not item["wrong"]:
+                        item.update(new=True, start="", due="")
+                    else:
+                        item["learned"] = today.isoformat()
+                        schedule(item)
                     created = add("vocab", item)
                     by_word[word.casefold()] = created
                     added.append(created)
@@ -360,7 +404,11 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 if isinstance(correct, str):
                     correct = correct.strip().lower() in {"true", "1", "yes", "对", "记得"}
                 who = "him" if body.get("by") == "him" else "me"
-                if correct:
+                if item.get("new"):  # 第一次学：从今天开始算遗忘曲线
+                    item.update(new=False, start=today.isoformat(), learned=today.isoformat(), stage=0)
+                    if not correct:
+                        item["wrong"] = int(item.get("wrong") or 0) + 1
+                elif correct:
                     item["stage"] = int(item.get("stage") or 0) + 1
                     item["right"] = int(item.get("right") or 0) + 1
                 else:
@@ -379,24 +427,50 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                         item[key] = str(body[key]).strip()[:limit]
                 return save(item)
 
+            if op == "learn":
+                items = load_all()
+                book = body.get("book")
+                fresh = [x for x in reversed(items) if x.get("new") and (book is None or (x.get("book") or "") == book)]
+                st = stats(items)
+                n = int(body.get("n") or st["learn_left"])
+                return {"items": fresh[:max(0, min(n, 200))], "stats": st}
+
+            if op == "settings":
+                n = int(body.get("daily_new") or 20)
+                if not 1 <= n <= 300:
+                    raise ValueError("每天新学 1–300 个")
+                save_setting("vocab", {**setting("vocab"), "daily_new": n})
+                return {"stats": stats(load_all())}
+
+            if op == "delete_book":
+                book = str(body.get("book") or "")
+                gone = conn.execute("SELECT id, payload FROM records WHERE kind='vocab'").fetchall()
+                ids = [r["id"] for r in gone if (json.loads(r["payload"]).get("book") or "") == book]
+                conn.executemany("DELETE FROM records WHERE kind='vocab' AND id=?", [(i,) for i in ids])
+                return {"ok": True, "deleted": len(ids), "stats": stats(load_all())}
+
             if op == "delete":
                 item = find(load_all())
                 conn.execute("DELETE FROM records WHERE kind='vocab' AND id=?", (item["id"],))
                 return {"ok": True, "deleted": item["id"]}
 
             items = load_all()
-            view = op if op in {"due", "wrong", "all", "mastered"} else str(body.get("filter") or "all")
+            view = op if op in {"due", "wrong", "all", "mastered", "new"} else str(body.get("filter") or "all")
             q = str(body.get("q") or "").strip().casefold()
             if view == "due":
                 picked = sorted([x for x in items if is_due(x)], key=lambda x: (-int(x.get("wrong") or 0), x.get("due") or ""))
             elif view == "wrong":
-                picked = [x for x in items if int(x.get("wrong") or 0) > 0 and not x.get("mastered")]
+                picked = [x for x in items if int(x.get("wrong") or 0) > 0 and not x.get("mastered") and not x.get("new")]
+            elif view == "new":
+                picked = [x for x in reversed(items) if x.get("new")]
             elif view == "mastered":
                 picked = [x for x in items if x.get("mastered")]
             else:
                 picked = items
             if q:
                 picked = [x for x in picked if q in x["word"].casefold() or q in str(x.get("meaning") or "").casefold()]
+            if body.get("book") is not None:
+                picked = [x for x in picked if (x.get("book") or "") == body["book"]]
             limit = max(1, min(int(body.get("limit") or 500), 1000))
             return {"items": picked[:limit], "stats": stats(items)}
 
@@ -1137,6 +1211,15 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         body = await request.json()
         try:
             return imprint_action(data_path, "vocab", {**body, "operation": "add", "by": "me"})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.post("/vocab/do/{op}")
+    async def vocab_do(op: str, request: Request):
+        if op not in {"learn", "settings", "delete_book"}:
+            raise HTTPException(404, "unknown")
+        try:
+            return imprint_action(data_path, "vocab", {**(await request.json()), "operation": op})
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 

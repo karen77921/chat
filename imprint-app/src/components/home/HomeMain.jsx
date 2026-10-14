@@ -36,7 +36,7 @@ const KIND = {
 };
 const ENTRIES = [
   ['聊天', 'chat', '#/chat'], ['小屋', 'room', '#/room'], ['心潮', 'tide', '#/tide'], ['一起', 'play', '#/together'],
-  ['留言板', 'feather', '#/notes'], ['续火花', 'flame', '#/spark'], ['买买申请', 'gift', '#/approvals'], ['存钱罐', 'heart', '#/piggy'], ['设置', 'desk', '#/settings'],
+  ['留言板', 'feather', '#/notes'], ['续火花', 'flame', '#/spark'], ['买买申请', 'gift', '#/approvals'], ['存钱罐', 'heart', '#/piggy'], ['单词本', 'pen', '#/words'], ['设置', 'desk', '#/settings'],
 ];
 
 function Face({ src, label }) {

@@ -457,6 +457,31 @@ const CC_RESULT = { at: new Date().toISOString(), index: 0, model: 'claude-opus-
     { level: 'warn', text: '这家对工具定义多收约 3.6 倍。去「功能管理」关掉不用的 MCP、少开几个常驻工具，能省不少。' },
   ] };
 
+const OFFS = [1, 2, 4, 7, 15, 30];
+const dayISO = (n = 0) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+let vocab = [
+  { id: 'v1', word: 'ubiquitous', meaning: '无处不在的', stage: 1, start: dayISO(-2), due: dayISO(0), wrong: 0, right: 1, log: [] },
+  { id: 'v2', word: 'abandon', meaning: '放弃', stage: 0, start: dayISO(-1), due: dayISO(0), wrong: 2, right: 0, log: [{ at: new Date().toISOString(), ok: false, by: 'him' }] },
+  { id: 'v3', word: 'serendipity', meaning: '意外发现美好事物的运气', stage: 2, start: dayISO(-3), due: dayISO(1), wrong: 0, right: 2, log: [] },
+  { id: 'v4', word: 'take off', meaning: '起飞；脱下', stage: 6, start: dayISO(-40), due: '', mastered: true, wrong: 0, right: 6, log: [] },
+];
+const vStats = () => ({ total: vocab.length, due: vocab.filter((x) => !x.mastered && x.due <= dayISO()).length, wrong: vocab.filter((x) => x.wrong && !x.mastered).length,
+  mastered: vocab.filter((x) => x.mastered).length, today: dayISO(), offsets: OFFS });
+function vocabView(v) {
+  const items = v === 'due' ? vocab.filter((x) => !x.mastered && x.due <= dayISO()) : v === 'wrong' ? vocab.filter((x) => x.wrong && !x.mastered) : v === 'mastered' ? vocab.filter((x) => x.mastered) : vocab;
+  return { available: true, names: { me: 'Lumi', him: 'Ash' }, items, stats: vStats() };
+}
+function vocabAdd(body) {
+  const added = body.text.split('\n').filter((l) => l.trim()).map((l, i) => { const [w, ...m] = l.trim().split(/\s+/); return { id: `v${Date.now()}${i}`, word: w, meaning: m.join(' '), stage: 0, start: dayISO(), due: dayISO(1), wrong: body.wrong ? 1 : 0, right: 0, log: [] }; });
+  vocab = [...added, ...vocab]; return { added, updated: [], stats: vStats() };
+}
+function vocabReview(id, ok) {
+  const x = vocab.find((v) => v.id === id);
+  if (ok) { x.stage += 1; x.right += 1; } else { x.stage = 0; x.wrong += 1; x.start = dayISO(); }
+  x.mastered = x.stage >= OFFS.length; x.due = x.mastered ? '' : dayISO(Math.max(1, OFFS[x.stage] || 1));
+  return { item: x, stats: vStats() };
+}
+
 export async function mockFetch(path, { method = 'GET', body } = {}) {
   await sleep(120);
   const [p, qsRaw = ''] = path.split('?');
@@ -485,6 +510,11 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
         routes: [{ index: 0, model: 'claude-opus-4-6', host: 'fucheers.top' }, { index: 1, model: 'claude-sonnet-4-5', host: 'openrouter.ai' }] };
     }
     case 'POST /api/cache-check': if (state.cc && !body.force) return { running: false, reused: true, result: state.cc }; state.ccUntil = Date.now() + 3000; return { running: true, step: '准备' };
+    case 'GET /api/vocab/due': case 'GET /api/vocab/wrong': case 'GET /api/vocab/all': case 'GET /api/vocab/mastered': return vocabView(p.split('/')[3]);
+    case 'POST /api/vocab': return vocabAdd(body);
+    case 'POST /api/vocab/' + (p.split('/')[3] || '') + '/review': return vocabReview(p.split('/')[3], body.correct);
+    case 'POST /api/vocab/' + (p.split('/')[3] || '') + '/edit': { const x = vocab.find((v) => v.id === p.split('/')[3]); Object.assign(x, body); return x; }
+    case 'DELETE /api/vocab/' + (p.split('/')[3] || ''): vocab = vocab.filter((v) => v.id !== p.split('/')[3]); return { ok: true };
     case 'GET /api/prompts': return { items: state.prompts ?? [{ id: 'p1', title: '小金库规矩', text: '让她开心 +2 到 5 块，惹她生气 -10 块。每笔都记在留言板。', on: true }] };
     case 'PUT /api/prompts': state.prompts = body.items.map((x, i) => ({ id: x.id || `p${Date.now()}${i}`, ...x })); return { items: state.prompts };
     case 'GET /api/context': return { history_n: state.historyN ?? 80, history_images: state.historyImages ?? 2 };

@@ -72,6 +72,7 @@ uvicorn = types.ModuleType("uvicorn")
 uvicorn.run = lambda *args, **kwargs: None
 sys.modules.setdefault("uvicorn", uvicorn)
 
+import imprint_store  # noqa: E402
 from imprint_store import TIDE_DRIVES, TIDE_EMOTIONS, imprint_action, register_imprint_routes  # noqa: E402
 import api_loop  # noqa: E402
 
@@ -147,6 +148,37 @@ class ImprintStoreTest(unittest.TestCase):
         kept = self.call("GET", "/spark/kept")
         self.assertEqual(len(kept["records"]), 2)  # 下架礼物不影响换过的记录
         self.assertEqual(self.call("GET", "/spark/shop")["items"], [])
+
+    def test_vocab_follows_ebbinghaus_and_wrong_restarts(self):
+        out = self.call("POST", "/vocab", Request({"text": "apple 苹果\ntake off 起飞\nabandon: 放弃"}))
+        self.assertEqual(len(out["added"]), 3)
+        today = dt.datetime.now(imprint_store.ZONE).date()
+        apple = next(x for x in out["added"] if x["word"] == "apple")
+        self.assertEqual(apple["due"], (today + dt.timedelta(days=1)).isoformat())
+        self.assertEqual(self.call("GET", "/vocab", "due")["items"], [])  # 今天录的明天才复习
+        # 他抽查：答对往后推，第 2 天
+        r = imprint_action(self.store, "vocab", {"operation": "review", "word": "apple", "correct": True, "by": "him"})
+        self.assertEqual((r["item"]["stage"], r["item"]["due"]), (1, (today + dt.timedelta(days=2)).isoformat()))
+        self.assertEqual(r["item"]["log"][-1]["by"], "him")
+        # 答错重新计时，进错词本
+        r = self.call("POST", "/vocab/{rec_id}/review", apple["id"], Request({"correct": False}))
+        self.assertEqual((r["item"]["stage"], r["item"]["wrong"]), (0, 1))
+        self.assertEqual([x["word"] for x in self.call("GET", "/vocab", "wrong")["items"]], ["apple"])
+        # 再录一次已经有的词不会重复；标成背错会重新计时
+        again = self.call("POST", "/vocab", Request({"text": "apple 苹果；苹果树", "wrong": True}))
+        self.assertEqual((len(again["added"]), again["updated"][0]["wrong"]), (0, 2))
+        # 记满 6 次就算记牢
+        for _ in range(6):
+            r = imprint_action(self.store, "vocab", {"operation": "review", "word": "take off", "correct": True})
+        self.assertTrue(r["item"]["mastered"])
+        self.assertEqual(r["stats"]["mastered"], 1)
+        # 他不能删
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            turn = api_loop.Turn("s", dry=False)
+            msg = asyncio.run(turn.run_tool("imprint_vocab", json.dumps({"operation": "delete", "word": "apple"})))
+        self.assertTrue(msg.startswith("ERROR"))
+        self.call("DELETE", "/vocab/{rec_id}", apple["id"])
+        self.assertEqual(self.call("GET", "/vocab", "all")["stats"]["total"], 2)
 
     def test_purchase_request_review_and_withdraw_keep_a_timeline(self):
         item = imprint_action(self.store, "purchase_create", {"title": "冰淇淋", "price": "5", "reason": "想吃"})

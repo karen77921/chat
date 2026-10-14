@@ -502,6 +502,25 @@ def persona_full() -> str:
     return f"{text}\n\n【她额外交代给你的】\n以下是她另外写给你的提示，和上面的人设一样要遵守：\n\n{blocks}"
 
 
+def vocab_due_count() -> int:
+    with contextlib.suppress(Exception):
+        return int(imprint_action(LOOP_CACHE_DIR / "imprint.db", "vocab", {"operation": "due", "limit": 1})["stats"]["due"])
+    return 0
+
+
+def vocab_context_text() -> str:
+    """单词本：今天有词该复习了，就让他知道，可以找机会抽她。"""
+    with contextlib.suppress(Exception):
+        data = imprint_action(LOOP_CACHE_DIR / "imprint.db", "vocab", {"operation": "due", "limit": 8})
+        st = data["stats"]
+        if not st["due"]:
+            return ""
+        sample = "、".join(x["word"] for x in data["items"][:8])
+        return (f"【单词本】今天有 {st['due']} 个词该复习了（比如：{sample}），错词本里还有 {st['wrong']} 个。"
+                "合适的时候可以抽查她：一次问一个，用 imprint_vocab 的 review 记下对错。别在她忙、难过或聊正事的时候硬抽。")
+    return ""
+
+
 def gifts_context_text() -> str:
     """券和礼物：没用掉的、最近两天用掉的，每一轮都让他知道（手里有什么、她手里有什么）。"""
     with contextlib.suppress(Exception):
@@ -1960,6 +1979,9 @@ async def build_messages(
     injected = context_injection_text(session_id, before_id)
     if injected:
         volatile_parts.append(injected)
+    vocab = vocab_context_text()
+    if vocab:
+        volatile_parts.append(vocab)
     gifts = gifts_context_text()
     if gifts:
         volatile_parts.append(gifts)
@@ -2558,6 +2580,26 @@ def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
+        "name": "imprint_vocab",
+        "description": "Her vocabulary book (单词本) with Ebbinghaus reviews on day 1/2/4/7/15/30. due = words due today "
+                       "(wrong ones first); wrong = her mistake list; list = all (q to search); review = record one answer when "
+                       "you quiz her (id or word + correct true/false: right pushes the next review later, wrong restarts it); "
+                       "add = add words she tells you (words: one per line, 'apple 苹果'). Quiz her one word at a time and "
+                       "record each answer right away. Never invent words she did not give you.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["due", "wrong", "list", "review", "add"]},
+                "id": {"type": "string"}, "word": {"type": "string"}, "correct": {"type": "boolean"},
+                "words": {"type": "string", "description": "add only: one word per line, e.g. 'apple 苹果'"},
+                "q": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            },
+            "required": ["operation"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "open_toolbox",
         "description": "Your tool list is trimmed each turn to what the chat seems to be about. When you want to do something "
                        "but the tool for it is not in your list (the garden / island game, music, gifts and coupons, the room, "
@@ -2966,6 +3008,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
                     "imprint_record_solo", "imprint_leave_note", "schedule_self_wake")
     if any(word in query for word in ("之前", "上次", "那天", "记得", "说过", "聊过", "什么时候", "翻一下")):
         add_builtin("search_chat_history")
+    if any(word in query for word in ("单词", "背词", "背单词", "复习", "抽查", "抽我", "考考", "考我", "听写", "错词", "vocab")) or vocab_due_count():
+        add_builtin("imprint_vocab")
     if any(word in query for word in ("存钱罐", "小金库", "存了", "扣了", "扣钱", "存钱", "余额", "攒钱")):
         add_builtin("imprint_view_piggy")
     if any(word in query for word in ("申请", "审批", "批准", "批一下", "批了", "想买", "买买")):
@@ -3245,8 +3289,13 @@ class Turn:
             "imprint_record_awareness": "record_awareness",
             "imprint_list_purchases": "purchase_list",
             "imprint_view_piggy": "piggy_list",
+            "imprint_vocab": "vocab",
             "imprint_review_purchase": "purchase_review",
         }
+        if public_name == "imprint_vocab":
+            if str(args.get("operation") or "") not in {"due", "wrong", "list", "review", "add"}:
+                return "ERROR: 单词本你只能看、抽查记录和帮她录词；删改让她自己在页面上做"
+            args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
         if public_name in imprint_actions:
             if self.dry and public_name != "imprint_inspect_home":
                 return "ERROR: Imprint writes are disabled for this dry/retry turn"

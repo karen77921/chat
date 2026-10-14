@@ -355,6 +355,10 @@ async function compat(path, opts) {
   if ((method === 'GET' || method === 'PUT') && (m = /^\/api\/chats\/([^/]+)\/reply-options$/.exec(p))) {
     return loop(`reply-options/${m[1]}`, method === 'PUT' ? { ...opts, method: 'POST' } : undefined);
   }
+  if (method === 'GET' && (m = /^\/api\/vocab\/(due|wrong|all|mastered)$/.exec(p))) return loop(`imprint/vocab/list/${m[1]}`);
+  if (method === 'POST' && p === '/api/vocab') return loop('imprint/vocab', opts);
+  if (method === 'POST' && (m = /^\/api\/vocab\/([0-9a-f]+)\/(review|edit)$/.exec(p))) return loop(`imprint/vocab/${m[1]}/${m[2]}`, opts);
+  if (method === 'DELETE' && (m = /^\/api\/vocab\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/vocab/${m[1]}`, { method: 'DELETE' });
   if (method === 'GET' && p === '/api/piggy') return loop('imprint/piggy');
   if (method === 'POST' && p === '/api/piggy') return loop('imprint/piggy', opts);
   if (method === 'DELETE' && (m = /^\/api\/piggy\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/piggy/${m[1]}`, { method: 'DELETE' });

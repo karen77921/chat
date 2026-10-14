@@ -7,6 +7,7 @@ never migrated or rewritten by the scrapbook UI.
 from __future__ import annotations
 
 import datetime as dt
+import re
 import json
 import sqlite3
 import threading
@@ -23,6 +24,30 @@ ZONE = ZoneInfo("Asia/Shanghai")
 REDEEM_LOCK = threading.RLock()
 GIFT_CATS = {"bubble", "pendant", "date", "real", "box", "coupon"}
 WEARABLE_CATS = {"bubble", "pendant"}  # 气泡/挂件：换了收进「收藏」开关用；其余的是券和礼物，有「没用 / 用过」
+
+
+VOCAB_OFFSETS = (1, 2, 4, 7, 15, 30)  # 艾宾浩斯：从第一次出现算起，第 1、2、4、7、15、30 天各复习一次
+
+
+def parse_vocab_lines(text: str) -> list[dict]:
+    """「apple 苹果」「apple: 苹果」「take off｜起飞」一行一个；释义可以不写。"""
+    out = []
+    for line in str(text or "").splitlines():
+        line = line.strip().lstrip("-•*0123456789.、) ").strip()
+        if not line:
+            continue
+        sep = re.search(r"\s*[\t:：=｜|]\s*", line)
+        cjk = re.search(r"[^\x00-\x7f]", line)
+        if sep and (not cjk or sep.start() <= cjk.start()):
+            word, meaning = line[:sep.start()], line[sep.end():]
+        elif cjk and cjk.start() > 0:  # 英文在前、中文释义在后：从第一个中文字切开
+            word, meaning = line[:cjk.start()], line[cjk.start():]
+        else:
+            word, meaning = line, ""
+        word, meaning = " ".join(word.strip(" -—").split()), meaning.strip()
+        if word:
+            out.append({"word": word[:80], "meaning": meaning[:200]})
+    return out
 
 
 def gift_records(records: list[dict], gifts: list[dict]) -> list[dict]:
@@ -255,6 +280,125 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 (value["since"], json.dumps(value, ensure_ascii=False)),
             )
             return value
+
+        if action == "vocab":
+            # 单词本：她录词，按艾宾浩斯安排复习；她自己复习或者他来抽查，答对往后推，答错重新计时
+            op = str(body.get("operation") or "list").strip().lower()
+            today = dt.datetime.now(ZONE).date()
+
+            def load_all() -> list[dict]:
+                rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='vocab' ORDER BY at DESC").fetchall()
+                return [{**json.loads(r["payload"]), "id": r["id"], "at": r["at"]} for r in rows]
+
+            def save(item: dict) -> dict:
+                payload = {k: v for k, v in item.items() if k not in {"id", "at"}}
+                conn.execute("UPDATE records SET payload=? WHERE id=? AND kind='vocab'", (json.dumps(payload, ensure_ascii=False), item["id"]))
+                return item
+
+            def find(items: list[dict]) -> dict:
+                rec_id, word = str(body.get("id") or ""), str(body.get("word") or "").strip().casefold()
+                hit = next((x for x in items if x["id"] == rec_id or (word and x["word"].casefold() == word)), None)
+                if not hit:
+                    raise ValueError("单词本里没有这个词")
+                return hit
+
+            def schedule(item: dict) -> None:
+                stage = int(item.get("stage") or 0)
+                if stage >= len(VOCAB_OFFSETS):
+                    item["mastered"], item["due"] = True, ""
+                    return
+                start = dt.date.fromisoformat(item.get("start") or today.isoformat())
+                item["mastered"] = False
+                item["due"] = max(today + dt.timedelta(days=1), start + dt.timedelta(days=VOCAB_OFFSETS[stage])).isoformat()
+
+            def is_due(x: dict) -> bool:
+                return not x.get("mastered") and bool(x.get("due")) and x["due"] <= today.isoformat()
+
+            def stats(items: list[dict]) -> dict:
+                return {"total": len(items), "due": sum(1 for x in items if is_due(x)),
+                        "wrong": sum(1 for x in items if int(x.get("wrong") or 0) > 0 and not x.get("mastered")),
+                        "mastered": sum(1 for x in items if x.get("mastered")),
+                        "today_added": sum(1 for x in items if x.get("start") == today.isoformat() and not int(x.get("right") or 0)),
+                        "today": today.isoformat(), "offsets": list(VOCAB_OFFSETS)}
+
+            if op == "add":
+                words = body.get("words")
+                rows = words if isinstance(words, list) else parse_vocab_lines(str(words or body.get("text") or ""))
+                wrong = bool(body.get("wrong"))
+                items = load_all()
+                by_word = {x["word"].casefold(): x for x in items}
+                added, updated = [], []
+                for row in rows[:300]:
+                    word = str((row or {}).get("word") or "").strip()[:80]
+                    if not word:
+                        continue
+                    meaning = str(row.get("meaning") or "").strip()[:200]
+                    old = by_word.get(word.casefold())
+                    if old:
+                        if meaning:
+                            old["meaning"] = meaning
+                        if wrong or row.get("wrong"):  # 又背错了：从头计时
+                            old.update(stage=0, start=today.isoformat(), wrong=int(old.get("wrong") or 0) + 1)
+                            schedule(old)
+                        updated.append(save(old))
+                        continue
+                    item = {"word": word, "meaning": meaning, "note": str(row.get("note") or "")[:200], "stage": 0,
+                            "start": today.isoformat(), "wrong": 1 if (wrong or row.get("wrong")) else 0, "right": 0,
+                            "log": [], "by": str(body.get("by") or "me")}
+                    schedule(item)
+                    created = add("vocab", item)
+                    by_word[word.casefold()] = created
+                    added.append(created)
+                if not added and not updated:
+                    raise ValueError("没读到单词：一行一个，比如「apple 苹果」")
+                return {"added": added, "updated": updated, "stats": stats(load_all())}
+
+            if op == "review":
+                items = load_all()
+                item = find(items)
+                correct = body.get("correct")
+                if isinstance(correct, str):
+                    correct = correct.strip().lower() in {"true", "1", "yes", "对", "记得"}
+                who = "him" if body.get("by") == "him" else "me"
+                if correct:
+                    item["stage"] = int(item.get("stage") or 0) + 1
+                    item["right"] = int(item.get("right") or 0) + 1
+                else:
+                    item.update(stage=0, start=today.isoformat(), wrong=int(item.get("wrong") or 0) + 1)
+                schedule(item)
+                item["last"] = iso_now()
+                item["log"] = [*(item.get("log") or []), {"at": iso_now(), "ok": bool(correct), "by": who}][-20:]
+                save(item)
+                return {"item": item, "stats": stats(items)}
+
+            if op == "edit":
+                items = load_all()
+                item = find(items)
+                for key, limit in (("word", 80), ("meaning", 200), ("note", 200)):
+                    if body.get(key) is not None and (key != "word" or str(body[key]).strip()):
+                        item[key] = str(body[key]).strip()[:limit]
+                return save(item)
+
+            if op == "delete":
+                item = find(load_all())
+                conn.execute("DELETE FROM records WHERE kind='vocab' AND id=?", (item["id"],))
+                return {"ok": True, "deleted": item["id"]}
+
+            items = load_all()
+            view = op if op in {"due", "wrong", "all", "mastered"} else str(body.get("filter") or "all")
+            q = str(body.get("q") or "").strip().casefold()
+            if view == "due":
+                picked = sorted([x for x in items if is_due(x)], key=lambda x: (-int(x.get("wrong") or 0), x.get("due") or ""))
+            elif view == "wrong":
+                picked = [x for x in items if int(x.get("wrong") or 0) > 0 and not x.get("mastered")]
+            elif view == "mastered":
+                picked = [x for x in items if x.get("mastered")]
+            else:
+                picked = items
+            if q:
+                picked = [x for x in picked if q in x["word"].casefold() or q in str(x.get("meaning") or "").casefold()]
+            limit = max(1, min(int(body.get("limit") or 500), 1000))
+            return {"items": picked[:limit], "stats": stats(items)}
 
         if action == "piggy_list":
             # 存钱罐：只有她能存、能扣；他只能看
@@ -979,6 +1123,45 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def piggy_remove(rec_id: str):
         delete("piggy", rec_id)
         return {"ok": True}
+
+    @router.get("/vocab")
+    def vocab_list(filter: str = "all", q: str = ""):
+        return {"available": True, "names": public_names(), **imprint_action(data_path, "vocab", {"operation": filter, "q": q})}
+
+    @router.get("/vocab/list/{view}")
+    def vocab_view(view: str):
+        return vocab_list(view)  # 中转会丢掉 ?query，用路径带分页
+
+    @router.post("/vocab")
+    async def vocab_add(request: Request):
+        body = await request.json()
+        try:
+            return imprint_action(data_path, "vocab", {**body, "operation": "add", "by": "me"})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.post("/vocab/{rec_id}/review")
+    async def vocab_review(rec_id: str, request: Request):
+        body = await request.json()
+        try:
+            return imprint_action(data_path, "vocab", {"operation": "review", "id": rec_id, "correct": bool(body.get("correct")), "by": "me"})
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @router.post("/vocab/{rec_id}/edit")
+    async def vocab_edit(rec_id: str, request: Request):
+        body = await request.json()
+        try:
+            return imprint_action(data_path, "vocab", {**body, "operation": "edit", "id": rec_id})
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @router.delete("/vocab/{rec_id}")
+    def vocab_delete(rec_id: str):
+        try:
+            return imprint_action(data_path, "vocab", {"operation": "delete", "id": rec_id})
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @router.get("/purchases")
     def purchases():

@@ -1169,7 +1169,10 @@ async def attachment_parts(atts: list[dict[str, Any]], *, with_images: bool) -> 
         name = str(att.get("name") or "file")
         mime = str(att.get("mime") or mimetypes.guess_type(name)[0] or "application/octet-stream")
         size = int(att.get("size") or 0)
-        is_image = mime.startswith("image/")
+        is_image = mime.startswith("image/") and mime != "image/svg+xml"  # 他画的 SVG 模型看不了，只留一句说明
+        if mime == "image/svg+xml" or name.lower().endswith(".svg"):
+            notes.append(f"[涂鸦: {name}]")  # 不去取、不内联源码，历史里只留一句
+            continue
         data, local = await fetch_upload(att)
         if data is None:
             notes.append(f"{att_label(att)} (无法读取附件内容)")
@@ -2586,6 +2589,26 @@ def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
+        "name": "draw_doodle",
+        "description": "Draw something yourself as SVG (a doodle, a little drawing for her, a sticker of your own, a sketch of "
+                       "what you're doing now) and send it. Write one complete <svg> with viewBox='0 0 512 512': hand-drawn "
+                       "feel, rounded strokes, soft warm colours, simple shapes; short Chinese text is fine. No <image>, no "
+                       "external links or fonts, no scripts (they are stripped), keep it under ~40 KB. to = chat (send in "
+                       "the chat, default), sticker (save to her 表情包 → 他画的), photo (pin to the 照片墙), or both "
+                       "(chat + sticker).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "svg": {"type": "string"},
+                "title": {"type": "string", "description": "short name, e.g. 戳戳你 / 今天的我"},
+                "to": {"type": "string", "enum": ["chat", "sticker", "photo", "both"]},
+            },
+            "required": ["svg"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_vocab",
         "description": "Her vocabulary book (单词本) with Ebbinghaus reviews on day 1/2/4/7/15/30. due = words due today "
                        "(wrong ones first); wrong = her mistake list; learn = today's new words from her imported books; list = all (q to search); review = record one answer when "
@@ -3020,6 +3043,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
         add_builtin("imprint_view_piggy")
     if any(word in query for word in ("申请", "审批", "批准", "批一下", "批了", "想买", "买买")):
         add_builtin("imprint_list_purchases", "imprint_review_purchase")
+    if any(word in query for word in ("画", "涂鸦", "表情包", "贴纸", "doodle", "draw", "sketch")):
+        add_builtin("draw_doodle")
     if any(word in query for word in ("附件", "文件", "发给我", "传给我", "下载", "attach")):
         add_builtin("attach_file")
     if any(word in query for word in ("唤醒", "醒来", "定时", "提醒", "主动找", "wake")):
@@ -3091,7 +3116,54 @@ def sticky_tools(session_id: str, picked: list[dict[str, Any]]) -> list[dict[str
     return [by_name[n] if n in by_name else next(t for t in picked if t["function"]["name"] == n) for n in names]
 
 
-TOOLBOX_TOPICS = "花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+SVG_NS = "http://www.w3.org/2000/svg"
+SVG_TAGS = {"svg", "g", "path", "circle", "ellipse", "rect", "line", "polyline", "polygon", "text", "tspan", "defs",
+            "linearGradient", "radialGradient", "stop", "clipPath", "mask", "title", "desc", "use", "pattern", "filter",
+            "feGaussianBlur", "feOffset", "feMerge", "feMergeNode", "feFlood", "feComposite", "feDropShadow"}
+SVG_MAX = 120_000
+
+
+def sanitize_svg(raw: str) -> bytes:
+    """他画的 SVG：只留画画用的标签和属性，去掉脚本、事件、外链、外部图片和字体，防止借图片夹带东西。"""
+    text = str(raw or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\n?|\n?```$", "", text).strip()
+    if not text or len(text) > SVG_MAX:
+        raise ValueError(f"SVG 不能为空，也不能超过 {SVG_MAX // 1000} KB")
+    if re.search(r"<!(DOCTYPE|ENTITY)", text, re.I):
+        raise ValueError("SVG 里不能有 DOCTYPE / ENTITY")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ValueError(f"SVG 写错了：{exc}") from exc
+    local = lambda tag: str(tag).rsplit("}", 1)[-1]
+    if local(root.tag) != "svg":
+        raise ValueError("最外层必须是 <svg>")
+
+    def clean(el: ET.Element) -> None:
+        for child in list(el):
+            if not isinstance(child.tag, str) or local(child.tag) not in SVG_TAGS:
+                el.remove(child)
+                continue
+            clean(child)
+        for key in list(el.attrib):
+            name = local(key).lower()
+            value = str(el.attrib[key])
+            bad_url = re.search(r"url\(\s*['\"]?(?!#)", value, re.I)
+            if name.startswith("on") or (name == "href" and not value.startswith("#")) or bad_url \
+                    or re.search(r"javascript:|expression\(|@import", value, re.I) or name == "style" and "url(" in value and not re.search(r"url\(\s*#", value):
+                del el.attrib[key]
+        el.tag = f"{{{SVG_NS}}}{local(el.tag)}"
+
+    clean(root)
+    root.attrib.setdefault("viewBox", "0 0 512 512")
+    root.attrib.setdefault("width", "512")
+    root.attrib.setdefault("height", "512")
+    ET.register_namespace("", SVG_NS)
+    return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
+
+
+TOOLBOX_TOPICS = "画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
@@ -3344,6 +3416,32 @@ class Turn:
         if public_name == "cancel_self_wake":
             wake_id = str(args.get("wake_id") or "").strip()
             return json.dumps({"ok": cancel_precise_wake(wake_id), "wake_id": wake_id}, ensure_ascii=False)
+        if public_name == "draw_doodle":
+            try:
+                svg = sanitize_svg(str(args.get("svg") or ""))
+            except ValueError as exc:
+                return f"ERROR: {exc}"
+            title = re.sub(r"[^\w\u4e00-\u9fff-]+", "", str(args.get("title") or ""))[:24] or "涂鸦"
+            dest = str(args.get("to") or "chat")
+            if self.dry and dest != "chat":
+                return "ERROR: Imprint writes are disabled for this dry/retry turn"
+            up = await relay_upload(svg, f"doodle-{title}-{uuid.uuid4().hex[:6]}.svg", "image/svg+xml")
+            if not up:
+                return "ERROR: 画好了但没传上去，稍后再试"
+            done = []
+            if dest in {"chat", "both"}:
+                self.attachments.append(up)
+                done.append("发在聊天里了")
+            try:
+                if dest in {"sticker", "both"}:
+                    imprint_action(LOOP_CACHE_DIR / "imprint.db", "manage_space", {"operation": "add_sticker", "url": up["url"], "name": title})
+                    done.append("存进了她的表情包（他画的）")
+                if dest == "photo":
+                    imprint_action(LOOP_CACHE_DIR / "imprint.db", "manage_space", {"operation": "add_photo", "url": up["url"], "text": title})
+                    done.append("贴到了照片墙")
+            except (ValueError, sqlite3.Error) as exc:
+                return f"ERROR: 传上去了，但没存成：{exc}"
+            return f"画好了「{title}」（{len(svg) // 1024 + 1} KB），" + "，".join(done) + "。"
         if public_name == "attach_file":
             raw = str(args.get("path") or "").strip()
             if not raw:

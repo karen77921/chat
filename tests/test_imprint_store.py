@@ -843,6 +843,46 @@ class CacheCheckTest(unittest.TestCase):
         self.assertIn("虚高", by["billing"]["status"])
 
 
+class DoodleTest(unittest.TestCase):
+    def test_svg_is_cleaned_of_scripts_links_and_external_images(self):
+        dirty = ('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" onload="alert(1)">'
+                 '<script>alert(1)</script><image href="https://evil.example/x.png"/>'
+                 '<circle cx="10" cy="10" r="5" fill="url(#g)" onclick="x()"/>'
+                 '<a href="javascript:alert(1)"><rect width="5" height="5"/></a>'
+                 '<rect style="fill:url(https://evil.example/a)" width="1" height="1"/>'
+                 '<use xlink:href="#c"/><text x="1" y="1">戳戳你</text></svg>')
+        out = api_loop.sanitize_svg(dirty).decode()
+        for bad in ("script", "onload", "onclick", "evil.example", "javascript", "<image", "<a "):
+            self.assertNotIn(bad, out)
+        self.assertIn('fill="url(#g)"', out)
+        self.assertIn("戳戳你", out)
+        self.assertIn('viewBox="0 0 512 512"', out)
+        with self.assertRaises(ValueError):
+            api_loop.sanitize_svg('<!DOCTYPE x [<!ENTITY a "b">]><svg/>')
+        with self.assertRaises(ValueError):
+            api_loop.sanitize_svg("<div>not svg</div>")
+        self.assertIn("<svg", api_loop.sanitize_svg("```svg\n<svg><circle r='3'/></svg>\n```").decode())
+
+    def test_doodle_goes_to_chat_and_stickers(self):
+        uploaded = []
+
+        async def fake_upload(data, name, mime):
+            uploaded.append((name, mime, data))
+            return {"url": f"/relay/uploads/{name}", "name": name, "mime": mime}
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(api_loop, "relay_upload", fake_upload), \
+                mock.patch.object(api_loop, "LOOP_CACHE_DIR", Path(tmp)):
+            turn = api_loop.Turn("s", dry=False)
+            msg = asyncio.run(turn.run_tool("draw_doodle", json.dumps({"svg": "<svg><circle r='9'/></svg>", "title": "戳戳 你!", "to": "both"})))
+            stickers = imprint_action(Path(tmp) / "imprint.db", "stickers")
+        self.assertIn("表情包", msg)
+        self.assertEqual(uploaded[0][1], "image/svg+xml")
+        self.assertTrue(uploaded[0][0].startswith("doodle-戳戳你-"))
+        self.assertEqual(len(turn.attachments), 1)
+        self.assertEqual(stickers["his"][0]["name"], "戳戳你")
+        self.assertIn("draw_doodle", {t["function"]["name"] for t in api_loop.turn_tools("给我画个小猫")})
+
+
 class ReplyOptionsTest(unittest.TestCase):
     def test_marker_is_always_stripped_and_options_need_two_distinct_items(self):
         split = api_loop.split_reply_options

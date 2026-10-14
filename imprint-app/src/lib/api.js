@@ -69,8 +69,10 @@ export function authedImageUrl(url) {
       img.onerror = () => { URL.revokeObjectURL(objectUrl); fail(new Error('not an image')); };
       img.src = objectUrl;
     });
+    // 他画的涂鸦是 SVG：中转可能按普通文件发回来，浏览器就不认；按文件名补上图片类型
+    const asSvg = (blob) => (/\.svg$/i.test(name) && blob.type !== 'image/svg+xml' ? new Blob([blob], { type: 'image/svg+xml' }) : blob);
     const attempts = [direct(clean), direct(other), viaBackend];
-    const run = (i) => attempts[i]().then(opens).catch((err) => (i + 1 < attempts.length ? run(i + 1) : Promise.reject(err)));
+    const run = (i) => attempts[i]().then(asSvg).then(opens).catch((err) => (i + 1 < attempts.length ? run(i + 1) : Promise.reject(err)));
     blobUrls.set(clean, run(0).catch((err) => { blobUrls.delete(clean); throw err; }));
   }
   return blobUrls.get(clean);
@@ -126,8 +128,10 @@ export function relayMessage(raw) {
   const mine = raw.from === 'human';
   const q = quoteParts(raw.text);
   const atts = raw?.meta?.attachments || raw.attachments || [];
-  const images = atts.filter((a) => String(a.mime || '').startsWith('image/'));
-  const file = atts.find((a) => !String(a.mime || '').startsWith('image/'));
+  // 中转偶尔把他画的 SVG 记成普通文件：按文件名也认一下
+  const isImg = (a) => String(a.mime || '').startsWith('image/') || /\.(svg|png|jpe?g|gif|webp)$/i.test(String(a.name || a.url || ''));
+  const images = atts.filter(isImg);
+  const file = atts.find((a) => !isImg(a));
   const out = {
     id: raw.id, from: mine ? 'me' : 'him', type: 'text', text: q.text, at: raw.ts || new Date().toISOString(), quote: q.quote,
     status: raw?.meta?.api?.error ? 'failed' : (mine && raw?.meta?.deferred && !raw?.meta?.reply_requested ? 'queued' : 'sent'),

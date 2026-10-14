@@ -1169,6 +1169,32 @@ def note_cache_usage(usage: dict[str, Any]) -> None:
         _cache_seen_at = time.monotonic()
 
 
+USAGE_RING_FILE = LOOP_CACHE_DIR / "usage-ring.json"
+
+
+def _fp(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def record_usage_sample(messages: list[dict[str, Any]], usage: dict[str, Any], model: str) -> None:
+    """缓存体检用：记下最近 20 轮第一发请求的真实用量和前缀指纹（只存数字和哈希，不存内容）。"""
+    with contextlib.suppress(Exception):
+        details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+        fields = any(k in usage for k in ("cache_read_input_tokens", "cache_creation_input_tokens")) or any(
+            details.get(k) is not None for k in ("cached_tokens", "cache_write_tokens"))
+        system = [m.get("content") for m in messages if m.get("role") == "system"]
+        head = [m.get("content") for m in messages if m.get("role") in {"user", "assistant"}][:5]
+        row = {"at": dt.datetime.now(dt.timezone.utc).isoformat(), "model": model,
+               "in": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+               "read": int(details.get("cached_tokens") or usage.get("cache_read_input_tokens") or 0),
+               "write": int(details.get("cache_write_tokens") or usage.get("cache_creation_input_tokens") or 0),
+               "fields": bool(fields), "sys": _fp(system), "head": _fp(head)}
+        rows = json.loads(USAGE_RING_FILE.read_text(encoding="utf-8")) if USAGE_RING_FILE.exists() else []
+        rows = [*rows, row][-20:]
+        USAGE_RING_FILE.parent.mkdir(parents=True, exist_ok=True)
+        USAGE_RING_FILE.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+
+
 def cache_effective() -> bool:
     """True only if the provider reported cache activity in the last 6 hours.
 
@@ -3694,6 +3720,8 @@ async def handle_turn(
             cache_meta = out.get("prompt_cache") if isinstance(out.get("prompt_cache"), dict) else {}
             if isinstance(out.get("usage"), dict) and out["usage"]:
                 note_cache_usage(out["usage"])
+                if step == 0:
+                    record_usage_sample(messages, out["usage"], out.get("model") or "")
                 for key, value in out["usage"].items():
                     if isinstance(value, (int, float)) and not isinstance(value, bool):
                         turn.usage[key] = turn.usage.get(key, 0) + value
@@ -5484,6 +5512,282 @@ async def loop_test(request: Request):
         return {"ok": False, "model": route["model"], "error": f"HTTP {exc.status} {exc.detail}"[:600]}
     except Exception as exc:
         return {"ok": False, "model": route["model"], "error": f"{type(exc).__name__}: {exc}"[:600]}
+
+
+# ---------------------------------------------------------------------------
+# 缓存体检：真打几发探针，看这条线路到底能不能缓存、计价虚不虚、后面接的是不是 Claude
+# ---------------------------------------------------------------------------
+
+CACHE_CHECK_FILE = LOOP_CACHE_DIR / "cache-check.json"
+CACHE_CHECK_REUSE_S = 600
+_cache_check_state: dict[str, Any] = {"running": False, "step": "", "index": 0}
+_SUSPECT_FAMILIES = ("gemini", "gpt-", "gpt4", "openai", "deepseek", "qwen", "glm", "kimi", "moonshot", "doubao", "grok", "llama", "mistral")
+_PROBE_FILLER = "".join(f"第 {i} 行：缓存体检用的稳定填充文字，内容每次都一样，只用来把前缀撑到足够长。" for i in range(200))
+
+
+def _probe_usage(raw: Any) -> dict[str, Any]:
+    usage = normalize_usage(raw or {})
+    details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+    fields = any(k in usage for k in ("cache_read_input_tokens", "cache_creation_input_tokens")) or any(
+        details.get(k) is not None for k in ("cached_tokens", "cache_write_tokens"))
+    return {"in": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+            "read": int(details.get("cached_tokens") or usage.get("cache_read_input_tokens") or 0),
+            "write": int(details.get("cache_write_tokens") or usage.get("cache_creation_input_tokens") or 0),
+            "out": int(usage.get("completion_tokens") or usage.get("output_tokens") or 0), "fields": bool(fields)}
+
+
+async def _probe_call(client: httpx.AsyncClient, route: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+    url = route["url"].rstrip("/") + "/chat/completions"
+    headers = {"Authorization": f"Bearer {route['key']}", "Content-Type": "application/json"}
+    started = asyncio.get_running_loop().time()
+    seen: dict[str, Any] = {"ids": [], "models": [], "tool_ids": [], "finish": "", "error": ""}
+    usage: dict[str, Any] = {}
+    try:
+        if not body.get("stream"):
+            resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code >= 400:
+                return {"ok": False, "error": f"HTTP {resp.status_code} {resp.text[:160]}"}
+            data = resp.json()
+            choice = (data.get("choices") or [{}])[0]
+            seen["ids"].append(str(data.get("id") or ""))
+            seen["models"] += [str(data.get("model") or ""), str(data.get("system_fingerprint") or "")]
+            seen["tool_ids"] = [str(tc.get("id") or "") for tc in (choice.get("message") or {}).get("tool_calls") or [] if isinstance(tc, dict)]
+            seen["finish"] = str(choice.get("finish_reason") or "")
+            usage = data.get("usage") or {}
+        else:
+            for with_opts in (True, False):
+                request_body = {**body, **({"stream_options": {"include_usage": True}} if with_opts else {})}
+                async with client.stream("POST", url, headers=headers, json=request_body) as resp:
+                    if resp.status_code in (400, 422) and with_opts:
+                        continue
+                    if resp.status_code >= 400:
+                        return {"ok": False, "error": f"HTTP {resp.status_code} {(await resp.aread()).decode('utf-8', 'replace')[:160]}"}
+                    async for line in resp.aiter_lines():
+                        line = line.strip()
+                        if not line.startswith("data:") or line[5:].strip() in {"", "[DONE]"}:
+                            continue
+                        try:
+                            ev = json.loads(line[5:])
+                        except json.JSONDecodeError:
+                            continue
+                        if ev.get("error"):
+                            seen["error"] = str(ev["error"])[:160]  # 200 里面藏着的报错
+                        if ev.get("id") and not seen["ids"]:
+                            seen["ids"].append(str(ev["id"]))
+                            seen["models"] += [str(ev.get("model") or ""), str(ev.get("system_fingerprint") or "")]
+                        if isinstance(ev.get("usage"), dict):
+                            usage = ev["usage"]
+                        choice = (ev.get("choices") or [{}])[0]
+                        for tc in (choice.get("delta") or {}).get("tool_calls") or []:
+                            if isinstance(tc, dict) and tc.get("id"):
+                                seen["tool_ids"].append(str(tc["id"]))
+                        seen["finish"] = str(choice.get("finish_reason") or seen["finish"])
+                break
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:160]}
+    ms = int((asyncio.get_running_loop().time() - started) * 1000)
+    if seen["error"]:
+        return {"ok": False, "error": "200 里面藏着报错：" + seen["error"], "ms": ms}
+    return {"ok": True, "ms": ms, "usage": _probe_usage(usage), **seen}
+
+
+def _cache_verdict(first: dict[str, Any], second: dict[str, Any]) -> dict[str, Any]:
+    if not first.get("ok") or not second.get("ok"):
+        return {"status": "没测成", "level": "warn", "hit": False, "blind": True,
+                "summary": (first.get("error") or second.get("error") or "请求失败")}
+    a, b = first["usage"], second["usage"]
+    line = f"第一发 in={a['in']} w={a['write'] if a['fields'] else 'null'} r={a['read'] if a['fields'] else 'null'}（{first['ms']}ms） | " \
+           f"第二发 in={b['in']} w={b['write'] if b['fields'] else 'null'} r={b['read'] if b['fields'] else 'null'}（{second['ms']}ms）"
+    if b["read"] > 0:
+        cost = (b["in"] - b["read"] - b["write"]) + b["read"] * 0.1 + b["write"] * 1.25
+        saved = max(0, round((1 - cost / max(1, a["in"])) * 100))
+        return {"status": "命中", "level": "good", "hit": True, "blind": False, "saved": saved, "summary": line}
+    if not a["fields"] and not b["fields"]:
+        return {"status": "站子不返回缓存字段（瞎的）", "level": "warn", "hit": False, "blind": True, "summary": line}
+    if a["write"] > 0:
+        return {"status": "写了没读回来", "level": "bad", "hit": False, "blind": False, "summary": line}
+    return {"status": "没命中", "level": "bad", "hit": False, "blind": False, "summary": line}
+
+
+def _estimate_tool_tokens(text: str) -> float:
+    cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
+    return cjk * 1.0 + (len(text) - cjk) * 0.3
+
+
+def cache_check_estimate() -> int:
+    prefix = min(12_000, max(4_000, len(persona_full())))
+    return prefix * 4 + 8_000
+
+
+async def run_cache_check(index: int) -> dict[str, Any]:
+    chain = main_chain()
+    route = chain[index]
+    state = _cache_check_state
+    started = asyncio.get_running_loop().time()
+    extras = {"user": cache_session_id("cache-check")}
+    persona = persona_full()
+    body_prefix = persona[:12_000] if len(persona) >= 4_000 else (persona + "\n\n" + _PROBE_FILLER)[:12_000]
+    timeout = httpx.Timeout(connect=15, read=120, write=30, pool=15)
+    probes: dict[str, Any] = {}
+    async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
+        for kind, stream in (("plain", False), ("stream", True)):
+            nonce = f"[体检 {uuid.uuid4().hex[:10]}]\n"
+            body = {"model": route["model"], "max_tokens": 16, "stream": stream, **extras, "messages": [
+                {"role": "system", "content": [{"type": "text", "text": nonce + body_prefix, "cache_control": {"type": "ephemeral"}}]},
+                {"role": "user", "content": "只回复一个字：好"}]}
+            for n in (1, 2):
+                state["step"] = f"{'流式' if stream else '非流式'}第 {n} 发"
+                probes[f"{kind}{n}"] = await _probe_call(client, route, body)
+                if not probes[f"{kind}{n}"].get("ok"):
+                    break
+        ping = {"type": "function", "function": {"name": "cache_check_ping", "description": "体检用：被叫到时原样返回 word。",
+                                                 "parameters": {"type": "object", "properties": {"word": {"type": "string"}}, "required": ["word"]}}}
+        tools = [*all_tools()[:12], ping]
+        ask = [{"role": "user", "content": "请调用 cache_check_ping 工具，word 填 ok。如果你没有这个工具，就只回复 OK。"}]
+        state["step"] = "工具计价：不带工具"
+        probes["notools"] = await _probe_call(client, route, {"model": route["model"], "max_tokens": 64, "messages": ask})
+        state["step"] = "工具计价：带工具"
+        probes["tools"] = await _probe_call(client, route, {"model": route["model"], "max_tokens": 64, "messages": ask, "tools": tools})
+
+    sections: list[dict[str, Any]] = []
+    advice: list[dict[str, str]] = []
+    plain = _cache_verdict(probes.get("plain1", {}), probes.get("plain2", {}))
+    stream = _cache_verdict(probes.get("stream1", {}), probes.get("stream2", {}))
+    sections.append({"key": "plain", "title": "非流式", **plain})
+    sections.append({"key": "stream", "title": "流式", "note": "真实聊天走的是这条", **stream})
+
+    # 真实对话：最近 5 轮第一发请求的用量
+    rows: list[dict[str, Any]] = []
+    with contextlib.suppress(Exception):
+        rows = json.loads(USAGE_RING_FILE.read_text(encoding="utf-8")) if USAGE_RING_FILE.exists() else []
+    mine = [r for r in rows if r.get("model") == route["model"]] or rows
+    recent = mine[-5:]
+    real_hits = sum(1 for r in recent if int(r.get("read") or 0) > 0)
+    if recent:
+        avg = round(sum(int(r.get("in") or 0) for r in recent) / len(recent))
+        sections.append({"key": "real", "title": "真实", "level": "good" if real_hits else "bad",
+                         "status": f"最近 {len(recent)} 轮命中 {real_hits} 轮",
+                         "summary": f"平均每轮 {avg:,} token" + ("" if any(r.get("fields") for r in recent) else "（站子没回缓存字段）")})
+        sys_changes = sum(1 for x, y in zip(recent, recent[1:]) if x.get("sys") != y.get("sys"))
+        head_changes = sum(1 for x, y in zip(recent, recent[1:]) if x.get("head") != y.get("head"))
+        if len(recent) > 1:
+            stable = not sys_changes and not head_changes
+            sections.append({"key": "prefix", "title": "前缀", "level": "good" if stable else "warn", "status": "稳" if stable else "在变",
+                             "summary": "人设和最前面的聊天记录这几轮都没变，缓存接得上" if stable else
+                             f"最近 {len(recent)} 轮里：人设/系统那段变了 {sys_changes} 次，最前面 5 条聊天变了 {head_changes} 次。"
+                             "前缀一变后面的缓存全作废，这是我们自己这边的（摘要更新、聊天窗口往前滑），不是通道的问题"})
+    else:
+        sections.append({"key": "real", "title": "真实", "level": "info", "status": "还没有记录", "summary": "更新后聊几句，再来体检就能看到真实对话的命中情况"})
+
+    # 工具计价 + 会不会调工具
+    nt, wt = probes.get("notools", {}), probes.get("tools", {})
+    tool_text = json.dumps(tools, ensure_ascii=False)
+    called = bool(wt.get("tool_ids")) or wt.get("finish") == "tool_calls"
+    if nt.get("ok") and wt.get("ok"):
+        delta = wt["usage"]["in"] - nt["usage"]["in"]
+        expected = _estimate_tool_tokens(tool_text) + 350
+        ratio = delta / max(1, expected)
+        if delta <= 50:
+            sections.append({"key": "billing", "title": "计价", "level": "warn", "status": "没算工具",
+                             "summary": f"带了 {len(tool_text)} 字符的工具，输入只多了 {delta} token：要么工具被站子吞了，要么不按 token 算工具"})
+        elif ratio > 2:
+            sections.append({"key": "billing", "title": "计价", "level": "bad", "status": f"虚高约 {ratio:.1f} 倍",
+                             "summary": f"{len(tool_text)} 字符的工具块算成 {delta:,} token，正常大约 {round(expected):,}。按量计费的话就是多收钱"})
+            advice.append({"level": "warn", "text": f"这家对工具定义多收约 {ratio:.1f} 倍。去「功能管理」关掉不用的 MCP、少开几个常驻工具，能省不少。"})
+        else:
+            sections.append({"key": "billing", "title": "计价", "level": "good", "status": "正常",
+                             "summary": f"{len(tool_text)} 字符的工具块算成 {delta:,} token，跟正常差不多（约 {round(expected):,}，粗估）"})
+    else:
+        sections.append({"key": "billing", "title": "计价", "level": "warn", "status": "没测成", "summary": nt.get("error") or wt.get("error") or "请求失败"})
+    sections.append({"key": "tools", "title": "调工具", "level": "good" if called else "warn", "status": "会调" if called else "这次没调",
+                     "summary": ("调了 cache_check_ping，工具 id " + ", ".join(i[:24] for i in wt.get("tool_ids", [])[:2])) if called else
+                     "让它调一个工具，它没调（这一次不算定论，开着思考的模型偶尔会这样）"})
+
+    # 掺水：回来的 id / 模型名 / 指纹里带别家的名字
+    marks = " ".join(str(x) for p in probes.values() if isinstance(p, dict) for x in (*p.get("ids", []), *p.get("models", []), *p.get("tool_ids", []))).lower()
+    found = [f for f in _SUSPECT_FAMILIES if f in marks]
+    claimed_claude = "claude" in route["model"].lower()
+    returned = sorted({m for p in probes.values() if isinstance(p, dict) for m in p.get("models", []) if m})
+    if claimed_claude and found:
+        sections.append({"key": "lineage", "title": "掺水", "level": "bad", "status": "掺水了",
+                         "summary": f"名字挂着 claude，回来的 id/模型里带着 {', '.join(found)}"})
+        advice.insert(0, {"level": "bad", "text": f"这条掺水了：名字挂着 claude，后面接的是 {found[0]}。缓存、计价怎么测都不作数，最要紧的是换通道。"})
+    else:
+        toolu = any(str(i).startswith("toolu_") for i in wt.get("tool_ids", []))
+        sections.append({"key": "lineage", "title": "掺水", "level": "good" if toolu else "info", "status": "没看出来" if not toolu else "像正牌",
+                         "summary": ("工具 id 是 Claude 的 toolu_ 格式。" if toolu else "回来的 id 里没看到别家的名字（看不出不等于一定是正牌）。")
+                         + (f" 站子报的模型：{', '.join(returned[:3])}" if returned else "")})
+
+    # 你这边的设置：真实请求有没有带缓存标记
+    mode = route_cache_mode(route)
+    sections.append({"key": "setting", "title": "你的设置", "level": "good" if mode != "off" else "info",
+                     "status": "发缓存标记" if mode != "off" else "不发缓存标记",
+                     "summary": "真实聊天会带 cache_control" if mode != "off" else "真实聊天不带 cache_control（接入 → 这条 API → Prompt Cache）"})
+
+    any_hit = plain["hit"] or stream["hit"]
+    if not found:
+        if any_hit and mode == "off":
+            advice.append({"level": "warn", "text": "探针能命中，但你真实聊天没发缓存标记。去「接入」把这条 API 的 Prompt Cache 改成「兼容 cache_control 的中转」，再聊几句回来复查。"})
+        if plain["hit"] and not stream["hit"]:
+            advice.append({"level": "warn", "text": "这家只有非流式能缓存，可聊天走的是流式。告诉阿川，可以给这条线路加一个「不用流式」的开关。"})
+        if stream["hit"] and recent and not real_hits and mode != "off":
+            advice.append({"level": "warn", "text": "探针能中，但真实对话一次没中：探针的前缀比你的干净。看上面「前缀」那条是不是在变。"})
+        if not any_hit:
+            blind = plain.get("blind") and stream.get("blind")
+            advice.append({"level": "bad", "text": ("这家不回缓存字段，看不出来有没有缓存，按没有算。" if blind else "两种方式都没命中，这条线路不缓存。")
+                           + "省钱只能靠少带：功能管理 → 每轮带多少，聊天记录 24 条、图片 0；或者换一条支持缓存的通道。"})
+        if any_hit and (stream["hit"] and (real_hits or not recent)) and mode != "off":
+            advice.append({"level": "good", "text": "这条线路缓存是通的，真实聊天也在用。保持现在的设置就好。"})
+
+    spent = sum(p["usage"]["in"] + p["usage"]["out"] for p in probes.values() if isinstance(p, dict) and p.get("ok"))
+    return {"at": dt.datetime.now(dt.timezone.utc).isoformat(), "index": index, "model": route["model"],
+            "host": urllib.parse.urlparse(route["url"]).hostname or "", "sections": sections, "advice": advice,
+            "probes": sum(1 for p in probes.values() if isinstance(p, dict)), "tokens_spent": spent,
+            "prefix_chars": len(body_prefix), "elapsed_s": round(asyncio.get_running_loop().time() - started, 1)}
+
+
+def _cache_check_last() -> dict[str, Any] | None:
+    with contextlib.suppress(Exception):
+        return json.loads(CACHE_CHECK_FILE.read_text(encoding="utf-8"))
+    return None
+
+
+async def _cache_check_job(index: int) -> None:
+    state = _cache_check_state
+    try:
+        result = await run_cache_check(index)
+        CACHE_CHECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_CHECK_FILE.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        state["error"] = ""
+    except Exception as exc:  # 体检失败不能拖垮后端
+        state["error"] = f"{type(exc).__name__}: {exc}"[:300]
+    finally:
+        state.update(running=False, step="")
+
+
+@app.get("/loop/cache-check")
+async def loop_cache_check_get():
+    chain = main_chain()
+    return {"running": _cache_check_state["running"], "step": _cache_check_state["step"], "error": _cache_check_state.get("error", ""),
+            "result": _cache_check_last(), "estimate_tokens": cache_check_estimate(),
+            "routes": [{"index": i, "model": r.get("model"), "host": urllib.parse.urlparse(str(r.get("url") or "")).hostname or ""} for i, r in enumerate(chain)]}
+
+
+@app.post("/loop/cache-check")
+async def loop_cache_check_run(request: Request):
+    body = await request.json()
+    index = int(body.get("index") or 0)
+    if not (0 <= index < len(main_chain())):
+        raise HTTPException(status_code=400, detail="没有这条线路")
+    last = _cache_check_last()
+    if last and not body.get("force") and last.get("index") == index:
+        age = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(last["at"])).total_seconds()
+        if age < CACHE_CHECK_REUSE_S:
+            return {"running": False, "reused": True, "result": last}
+    if not _cache_check_state["running"]:
+        _cache_check_state.update(running=True, step="准备", index=index, error="")
+        _cache_check_state["task"] = asyncio.create_task(_cache_check_job(index))  # 留个引用，别被回收
+    return {"running": True, "step": _cache_check_state["step"]}
 
 
 @app.post("/loop/models")

@@ -675,6 +675,70 @@ class CacheFriendlyPrefixTest(unittest.TestCase):
         self.assertEqual(other, ["d"])
 
 
+class CacheCheckTest(unittest.TestCase):
+    def _run(self, probes, ring=None, cache_mode="off", model="claude-opus-4-6"):
+        calls = iter(probes)
+
+        async def fake_probe(client, route, body):
+            return next(calls)
+
+        class Client:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        fake_httpx = types.SimpleNamespace(Timeout=lambda **kw: None, AsyncClient=Client, HTTPError=Exception)
+        with tempfile.TemporaryDirectory() as tmp:
+            ring_file = Path(tmp) / "ring.json"
+            if ring is not None:
+                ring_file.write_text(json.dumps(ring), encoding="utf-8")
+            with mock.patch.object(api_loop, "_probe_call", fake_probe), mock.patch.object(api_loop, "httpx", fake_httpx), \
+                 mock.patch.object(api_loop, "main_chain", lambda: [{"url": "https://x.example/v1", "key": "k", "model": model}]), \
+                 mock.patch.object(api_loop, "persona_full", lambda: "人设" * 3000), \
+                 mock.patch.object(api_loop, "all_tools", lambda: []), \
+                 mock.patch.object(api_loop, "route_cache_mode", lambda route: cache_mode), \
+                 mock.patch.object(api_loop, "USAGE_RING_FILE", ring_file):
+                return asyncio.run(api_loop.run_cache_check(0))
+
+    @staticmethod
+    def ok(in_, read=0, write=0, fields=True, ids=(), tool_ids=(), finish="stop"):
+        return {"ok": True, "ms": 100, "usage": {"in": in_, "read": read, "write": write, "out": 1, "fields": fields},
+                "ids": list(ids), "models": [], "tool_ids": list(tool_ids), "finish": finish}
+
+    def test_blind_relay_with_gemini_behind_claude_name(self):
+        o = self.ok
+        out = self._run([o(8000, fields=False), o(8000, fields=False), o(8000, fields=False), o(8000, fields=False),
+                         o(40), o(1500, tool_ids=["cpa_gemini_976abc"], finish="tool_calls")])
+        by = {s["key"]: s for s in out["sections"]}
+        self.assertIn("瞎", by["stream"]["status"])
+        self.assertEqual(by["lineage"]["status"], "掺水了")
+        self.assertIn("gemini", out["advice"][0]["text"])
+
+    def test_probe_hits_but_real_chat_sends_no_cache_marker(self):
+        o = self.ok
+        ring = [{"model": "claude-opus-4-6", "in": 90000, "read": 0, "write": 0, "fields": True, "sys": "a", "head": "b"}] * 3
+        out = self._run([o(8000, write=7900), o(8000, read=7900), o(8000, write=7900), o(8000, read=7900),
+                         o(40), o(900, tool_ids=["toolu_01"], finish="tool_calls")], ring=ring)
+        by = {s["key"]: s for s in out["sections"]}
+        self.assertEqual(by["stream"]["status"], "命中")
+        self.assertGreater(by["stream"]["saved"], 80)
+        self.assertEqual(by["real"]["status"], "最近 3 轮命中 0 轮")
+        self.assertEqual(by["prefix"]["status"], "稳")
+        self.assertTrue(any("Prompt Cache" in a["text"] for a in out["advice"]))
+
+    def test_inflated_tool_billing_is_flagged(self):
+        o = self.ok
+        out = self._run([o(8000), o(8000), o(8000), o(8000), o(40), o(40 + 20000, tool_ids=["toolu_1"])])
+        by = {s["key"]: s for s in out["sections"]}
+        self.assertEqual(by["billing"]["level"], "bad")
+        self.assertIn("虚高", by["billing"]["status"])
+
+
 class ReplyOptionsTest(unittest.TestCase):
     def test_marker_is_always_stripped_and_options_need_two_distinct_items(self):
         split = api_loop.split_reply_options

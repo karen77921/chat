@@ -437,6 +437,22 @@ function home() {
 }
 
 // ---------------- 路由 ----------------
+const CC_RESULT = { at: new Date().toISOString(), index: 0, model: 'claude-opus-4-6', host: 'fucheers.top', probes: 6, tokens_spent: 52310, prefix_chars: 12000, elapsed_s: 41.2,
+  sections: [
+    { key: 'plain', title: '非流式', level: 'warn', status: '站子不返回缓存字段（瞎的）', summary: '第一发 in=8063 w=null r=null（2100ms） | 第二发 in=8063 w=null r=null（2300ms）' },
+    { key: 'stream', title: '流式', note: '真实聊天走的是这条', level: 'warn', status: '站子不返回缓存字段（瞎的）', summary: '第一发 in=8063 w=null r=null（2000ms） | 第二发 in=8063 w=null r=null（2000ms）' },
+    { key: 'real', title: '真实', level: 'bad', status: '最近 5 轮命中 0 轮', summary: '平均每轮 98,476 token（站子没回缓存字段）' },
+    { key: 'prefix', title: '前缀', level: 'warn', status: '在变', summary: '最近 5 轮里：人设/系统那段变了 0 次，最前面 5 条聊天变了 1 次。前缀一变后面的缓存全作废，这是我们自己这边的（摘要更新、聊天窗口往前滑），不是通道的问题' },
+    { key: 'billing', title: '计价', level: 'bad', status: '虚高约 3.6 倍', summary: '6067 字符的工具块算成 24,920 token，正常大约 6,950。按量计费的话就是多收钱' },
+    { key: 'tools', title: '调工具', level: 'good', status: '会调', summary: '调了 cache_check_ping，工具 id cpa_gemini_976abc' },
+    { key: 'lineage', title: '掺水', level: 'bad', status: '掺水了', summary: '名字挂着 claude，回来的 id/模型里带着 gemini' },
+    { key: 'setting', title: '你的设置', level: 'info', status: '不发缓存标记', summary: '真实聊天不带 cache_control（接入 → 这条 API → Prompt Cache）' },
+  ],
+  advice: [
+    { level: 'bad', text: '这条掺水了：名字挂着 claude，后面接的是 gemini。缓存、计价怎么测都不作数，最要紧的是换通道。' },
+    { level: 'warn', text: '这家对工具定义多收约 3.6 倍。去「功能管理」关掉不用的 MCP、少开几个常驻工具，能省不少。' },
+  ] };
+
 export async function mockFetch(path, { method = 'GET', body } = {}) {
   await sleep(120);
   const [p, qsRaw = ''] = path.split('?');
@@ -459,6 +475,12 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     ]) };
     case 'POST /api/purchases': { const it = { id: `a${Date.now()}`, no: '202610130009', status: 'pending', at: new Date().toISOString(), ...body, price: Number(body.price), timeline: [{ at: new Date().toISOString(), kind: 'submit', by: 'me', text: body.reason }] }; state.purchases.unshift(it);
       setTimeout(() => { Object.assign(it, { status: 'approved', comment: '准了，记我账上。' }); it.timeline.push({ at: new Date().toISOString(), kind: 'approve', by: 'him', text: '准了，记我账上。' }); }, 2500); return it; }
+    case 'GET /api/cache-check': {
+      if (state.ccUntil && Date.now() > state.ccUntil) { state.ccUntil = 0; state.cc = CC_RESULT; }
+      return { running: !!state.ccUntil, step: state.ccUntil ? '流式第 2 发' : '', error: '', result: state.cc || null, estimate_tokens: 56000,
+        routes: [{ index: 0, model: 'claude-opus-4-6', host: 'fucheers.top' }, { index: 1, model: 'claude-sonnet-4-5', host: 'openrouter.ai' }] };
+    }
+    case 'POST /api/cache-check': if (state.cc && !body.force) return { running: false, reused: true, result: state.cc }; state.ccUntil = Date.now() + 3000; return { running: true, step: '准备' };
     case 'GET /api/prompts': return { items: state.prompts ?? [{ id: 'p1', title: '小金库规矩', text: '让她开心 +2 到 5 块，惹她生气 -10 块。每笔都记在留言板。', on: true }] };
     case 'PUT /api/prompts': state.prompts = body.items.map((x, i) => ({ id: x.id || `p${Date.now()}${i}`, ...x })); return { items: state.prompts };
     case 'GET /api/context': return { history_n: state.historyN ?? 80, history_images: state.historyImages ?? 2 };

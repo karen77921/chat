@@ -366,6 +366,8 @@ async function compat(path, opts) {
   if (method === 'POST' && (m = /^\/api\/purchases\/([0-9a-f]+)\/(withdraw|review)$/.exec(p))) {
     return m[2] === 'withdraw' ? loop(`imprint/purchases/${m[1]}/withdraw`, { method: 'POST' }) : loop(`purchases/${m[1]}/review`, { method: 'POST', timeout: 150000 });
   }
+  if (method === 'GET' && p === '/api/cache-check') return loop('cache-check');
+  if (method === 'POST' && p === '/api/cache-check') return loop('cache-check', opts);
   if (method === 'GET' && p === '/api/prompts') return loop('prompts');
   if (method === 'PUT' && p === '/api/prompts') return loop('prompts', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/context') return loop('config');

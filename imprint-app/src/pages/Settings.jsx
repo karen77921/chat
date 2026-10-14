@@ -13,12 +13,13 @@ import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
 import { THEMES, useTheme, useBeauty } from '../theme/theme.js';
 import { Avatar } from './Chat.jsx';
+import CacheCheck from '../components/settings/CacheCheck.jsx';
 import '../components/chat/chat.css';
 import '../components/chat/chatlist.css';
 import '../components/settings/settings.css';
 
 const PAGES = {
-  access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], features: ['features', '功能管理'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
+  access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], features: ['features', '功能管理'], cache: ['cache check', '缓存体检'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
 const upload = (file, kind) => { const f = new FormData(); f.append('file', file); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
 const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
@@ -41,6 +42,7 @@ export default function Settings({ query }) {
           {p === 'persona' && <Persona />}
           {p === 'prompts' && <Prompts />}
           {p === 'features' && <Features />}
+          {p === 'cache' && <CacheCheck />}
           {p === 'beauty' && <Beauty />}
           {p === 'usage' && <Usage />}
         </Band>
@@ -67,6 +69,7 @@ function Desk({ go }) {
     ['persona', 'feather', '他的人设', persona?.text != null ? `写给他的 prompt · ${persona.text.length} 字` : '…', false],
     ['prompts', 'sparkle', '额外提示词', prompts?.items ? (prompts.items.length ? `${prompts.items.filter((x) => x.on).length} 条开着 · 共 ${prompts.items.length} 条` : '不改人设，另外给他加的话') : '…', false],
     ['features', 'plug', '功能管理', f?.features ? `${f.features.filter((x) => x.on).length} 个功能在跑 · MCP ${f.mcps.filter((m) => m.on && m.status === 'ok').length} 个连上${mcpDown ? ` · ${mcpDown} 个断开` : ''}` : '…', mcpDown > 0],
+    ['cache', 'sparkle', '缓存体检', '能不能缓存 · 工具多不多收 · 是不是正牌', false],
     ['beauty', 'brush', '美化', '主题 · 头像 · 聊天背景 · 气泡', false],
     ['usage', 'tool', '用量与日志', ok ? `${c.observed || 0} 次真实用量记录 · 工具调用` : '…', false],
   ];

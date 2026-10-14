@@ -1188,7 +1188,9 @@ def record_usage_sample(messages: list[dict[str, Any]], usage: dict[str, Any], m
                "in": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
                "read": int(details.get("cached_tokens") or usage.get("cache_read_input_tokens") or 0),
                "write": int(details.get("cache_write_tokens") or usage.get("cache_creation_input_tokens") or 0),
-               "fields": bool(fields), "sys": _fp(system), "head": _fp(head)}
+               "fields": bool(fields), "sys": _fp(system), "head": _fp(head),
+               # 每条历史消息一个短指纹：两轮一比，就知道缓存是从第几条开始断的
+               "seq": [_fp(m.get("content"))[:8] for m in messages if m.get("role") in {"user", "assistant"}][:-1][:120]}
         rows = json.loads(USAGE_RING_FILE.read_text(encoding="utf-8")) if USAGE_RING_FILE.exists() else []
         rows = [*rows, row][-20:]
         USAGE_RING_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -1202,7 +1204,15 @@ def cache_effective() -> bool:
     price (a per-token relay bills every one of them), so we fall back to the lean shapes.
     """
     import time
-    return bool(_cache_seen_at) and time.monotonic() - _cache_seen_at < 6 * 3600
+    if _cache_seen_at:
+        return time.monotonic() - _cache_seen_at < 6 * 3600
+    # 刚重启：内存里的记号没了，看一眼最近几轮的真实用量
+    with contextlib.suppress(Exception):
+        for row in reversed(json.loads(USAGE_RING_FILE.read_text(encoding="utf-8"))[-5:]):
+            if int(row.get("read") or 0) > 0:
+                age = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(row["at"])).total_seconds()
+                return age < 6 * 3600
+    return False
 
 
 def stepped_history(rows: list[dict[str, Any]], keep: int, total: int) -> list[dict[str, Any]]:
@@ -1922,6 +1932,7 @@ async def build_messages(
     # Time, recall and summaries are deliberately appended later as volatile context.
     system_text = persona_full()
     volatile_parts: list[str] = []
+    summary_text = ""
     injected = context_injection_text(session_id, before_id)
     if injected:
         volatile_parts.append(injected)
@@ -1939,7 +1950,9 @@ async def build_messages(
         timing["compaction"] = schedule_compaction(session_id, before_id)
         summary = str(compacted.get("summary") or "").strip()
         if summary:
-            volatile_parts.append(
+            # 摘要只在压缩时才变（那时聊天记录的起点也跟着变），放在聊天记录前面能跟着一起被缓存，
+            # 不用每轮按全价重新读一遍
+            summary_text = (
                 "【较早对话的滚动摘要】\n"
                 + summary
                 + "\n以上是早期对话的压缩记录，请把它当作真实上下文，并与下面的近期原文结合。"
@@ -2024,6 +2037,8 @@ async def build_messages(
     )
     system_text += sticker_guide_text()
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_text}]
+    if summary_text:
+        messages.append({"role": "user", "content": summary_text})
     had_images = False
     if use_context:
         rows = stepped_history(relay_rows(
@@ -5668,6 +5683,26 @@ async def run_cache_check(index: int) -> dict[str, Any]:
         sections.append({"key": "real", "title": "真实", "level": "good" if real_hits else "bad",
                          "status": f"最近 {len(recent)} 轮命中 {real_hits} 轮",
                          "summary": f"平均每轮 {avg:,} token" + ("" if any(r.get("fields") for r in recent) else "（站子没回缓存字段）")})
+        gaps = []
+        breaks = []
+        for x, y in zip(recent, recent[1:]):
+            with contextlib.suppress(Exception):
+                gaps.append((dt.datetime.fromisoformat(y["at"]) - dt.datetime.fromisoformat(x["at"])).total_seconds() / 60)
+            a, b = x.get("seq") or [], y.get("seq") or []
+            if a and b:
+                same = next((i for i, (p, q) in enumerate(zip(a, b)) if p != q), min(len(a), len(b)))
+                if same < len(a) - 2:  # 上一轮已经缓存过的部分，这一轮没接上
+                    breaks.append(same + 1)
+        ttl_min = 60 if route_cache_ttl(route) == "1h" else 5
+        late = sum(1 for g in gaps if g > ttl_min)
+        if gaps:
+            sections.append({"key": "gap", "title": "间隔", "level": "warn" if late else "good",
+                             "status": f"{late} 次超过 {ttl_min} 分钟" if late else f"都在 {ttl_min} 分钟内",
+                             "summary": "最近几轮之间隔了 " + "、".join(f"{g:.0f}" for g in gaps) + " 分钟。"
+                             + (f"缓存只留 {ttl_min} 分钟，隔久了就得重新写一遍（写入比普通输入还贵 25%）" if late else "缓存来得及接上")})
+        if breaks:
+            sections.append({"key": "break", "title": "断点", "level": "bad", "status": f"{len(breaks)} 次从中间断开",
+                             "summary": "聊天记录分别从第 " + "、".join(map(str, breaks)) + " 条开始跟上一轮不一样，后面全部重新写缓存"})
         sys_changes = sum(1 for x, y in zip(recent, recent[1:]) if x.get("sys") != y.get("sys"))
         head_changes = sum(1 for x, y in zip(recent, recent[1:]) if x.get("head") != y.get("head"))
         if len(recent) > 1:
@@ -5732,6 +5767,8 @@ async def run_cache_check(index: int) -> dict[str, Any]:
             advice.append({"level": "warn", "text": "这家只有非流式能缓存，可聊天走的是流式。告诉阿川，可以给这条线路加一个「不用流式」的开关。"})
         if stream["hit"] and recent and not real_hits and mode != "off":
             advice.append({"level": "warn", "text": "探针能中，但真实对话一次没中：探针的前缀比你的干净。看上面「前缀」那条是不是在变。"})
+        if recent and gaps and late and ttl_min == 5:
+            advice.append({"level": "warn", "text": "你们常常隔 5 分钟以上才回一句，5 分钟的缓存总是过期重写。到「接入」把这条 API 的缓存时长改成 1 小时：写入贵一点，但隔一会儿再聊还能接上。"})
         if not any_hit:
             blind = plain.get("blind") and stream.get("blind")
             advice.append({"level": "bad", "text": ("这家不回缓存字段，看不出来有没有缓存，按没有算。" if blind else "两种方式都没命中，这条线路不缓存。")

@@ -731,6 +731,21 @@ class CacheCheckTest(unittest.TestCase):
         self.assertEqual(by["prefix"]["status"], "稳")
         self.assertTrue(any("Prompt Cache" in a["text"] for a in out["advice"]))
 
+    def test_reports_where_history_breaks_and_long_gaps(self):
+        o = self.ok
+        ring = [
+            {"model": "claude-opus-4-6", "in": 47000, "read": 24000, "write": 17000, "fields": True, "sys": "a", "head": "b",
+             "at": "2026-10-14T05:00:00+00:00", "seq": ["s", "1", "2", "3", "4", "5"]},
+            {"model": "claude-opus-4-6", "in": 47000, "read": 24000, "write": 17000, "fields": True, "sys": "a", "head": "b",
+             "at": "2026-10-14T05:20:00+00:00", "seq": ["s", "1", "X", "3", "4", "5", "6", "7"]},
+        ]
+        out = self._run([o(8000, write=7900), o(8000, read=7900), o(8000, write=7900), o(8000, read=7900),
+                         o(40), o(900, tool_ids=["toolu_01"])], ring=ring, cache_mode="explicit")
+        by = {s["key"]: s for s in out["sections"]}
+        self.assertIn("第 3 条", by["break"]["summary"])
+        self.assertEqual(by["gap"]["level"], "warn")
+        self.assertTrue(any("1 小时" in a["text"] for a in out["advice"]))
+
     def test_inflated_tool_billing_is_flagged(self):
         o = self.ok
         out = self._run([o(8000), o(8000), o(8000), o(8000), o(40), o(40 + 20000, tool_ids=["toolu_1"])])

@@ -7,6 +7,7 @@ import Icon from '../../design/icons.jsx';
 import { useLoad } from '../../lib/useLoad.js';
 import { BUILTIN, Sticker } from './stickers.jsx';
 import { api } from '../../lib/api.js';
+import { shrinkImage, mapLimited } from '../../lib/image.js';
 
 const MAX_IMAGES = 9;
 
@@ -62,7 +63,8 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
     sendingAttachment.current = true;
     setBusy(`正在传 ${list.length} 张图…`); setPanel(null);
     try {
-      const ups = await Promise.all(list.map((f) => onUpload(f, 'image')));
+      const ups = await mapLimited(list, 2, async (f) => onUpload(await shrinkImage(f), 'image'),
+        (n) => setBusy(n < list.length ? `正在传图 ${n}/${list.length}…` : '马上就好…'));
       await onSend({ type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) });
     } finally { sendingAttachment.current = false; setBusy(''); }
   };

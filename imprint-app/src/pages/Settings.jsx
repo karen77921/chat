@@ -9,6 +9,7 @@ import Icon from '../design/icons.jsx';
 import { Band, TornBox, Cyanotype } from '../design/paper.jsx';
 import Sheet from '../design/Sheet.jsx';
 import { api, saveToken, savedToken } from '../lib/api.js';
+import { shrinkImage } from '../lib/image.js';
 import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
 import { THEMES, useTheme, useBeauty } from '../theme/theme.js';
@@ -21,7 +22,7 @@ import '../components/settings/settings.css';
 const PAGES = {
   access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], features: ['features', '功能管理'], cache: ['cache check', '缓存体检'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
-const upload = (file, kind) => { const f = new FormData(); f.append('file', file); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
+const upload = async (file, kind) => { const f = new FormData(); f.append('file', await shrinkImage(file)); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
 const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
 const hm = (iso) => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
 

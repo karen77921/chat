@@ -75,6 +75,8 @@ sys.modules.setdefault("uvicorn", uvicorn)
 
 import imprint_store  # noqa: E402
 from imprint_store import TIDE_DRIVES, TIDE_EMOTIONS, imprint_action, register_imprint_routes  # noqa: E402
+# 测试绝不能写进真账本：api_loop 的缓存目录指到一次性的临时目录
+os.environ["LOOP_CACHE_DIR"] = tempfile.mkdtemp(prefix="imprint-test-")
 import api_loop  # noqa: E402
 
 
@@ -862,6 +864,89 @@ def tiny_pdf(lines):
     out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
     out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
     return out
+
+
+class DriveEngineTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = Path(self.tmp.name) / "imprint.db"
+        imprint_action(self.db, "drive_state")  # 建表
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def engine(self, now):
+        conn = sqlite3.connect(self.db)
+        return conn, imprint_store.DriveEngine(conn, now)
+
+    def test_her_words_bump_with_reasons_and_dedupe(self):
+        t0 = dt.datetime(2026, 10, 14, 6, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        before = e.s["v"]["crave"]
+        self.assertIn("她在撒娇、说想他", e.her_message("哥哥我想你了"))
+        self.assertGreater(e.s["v"]["crave"], before)
+        self.assertEqual(e.her_message("哥哥我想你了"), [])  # 五分钟内同一句不重复算
+        self.assertEqual(e.her_message("之前那次分手好难过"), [])  # 翻旧账不算
+        self.assertIn("她说了分手的话", e.her_message("我们分手吧"))
+        e.save(); conn.commit()
+        reasons = [r[0] for r in conn.execute("SELECT reason FROM drive_ledger WHERE kind='涨'")]
+        self.assertIn("她在撒娇、说想他", reasons)
+        conn.close()
+
+    def test_values_drift_back_and_crave_floor_rises_when_she_is_away(self):
+        t0 = dt.datetime(2026, 10, 14, 4, 0, tzinfo=dt.timezone.utc)  # 北京时间 12 点，白天
+        conn, e = self.engine(t0)
+        e.s["her_last"] = t0.isoformat()
+        e.s["v"]["curiosity"] = 0.95
+        e.save(); conn.commit(); conn.close()
+        conn, e = self.engine(t0 + dt.timedelta(hours=8))
+        self.assertLess(e.s["v"]["curiosity"], 0.6)  # 八小时后往基线回落了
+        self.assertGreater(e.target("crave"), imprint_store.DRIVE_BASE["crave"] + 0.25)  # 她八小时没来：越来越想她
+        conn.close()
+
+    def test_only_real_tool_use_satisfies_with_refractory_and_habit(self):
+        t0 = dt.datetime(2026, 10, 14, 4, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.s["v"]["curiosity"] = 0.8
+        self.assertIn("curiosity", e.tool_done("search_public_web"))
+        self.assertAlmostEqual(e.s["v"]["curiosity"], 0.4, places=2)
+        self.assertNotIn("curiosity", e.tool_done("search_public_web"))  # 不应期内不再落
+        self.assertGreater(e.s["habit"]["curiosity"], 0)  # 越做越爱做
+        self.assertIn("social", e.tool_done("garden_island__status", garden=True))
+        conn.close()
+
+    def test_turn_tools_feed_the_ledger_only_when_they_succeed(self):
+        async def fake_run(self_, name, raw):
+            return "ERROR: nope" if "bad" in raw else "ok"
+
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", Path(self.tmp.name)), \
+                mock.patch.object(api_loop.Turn, "_run_tool", fake_run):
+            turn = api_loop.Turn("s", dry=False)
+            asyncio.run(turn.run_tool("search_chat_history", json.dumps({"query": "bad"})))
+            self.assertEqual(imprint_action(self.db, "drive_state")["ledger"], [])
+            asyncio.run(turn.run_tool("search_chat_history", json.dumps({"query": "那天"})))
+            state = imprint_action(self.db, "drive_state")
+            dry = api_loop.Turn("s", dry=True)
+            asyncio.run(dry.run_tool("search_public_web", "{}"))
+            state2 = imprint_action(self.db, "drive_state")
+        self.assertIn("翻了旧事 / 写下了想法", [r["reason"] for r in state["ledger"] if r["drive"] == "reflection"])
+        self.assertEqual(next(d for d in state["drives"] if d["key"] == "reflection")["week"]["落"], 1)
+        self.assertEqual(len([r for r in state2["ledger"] if r["drive"] == "curiosity"]), 0)  # 演练轮不记账
+
+    def test_heart_tide_shows_live_values_and_self_report_only_nudges(self):
+        imprint_action(self.db, "drive_her", {"text": "抱抱宝贝"})
+        tide = imprint_action(self.db, "inspect")["tide"]
+        crave = next(d for d in tide["drives"] if d["key"] == "crave")
+        self.assertTrue(crave["live"])
+        live = crave["value"]
+        drives = [{"key": k, "name": n, "value": 1.0} for k, n in imprint_store.TIDE_DRIVES]
+        emotions = [{"key": k, "name": n, "value": 0.5} for k, n in imprint_store.TIDE_EMOTIONS]
+        out = imprint_action(self.db, "set_tide", {"emotions": emotions, "drives": drives, "mood": "好"})
+        after = next(d for d in out["drives"] if d["key"] == "crave")["value"]
+        self.assertLess(after, 0.95)  # 自报 1.0 只挪两成
+        self.assertGreater(after, live)
+        line = imprint_action(self.db, "drive_context")["text"]
+        self.assertTrue(line.startswith("【你此刻的劲儿】"))
 
 
 class WebPushTest(unittest.TestCase):

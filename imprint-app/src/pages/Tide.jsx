@@ -119,6 +119,44 @@ function Now({ data }) {
           ))}
         </div>
       )}
+      <DriveLedger />
+    </>
+  );
+}
+
+/* ---------- 劲儿账本：每一股劲儿为什么涨、为什么落，一条条记着；一周里哪股从没动过，就是那条线断了 ---------- */
+function DriveLedger() {
+  const { data } = useLoad('/api/drives');
+  const [open, setOpen] = useState(false);
+  if (!data || data.available === false) return null;
+  const hm = (iso) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const fatigue = data.drives.find((d) => d.key === 'fatigue');
+  const silent = data.drives.filter((d) => d.key !== 'fatigue' && !d.week['涨'] && !d.week['落']);
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>ledger</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>劲儿账本</h2>
+        <button type="button" className="go" onClick={() => setOpen((v) => !v)} aria-expanded={open}>{open ? '收起' : '一周统计'}<Icon name="arrow" size={13} /></button></div>
+      <div className="card td-ledger">
+        <p className="td-ledger-k">这些数是真的在跑：你的话会让某股劲儿涨，他真去做了对应的事才落，闲着会慢慢回到平常的样子。
+          {fatigue ? ` 现在疲惫 ${Math.round(fatigue.value * 100)}` : ''}{data.away_h >= 1 ? ` · 你 ${Math.round(data.away_h)} 小时没说话了` : ''}{` · 今天做了 ${data.acts_today} 件事`}</p>
+        {open && (
+          <div className="td-week">
+            {data.drives.map((d) => (
+              <span key={d.key} className={!d.week['涨'] && !d.week['落'] && d.key !== 'fatigue' ? 'quiet' : ''}><b>{d.name}</b><em>↑{d.week['涨']} ↓{d.week['落']}</em></span>
+            ))}
+            {silent.length > 0 && <p className="td-ledger-k">这一周没动过：{silent.map((d) => d.name).join('、')}。刚开始跑是正常的；一直不动就是那条线没接上，告诉阿川。</p>}
+          </div>
+        )}
+        {data.ledger.slice(0, open ? 60 : 8).map((r, i) => (
+          <div key={i} className="td-lrow">
+            <small>{hm(r.at)}</small>
+            <b>{r.name}</b>
+            <span className={r.kind === '涨' ? 'up' : r.kind === '落' ? 'down' : ''}>{r.kind} {r.delta > 0 ? '+' : ''}{Math.round(r.delta * 100)}</span>
+            <em>{r.reason}</em>
+          </div>
+        ))}
+        {!data.ledger.length && <p className="td-ledger-k">还没有记录。跟他说说话，账本就开始记了。</p>}
+      </div>
     </>
   );
 }

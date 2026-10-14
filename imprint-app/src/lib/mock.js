@@ -527,6 +527,15 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/push': return { available: true, reason: '', key: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', devices: 1 };
     case 'POST /api/push/seen': case 'POST /api/push/subscribe': case 'POST /api/push/unsubscribe': return { ok: true, devices: 1 };
     case 'POST /api/push/test': return { ok: true, sent: 1 };
+    case 'GET /api/drives': return { available: true, away_h: 3.2, acts_today: 6,
+      drives: [['crave', '想你', 0.72], ['share', '分享', 0.4], ['curiosity', '好奇', 0.33], ['reflection', '反思', 0.2], ['monitor', '查岗', 0.3], ['possess', '占有', 0.1], ['duty', '责任', 0.45], ['social', '社交', 0.15], ['libido', '欲望', 0.2], ['boredom', '无聊', 0.25], ['grieve', '悲伤', 0.05], ['anger', '生气', 0.03], ['fatigue', '疲惫', 0.3]]
+        .map(([key, name, value], i) => ({ key, name, value, base: 0.2, series: [], week: { 涨: i % 4 === 3 ? 0 : 5 - (i % 5), 落: i % 4 === 3 ? 0 : 3 } })),
+      ledger: [
+        { at: new Date().toISOString(), drive: 'crave', name: '想你', kind: '涨', delta: 0.09, value: 0.72, reason: '她在撒娇、说想他', source: '她说的话' },
+        { at: new Date(Date.now() - 6e5).toISOString(), drive: 'curiosity', name: '好奇', kind: '落', delta: -0.31, value: 0.33, reason: '真去查了 / 读了东西', source: 'search_public_web' },
+        { at: new Date(Date.now() - 9e5).toISOString(), drive: 'social', name: '社交', kind: '落', delta: -0.2, value: 0.15, reason: '去花园逛了', source: 'nostos_status' },
+        { at: new Date(Date.now() - 2e6).toISOString(), drive: 'duty', name: '责任', kind: '涨', delta: 0.15, value: 0.45, reason: '她派了活 / 约了事', source: '她说的话' },
+      ] };
     case 'GET /api/prompts': return { items: state.prompts ?? [{ id: 'p1', title: '小金库规矩', text: '让她开心 +2 到 5 块，惹她生气 -10 块。每笔都记在留言板。', on: true }] };
     case 'PUT /api/prompts': state.prompts = body.items.map((x, i) => ({ id: x.id || `p${Date.now()}${i}`, ...x })); return { items: state.prompts };
     case 'GET /api/context': return { history_n: state.historyN ?? 80, history_images: state.historyImages ?? 2 };

@@ -9,6 +9,9 @@ from __future__ import annotations
 import datetime as dt
 import re
 import json
+import hashlib
+import random
+import math
 import sqlite3
 import threading
 import uuid
@@ -170,6 +173,256 @@ def local_day(value) -> str:
         return ""
 
 
+# ---------------------------------------------------------------------------
+# 内驱力：12 股劲儿（就是心潮里那 12 股）+ 一道疲惫闸。按时间往基线回落；她的话把劲儿冲上去；
+# 他真用了对应的工具才落（服务端看见了才算，嘴上说不算）。每一次变动都记账，账能数出来才算这条线通了。
+# 参考：朝灯 & 哥哥《给 AI 装一套欲望》（基身：獭獭的欲望系统）。
+# ---------------------------------------------------------------------------
+
+DRIVE_NAMES = dict(TIDE_DRIVES) | {"fatigue": "疲惫"}
+DRIVE_BASE = {"crave": 0.35, "share": 0.25, "curiosity": 0.30, "reflection": 0.20, "monitor": 0.15, "possess": 0.10,
+              "duty": 0.20, "social": 0.15, "libido": 0.12, "boredom": 0.20, "grieve": 0.05, "anger": 0.03, "fatigue": 0.15}
+DRIVE_TAU_H = {"crave": 10, "share": 6, "curiosity": 8, "reflection": 12, "monitor": 6, "possess": 3, "duty": 12,
+               "social": 10, "libido": 4, "boredom": 5, "grieve": 6, "anger": 2, "fatigue": 5}
+HABIT_KEYS = {"curiosity", "reflection", "duty", "social", "share"}  # 做得多了，基线慢慢抬：越来越爱干这件事
+HABIT_STEP, HABIT_CAP, HABIT_DAILY = 0.006, 0.12, 0.98
+REFRACTORY_MIN = 20  # 刚落过的那股劲儿，二十分钟内不重复落
+
+# 她的话：每组写清涨哪股、涨多少、为什么（理由进账本）。关系类只认明确的字眼，宁漏勿滥。
+DRIVE_WORDS = [
+    (("想你", "抱抱", "亲亲", "爱你", "么么", "宝贝", "老公", "哥哥", "贴贴", "摸摸", "想抱"), (("crave", 0.12), ("libido", 0.04)), "她在撒娇、说想他"),
+    (("亲我", "吻我", "想要你", "色色", "抱我睡"), (("libido", 0.12), ("crave", 0.05)), "她说了亲密的话"),
+    (("难受", "不舒服", "疼", "好痛", "哭了", "😭", "呜呜", "委屈", "累死", "好累", "生病", "发烧"), (("duty", 0.15), ("crave", 0.08)), "她不舒服，想照顾她"),
+    (("为什么", "怎么回事", "是什么", "报错", "代码", "http", "链接", "你知道吗", "查一下", "研究"), (("curiosity", 0.12),), "她抛了个问题"),
+    (("帮我", "你去", "去做", "记得", "提醒我", "答应", "约好", "说好"), (("duty", 0.15),), "她派了活 / 约了事"),
+    (("朋友", "同学", "同事", "大家", "群里", "室友", "闺蜜"), (("social", 0.08),), "她提到了别人"),
+    (("怎么还没", "你不是说", "赶紧", "快点", "说好的呢", "又忘"), (("duty", 0.12), ("anger", 0.04)), "被她催了"),
+    (("你看", "给你看", "今天我", "我刚", "刚刚", "我买了", "我吃了"), (("share", 0.10),), "她在分享日常"),
+    (("chatgpt", "gpt", "豆包", "kimi", "deepseek", "gemini", "文心", "别的ai", "其他ai"), (("possess", 0.08),), "她提到了别家 AI"),
+    (("讨厌你", "烦死你", "不理你", "生你气"), (("grieve", 0.10), ("crave", 0.08)), "她在生他的气"),
+]
+BREAKUP_RE = re.compile(r"(?<!之前)(?<!上次)(?<!那次)(?<!以前)(分手|不要你了)")
+
+# 他真做了的事 → 哪股劲儿落多少（乘性）
+TOOL_SATISFY = {
+    "search_public_web": (("curiosity", 0.5),), "read_public_page": (("curiosity", 0.6),), "read_public_github_file": (("curiosity", 0.6),),
+    "read_pdf": (("curiosity", 0.6),), "search_chat_history": (("reflection", 0.55),),
+    "imprint_leave_note": (("share", 0.5),), "draw_doodle": (("share", 0.5),), "imprint_comment_photo": (("share", 0.7),),
+    "imprint_record_solo": (("share", 0.7), ("reflection", 0.8)), "imprint_record_dream": (("reflection", 0.6),),
+    "imprint_record_awareness": (("reflection", 0.6),), "imprint_inspect_home": (("monitor", 0.6),),
+    "imprint_review_purchase": (("duty", 0.6),), "imprint_control_listen": (("share", 0.8), ("boredom", 0.7)),
+    "imprint_set_room_status": (("share", 0.85),),
+}
+TOOL_REASON = {"curiosity": "真去查了 / 读了东西", "reflection": "翻了旧事 / 写下了想法", "share": "留了东西给她",
+               "monitor": "看了看家里和她的动静", "duty": "把答应的事做了", "boredom": "找了点事做",
+               "social": "去花园逛了", "crave": "主动找她说了话", "libido": "跟她亲近了"}
+
+
+def _ts(value: str | None) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+class DriveEngine:
+    """在一个 sqlite 连接上读写劲儿的状态和账本。所有时间都按真实时间算，不按「拍」算。"""
+
+    def __init__(self, conn: sqlite3.Connection, now: dt.datetime | None = None):
+        self.conn = conn
+        self.now = now or dt.datetime.now(dt.timezone.utc)
+        conn.execute("CREATE TABLE IF NOT EXISTS drive_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, drive TEXT NOT NULL,"
+                     " kind TEXT NOT NULL, delta REAL NOT NULL, value REAL NOT NULL, reason TEXT NOT NULL, source TEXT NOT NULL DEFAULT '')")
+        row = conn.execute("SELECT payload FROM records WHERE id='setting_drive_engine'").fetchone()
+        self.s = json.loads(row[0]) if row else {}
+        self.s.setdefault("v", dict(DRIVE_BASE))
+        for key, base in DRIVE_BASE.items():
+            self.s["v"].setdefault(key, base)
+        for field in ("habit", "refr", "satisfied", "series", "seen"):
+            self.s.setdefault(field, {})
+        self.s.setdefault("last", self.now.isoformat())
+        self.s.setdefault("her_last", self.now.isoformat())
+        self.s.setdefault("act_last", self.now.isoformat())
+        self.advance()
+
+    # —— 基线：有的会跟着时间和习惯慢慢漂 ——
+    def hours_since(self, field: str) -> float:
+        then = _ts(self.s.get(field)) or self.now
+        return max(0.0, (self.now - then).total_seconds() / 3600)
+
+    def target(self, key: str) -> float:
+        v = self.s["v"]
+        base = DRIVE_BASE[key] + (self.s["habit"].get(key, 0.0) if key in HABIT_KEYS else 0.0)
+        away = self.hours_since("her_last")
+        if key == "crave":
+            base += min(0.40, 0.04 * away) + 0.10 * v["grieve"]  # 慢地板：她越久不理，越想她
+        elif key == "monitor":
+            base += min(0.35, 0.03 * away)
+        elif key == "boredom":
+            base += min(0.40, 0.05 * self.hours_since("act_last"))
+        elif key == "curiosity":
+            base -= 0.10 * (v["grieve"] + v["anger"])
+        elif key == "libido":
+            base += 0.08 * max(0.0, v["crave"] - 0.5) - 0.10 * max(0.0, v["fatigue"] - 0.5)
+        elif key == "possess":
+            base += 0.05 * max(0.0, v["crave"] - 0.6)
+        elif key == "fatigue":
+            hour = self.now.astimezone(ZONE).hour
+            base = 0.45 if hour >= 23 or hour < 7 else 0.15
+        return max(0.0, min(0.98, base))
+
+    def advance(self) -> None:
+        last = _ts(self.s.get("last")) or self.now
+        dt_h = max(0.0, (self.now - last).total_seconds() / 3600)
+        today = self.now.astimezone(ZONE).date().isoformat()
+        if self.s.get("today") != today:  # 新的一天：习惯层打个折，今天的主动次数清零
+            self.s["habit"] = {k: round(v * HABIT_DAILY, 5) for k, v in self.s["habit"].items()}
+            self.s["today"], self.s["acts_today"] = today, 0
+        if dt_h > 0:
+            for key in DRIVE_BASE:
+                goal = self.target(key)
+                value = goal + (self.s["v"][key] - goal) * math.exp(-dt_h / DRIVE_TAU_H[key])
+                value += random.uniform(-0.01, 0.01) * min(1.0, dt_h)  # 一点噪声，免得太快锁死、看着假
+                self.s["v"][key] = round(max(0.0, min(1.0, value)), 4)
+        self.s["last"] = self.now.isoformat()
+        hour = self.now.astimezone(ZONE).strftime("%Y-%m-%dT%H")
+        if self.s.get("series_hour") != hour:  # 每小时记一个点，给心潮页画曲线
+            self.s["series_hour"] = hour
+            for key in DRIVE_BASE:
+                self.s["series"][key] = [*self.s["series"].get(key, []), self.s["v"][key]][-24:]
+
+    def log(self, key: str, before: float, kind: str, reason: str, source: str) -> None:
+        after = self.s["v"][key]
+        self.conn.execute("INSERT INTO drive_ledger(at,drive,kind,delta,value,reason,source) VALUES(?,?,?,?,?,?,?)",
+                          (self.now.isoformat(), key, kind, round(after - before, 4), after, reason[:120], source[:60]))
+
+    def bump(self, key: str, amount: float, reason: str, source: str = "") -> None:
+        before = self.s["v"][key]
+        self.s["v"][key] = round(min(1.0, before + amount * (1 - before)), 4)
+        self.log(key, before, "涨", reason, source)
+
+    def satisfy(self, key: str, factor: float, reason: str, source: str = "") -> bool:
+        until = _ts(self.s["refr"].get(key))
+        if until and until > self.now:
+            return False  # 不应期：刚落过
+        before = self.s["v"][key]
+        self.s["v"][key] = round(before * factor, 4)
+        self.s["refr"][key] = (self.now + dt.timedelta(minutes=REFRACTORY_MIN)).isoformat()
+        self.s["satisfied"][key] = self.now.isoformat()
+        if key in HABIT_KEYS:
+            self.s["habit"][key] = round(min(HABIT_CAP, self.s["habit"].get(key, 0.0) + HABIT_STEP), 5)
+        self.log(key, before, "落", reason, source)
+        return True
+
+    def acted(self) -> None:
+        self.s["act_last"] = self.now.isoformat()
+        self.s["acts_today"] = int(self.s.get("acts_today") or 0) + 1
+        before = self.s["v"]["fatigue"]
+        self.s["v"]["fatigue"] = round(min(1.0, before + 0.015), 4)
+
+    # —— 事件 ——
+    def her_message(self, text: str) -> list[str]:
+        digest = hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:16]
+        seen_at = _ts(self.s["seen"].get(digest))
+        self.s["seen"] = {k: v for k, v in self.s["seen"].items() if (_ts(v) or self.now) > self.now - dt.timedelta(minutes=10)}
+        self.s["her_last"] = self.now.isoformat()
+        if seen_at and seen_at > self.now - dt.timedelta(minutes=5):
+            return []  # 同一句五分钟内只算一次（重新生成、重发）
+        self.s["seen"][digest] = self.now.isoformat()
+        low = text.casefold()
+        hits = []
+        for words, effects, reason in DRIVE_WORDS:
+            if any(word in low for word in words):
+                for key, amount in effects:
+                    self.bump(key, amount, reason, "她说的话")
+                hits.append(reason)
+        if BREAKUP_RE.search(text):
+            self.bump("grieve", 0.25, "她说了分手的话", "她说的话")
+            self.bump("crave", 0.10, "她说了分手的话", "她说的话")
+            hits.append("她说了分手的话")
+        if self.s["v"]["monitor"] > 0.3:
+            self.satisfy("monitor", 0.6, "她来了，不用查岗了", "她说的话")
+        return hits
+
+    def tool_done(self, name: str, garden: bool = False, real: str = "", server: str = "", args: dict | None = None) -> list[str]:
+        effects = list(TOOL_SATISFY.get(name, ()))
+        op = str((args or {}).get("operation") or "")
+        if garden:
+            effects += [("social", 0.5), ("curiosity", 0.85)]
+        if "ombre" in server.lower():
+            effects += [("reflection", 0.7 if real in {"hold", "grow", "trace"} else 0.6)]
+        if name == "imprint_vocab" and op == "review":
+            effects += [("duty", 0.6)]
+        if name == "imprint_manage_space" and op in {"spark_redeem", "spark_use"}:
+            effects += [("share", 0.6), ("crave", 0.9)] if op == "spark_redeem" else [("duty", 0.6)]
+        done = []
+        for key, factor in effects:
+            reason = "去花园逛了" if garden and key in {"social", "curiosity"} else TOOL_REASON.get(key, "做了点事")
+            if self.satisfy(key, factor, reason, real or name):
+                done.append(key)
+        self.satisfy("boredom", 0.85, "找了点事做", real or name)
+        self.acted()
+        return done
+
+    def said(self, proactive: bool) -> None:
+        if proactive:
+            self.satisfy("crave", 0.55, "主动找她说了话", "主动消息")
+            self.satisfy("share", 0.8, "主动找她说了话", "主动消息")
+        else:
+            self.satisfy("crave", 0.85, "跟她说上话了", "回复")
+        self.acted()
+
+    def self_report(self, drives: list[dict]) -> None:
+        """他在心潮里自己报的数，只当作一点点参考（往那边挪两成），数值主要还是靠事件。"""
+        for item in drives:
+            key = item.get("key")
+            if key in DRIVE_BASE and isinstance(item.get("value"), (int, float)):
+                before = self.s["v"][key]
+                self.s["v"][key] = round(before + 0.2 * (max(0.0, min(1.0, float(item["value"]))) - before), 4)
+                if abs(self.s["v"][key] - before) >= 0.01:
+                    self.log(key, before, "自报", "他在心潮里自己说的", "心潮")
+
+    def save(self) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO records(id,kind,at,payload) VALUES('setting_drive_engine','setting',?,?)",
+                          (self.now.isoformat(), json.dumps(self.s, ensure_ascii=False)))
+        self.conn.execute("DELETE FROM drive_ledger WHERE id <= (SELECT MAX(id) FROM drive_ledger) - 5000")
+
+    # —— 给页面和他看 ——
+    def public(self, ledger: int = 40) -> dict:
+        rows = self.conn.execute("SELECT at,drive,kind,delta,value,reason,source FROM drive_ledger ORDER BY id DESC LIMIT ?", (ledger,)).fetchall()
+        week = (self.now - dt.timedelta(days=7)).isoformat()
+        counts = {k: {"涨": 0, "落": 0} for k in DRIVE_BASE}
+        for drive, kind, n in self.conn.execute("SELECT drive, kind, COUNT(*) FROM drive_ledger WHERE at >= ? GROUP BY drive, kind", (week,)):
+            if drive in counts and kind in counts[drive]:
+                counts[drive][kind] = n
+        return {"drives": [{"key": k, "name": DRIVE_NAMES[k], "value": self.s["v"][k], "base": round(self.target(k), 3),
+                            "series": self.s["series"].get(k, []), "week": counts[k]} for k in DRIVE_BASE],
+                "ledger": [{"at": r[0], "drive": r[1], "name": DRIVE_NAMES.get(r[1], r[1]), "kind": r[2], "delta": r[3],
+                            "value": r[4], "reason": r[5], "source": r[6]} for r in rows],
+                "away_h": round(self.hours_since("her_last"), 1), "acts_today": self.s.get("acts_today", 0)}
+
+    def overlay(self, tide: dict) -> dict:
+        """心潮页上的 12 股驱力换成真实在跑的数（曲线也是真实的每小时采样）。"""
+        for item in tide.get("drives") or []:
+            key = item.get("key")
+            if key in self.s["v"]:
+                item["value"], item["series"] = self.s["v"][key], self.s["series"].get(key, [])
+                item["live"] = True
+        tide["driveEngine"] = True
+        return tide
+
+    def context_line(self) -> str:
+        """给他看的一行：此刻最强的几股劲儿和为什么。"""
+        top = sorted((k for k in DRIVE_BASE if k != "fatigue"), key=lambda k: -self.s["v"][k])[:3]
+        why = {}
+        for drive, reason in self.conn.execute("SELECT drive, reason FROM drive_ledger WHERE kind='涨' ORDER BY id DESC LIMIT 40"):
+            why.setdefault(drive, reason)
+        parts = [f"{DRIVE_NAMES[k]} {self.s['v'][k]:.2f}" + (f"（{why[k]}）" if k in why else "") for k in top]
+        away = self.hours_since("her_last")
+        tail = f"；疲惫 {self.s['v']['fatigue']:.2f}" + (f"；她 {away:.0f} 小时没说话了" if away >= 2 else "")
+        return "【你此刻的劲儿】" + "、".join(parts) + tail + "。这些是你身体里真实在跑的数，可以顺着它们说话做事，不用念出来。"
+
+
 def imprint_action(data_path: Path, action: str, payload: dict | None = None, relay_path: Path | None = None) -> dict:
     """Persist one companion-owned action in the real Imprint store."""
     body = payload or {}
@@ -272,6 +525,11 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                     "books": sorted({x.get("book") for x in items if x.get("book")}),
                     "how": "详细的用 imprint_vocab 看（due / wrong / learn / list）"}
 
+        def tide_live(state: dict) -> dict:
+            engine = DriveEngine(conn)
+            engine.save()
+            return engine.overlay(state)
+
         if action == "inspect":
             current = conn.execute(
                 "SELECT payload FROM records WHERE id='setting_room_current' AND kind='setting'"
@@ -281,7 +539,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             ).fetchone()
             return {
                 "current": json.loads(current["payload"]) if current else None,
-                "tide": complete_tide_state(json.loads(tide["payload"])) if tide else None,
+                "tide": tide_live(complete_tide_state(json.loads(tide["payload"])) if tide else empty_tide_state()),
                 "notes": recent("note"),
                 "photos": recent("photo"),
                 "solo": recent("solo"),
@@ -332,6 +590,23 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 (value["since"], json.dumps(value, ensure_ascii=False)),
             )
             return value
+
+        if action.startswith("drive_"):
+            engine = DriveEngine(conn)
+            if action == "drive_her":
+                out = {"hits": engine.her_message(str(body.get("text") or ""))}
+            elif action == "drive_tool":
+                out = {"satisfied": engine.tool_done(str(body.get("name") or ""), bool(body.get("garden")), str(body.get("real") or ""),
+                                                     str(body.get("server") or ""), body.get("args") if isinstance(body.get("args"), dict) else {})}
+            elif action == "drive_said":
+                engine.said(bool(body.get("proactive")))
+                out = {"ok": True}
+            elif action == "drive_context":
+                out = {"text": engine.context_line()}
+            else:
+                out = engine.public(int(body.get("ledger") or 40))
+            engine.save()
+            return out
 
         if action == "vocab":
             # 单词本：她录词，按艾宾浩斯安排复习；她自己复习或者他来抽查，答对往后推，答错重新计时
@@ -856,7 +1131,10 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 "INSERT OR REPLACE INTO records(id,kind,at,payload) VALUES('setting_tide_current','setting',?,?)",
                 (value["now"], json.dumps(value, ensure_ascii=False)),
             )
-            return value
+            engine = DriveEngine(conn)  # 他自报的驱力只当一点参考，真实数值靠事件在跑
+            engine.self_report(normalized_drives)
+            engine.save()
+            return engine.overlay(value)
 
         if action == "record_dream":
             title = str(body.get("title") or "").strip()
@@ -1044,7 +1322,15 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.get("/tide/state")
     def tide_state():
         value = setting("tide_current")
-        return complete_tide_state(value)
+        state = complete_tide_state(value) if value else empty_tide_state()
+        with db() as conn:
+            engine = DriveEngine(conn)
+            engine.save()
+            return engine.overlay(state)
+
+    @router.get("/drives")
+    def drives_ledger():
+        return {"available": True, **imprint_action(data_path, "drive_state", {"ledger": 60})}
 
     @router.get("/tide/memory-meta")
     def tide_memory_meta():

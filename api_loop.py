@@ -2223,6 +2223,10 @@ async def build_messages(
     injected = context_injection_text(session_id, before_id)
     if injected:
         volatile_parts.append(injected)
+    with contextlib.suppress(Exception):
+        drive_line = imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_context")["text"]
+        if drive_line:
+            volatile_parts.append(drive_line)
     vocab = vocab_context_text()
     if vocab:
         volatile_parts.append(vocab)
@@ -3514,6 +3518,22 @@ class Turn:
         return f"attached {name} ({len(data)} B)"
 
     async def run_tool(self, public_name: str, raw_args: str) -> str:
+        result = await self._run_tool(public_name, raw_args)
+        if not self.dry and not str(result).startswith("ERROR"):
+            # 内驱力：真调成了工具，对应的劲儿才落（嘴上说「我去看了」不算）
+            with contextlib.suppress(Exception):
+                server_name, real = mcp_manager.index.get(public_name, ("", public_name))
+                server = getattr(mcp_manager, "servers", {}).get(server_name)
+                try:
+                    args = json.loads(raw_args) if raw_args and raw_args.strip() else {}
+                except json.JSONDecodeError:
+                    args = {}
+                imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_tool", {
+                    "name": public_name, "real": real, "server": server_name, "args": args if isinstance(args, dict) else {},
+                    "garden": bool(server and is_garden_url(server.cfg.get("url")))})
+        return result
+
+    async def _run_tool(self, public_name: str, raw_args: str) -> str:
         try:
             args = json.loads(raw_args) if raw_args and raw_args.strip() else {}
             if not isinstance(args, dict):
@@ -4183,6 +4203,9 @@ async def handle_turn(
             await relay_out({"type": "thinking_delta", "stream_id": think_state["id"], "done": True, "final_text": text_, "api_session": session_id, "runtime": "api_loop"})
         think_state["id"] = ""
 
+    if not dry and text.strip():
+        with contextlib.suppress(Exception):  # 内驱力：她的话把劲儿冲上去
+            imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_her", {"text": text})
     with_images = vision_enabled()
     turn_t0 = asyncio.get_running_loop().time()
     messages, had_images = await build_messages(text, atts, before_id=msg_id, session_id=session_id, use_context=use_context, with_images=with_images)
@@ -4384,6 +4407,9 @@ async def handle_turn(
         ok, body = await relay_out({"type": "reply_delta", "stream_id": stream_id, "done": True, "final_text": reply, **payload})
     else:
         ok, body = await relay_out({"type": "reply", "text": reply, **payload})
+    if ok and not error and not cancelled:
+        with contextlib.suppress(Exception):
+            imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_said", {"proactive": False})
     return {"ok": ok and not error and not cancelled, "relay": body, "api": meta}
 
 
@@ -4888,6 +4914,8 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
         payload["attachments"] = turn.attachments
     ok, detail = await relay_out(payload)
     if ok:
+        with contextlib.suppress(Exception):
+            imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_said", {"proactive": True})
         touch_session(session_id)
         wake_audit(kind, "message", f"{wake_id} {text}"[:2000])
         return "message"

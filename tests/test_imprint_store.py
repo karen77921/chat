@@ -589,6 +589,17 @@ class ImprintStoreTest(unittest.TestCase):
         mcp = {x["function"]["name"] for x in api_loop.turn_tools("把这个 MCP 重新连接")}
         self.assertIn("imprint_manage_mcp", mcp)
 
+    def test_he_can_reach_for_tools_not_in_this_turn(self):
+        names = lambda ts: {t["function"]["name"] for t in ts or []}
+        self.assertIn("open_toolbox", names(api_loop.turn_tools("嗯嗯")))
+        start = api_loop.turn_tools("嗯嗯")
+        msg, tools = api_loop.open_toolbox('{"what": "一起听 换首歌"}', start)
+        self.assertIn("imprint_control_listen", names(tools))
+        self.assertIn("imprint_control_listen", msg)
+        msg2, same = api_loop.open_toolbox('{"what": "随便"}', tools)
+        self.assertIs(same, tools)
+        self.assertIn("能拿的", msg2)
+
     def test_provider_errors_are_short_and_actionable(self):
         message = api_loop.friendly_model_error(
             "route-a: ReadTimeout; route-b: HTTP 429 busy; route-c: HTTP 402 insufficient_quota"

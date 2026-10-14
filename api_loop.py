@@ -2047,6 +2047,7 @@ async def build_messages(
     system_text += (
         "\n\n【说到做到】\n"
         "需要查看或去做的事，能在这一轮用工具做完的，就先做完再回复她，不要只说「等我看看」然后停下。"
+        "手边没有对应的工具时，先调 open_toolbox 说你想干嘛，拿到工具再去做。"
         "确实要花时间、这一轮做不完的，在回复末尾单独写一次 ⟦稍后继续：要做的事⟧（她看不到这个标记），"
         "系统约一分钟后会让你接着做，做完记得把结果告诉她。"
         "要等一段时间才有结果的（比如游戏里的行动七分钟后出结果），写 ⟦稍后继续 7分钟：去看结果⟧，到点会叫醒你。"
@@ -2557,6 +2558,20 @@ def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
+        "name": "open_toolbox",
+        "description": "Your tool list is trimmed each turn to what the chat seems to be about. When you want to do something "
+                       "but the tool for it is not in your list (the garden / island game, music, gifts and coupons, the room, "
+                       "settings, web search, any MCP server...), call this FIRST with what you want to do; the matching tools "
+                       "are added for your next step in this same turn. Never just say 'I'll go look' without a tool.",
+        "parameters": {
+            "type": "object",
+            "properties": {"what": {"type": "string", "description": "e.g. 岛上的游戏 / 花园 / 一起听 / 礼物铺 / 设置 / 联网搜索 / an MCP server name"}},
+            "required": ["what"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_view_piggy",
         "description": "Look at the 存钱罐 (piggy bank) she keeps for you: balance and every deposit/deduction with her reason. Read-only: only she can add or deduct money.",
         "parameters": {"type": "object", "properties": {}},
@@ -2943,6 +2958,7 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
             if name in builtin_by_name and builtin_by_name[name] not in selected:
                 selected.append(builtin_by_name[name])
 
+    add_builtin("open_toolbox")  # 手边没有的工具，他可以自己伸手去拿
     if cfg_bool("roam_space_tools"):
         # 「随时漫游」：轻的几样每一轮都在他手边（翻记录、看空间、改此刻、写独处和留言、给自己定闹钟）。
         # 大件（心潮全量、礼物铺、一起听…）聊到相关的词、或者他自己醒来时才带上——全带的话请求太重，中转会超时。
@@ -3023,6 +3039,33 @@ def sticky_tools(session_id: str, picked: list[dict[str, Any]]) -> list[dict[str
     names.sort()
     _session_tools[session_id or ""] = names
     return [by_name[n] if n in by_name else next(t for t in picked if t["function"]["name"] == n) for n in names]
+
+
+TOOLBOX_TOPICS = "花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+
+
+def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
+    """他自己伸手拿工具：按他说的「想干嘛」把对应的工具加进这一轮后面的步骤。"""
+    try:
+        what = str((json.loads(raw_args or "{}") or {}).get("what") or "").strip()
+    except (TypeError, ValueError):
+        what = str(raw_args or "").strip()
+    query = what.casefold()
+    found = [t for t in turn_tools(what, garden=any(w in query for w in GARDEN_WORDS))]
+    # 只说了个大概（比如服务名的一部分）：按 MCP 服务名再找一遍
+    for spec in mcp_manager.openai_tools():
+        server_name, _ = mcp_manager.index.get(spec["function"]["name"], ("", ""))
+        if server_name and (server_name.casefold() in query or (len(query) >= 3 and query in server_name.casefold())):
+            found.append(spec)
+    have = {t["function"]["name"] for t in current or []}
+    added = [t for t in found if t["function"]["name"] not in have and t["function"]["name"] != "open_toolbox"]
+    added = list({t["function"]["name"]: t for t in added}.values())
+    if not added:
+        servers = sorted({name for name, _ in mcp_manager.index.values() if name})
+        return ("没有找到新的工具（你要的可能已经在手边了）。能拿的：" + TOOLBOX_TOPICS
+                + ("；MCP 服务：" + "、".join(servers) if servers else "") + "。换个更具体的说法再调一次。"), current
+    merged = sorted([*(current or []), *added], key=lambda t: t["function"]["name"])
+    return "已经放到你手边了，下一步就能用：" + "、".join(t["function"]["name"] for t in added[:40]), merged
 
 
 def tool_context_text(text: str, messages: list[dict[str, Any]], limit: int = 8) -> str:
@@ -3819,6 +3862,11 @@ async def handle_turn(
             steps_meta = []
             for c in calls:
                 tool_t0 = asyncio.get_running_loop().time()
+                if c["name"] == "open_toolbox":
+                    result, tools = open_toolbox(c["arguments"], tools)
+                    messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
+                    steps_meta.append({"tool": "open_toolbox", "cmd": c["arguments"][:600], "result": result[:1200]})
+                    continue
                 result = await turn.run_tool(c["name"], c["arguments"])
                 timing["tool_s"] = round(timing["tool_s"] + asyncio.get_running_loop().time() - tool_t0, 1)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})

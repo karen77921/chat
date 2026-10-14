@@ -56,7 +56,38 @@ def native_style():
                                                "anthropic-version": "2023-06-01"})
 
 
-for name, call in (("A  OpenAI-compatible /chat/completions", openai_style), ("B  Claude native /v1/messages", native_style)):
+def openai_stream_style():
+    """Same request, but streamed like real chat turns. Some relays only cache one of the two paths."""
+    body = {"model": model, "max_tokens": 5, "stream": True, "stream_options": {"include_usage": True},
+            "user": "imprint-cache-probe", "messages": [
+                {"role": "system", "content": [{"type": "text", "text": marker + filler, "cache_control": {"type": "ephemeral"}}]},
+                {"role": "user", "content": "Reply with OK."}]}
+    req = urllib.request.Request(base + "/chat/completions", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "imprint-cache-probe/1",
+                                          "Authorization": "Bearer " + key})
+    start = time.time()
+    try:
+        usage = {}
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8", "replace").strip()
+                if line.startswith("data:") and line[5:].strip() not in {"", "[DONE]"}:
+                    try:
+                        event = json.loads(line[5:])
+                    except ValueError:
+                        continue
+                    if isinstance(event.get("usage"), dict):
+                        usage = event["usage"]
+        return time.time() - start, {"usage": usage}, None
+    except urllib.error.HTTPError as exc:
+        return time.time() - start, None, "HTTP %s %s" % (exc.code, exc.read().decode("utf-8", "replace")[:200])
+    except OSError as exc:
+        return time.time() - start, None, str(exc)[:200]
+
+
+for name, call in (("A  OpenAI-compatible /chat/completions", openai_style),
+                   ("A2 same, streamed (how real chat turns go)", openai_stream_style),
+                   ("B  Claude native /v1/messages", native_style)):
     print("\n" + name)
     for attempt in (1, 2):
         took, data, error = call()

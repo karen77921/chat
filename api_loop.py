@@ -1155,6 +1155,49 @@ def user_content(text: str, notes: list[str], parts: list[dict[str, Any]]) -> An
 # context from relay.db
 # ---------------------------------------------------------------------------
 
+HISTORY_STEP = 20  # 聊天记录一次丢 20 条旧的，而不是每轮丢 1 条：开头不动，提示词缓存才接得上
+
+
+def stepped_history(rows: list[dict[str, Any]], keep: int, total: int) -> list[dict[str, Any]]:
+    """rows: the newest (keep + STEP - 1) messages after the summary, oldest first; total: how many exist.
+
+    A plain sliding window drops the oldest message every turn, so the history's first bytes change
+    every turn and the provider's prefix cache never hits past the system prompt. Instead the window
+    start only moves forward in steps of HISTORY_STEP, staying put for ~10 rounds at a time.
+    """
+    if keep <= 0 or total <= keep:
+        return rows[-keep:] if keep > 0 else []
+    drop = ((total - keep) // HISTORY_STEP) * HISTORY_STEP
+    want = total - drop  # between keep and keep + STEP - 1
+    return rows[-want:]
+
+
+def relay_count(before_id: int | None, session_id: str, after_id: int = 0) -> int:
+    path = Path(RELAY_DB)
+    if not path.exists():
+        return 0
+    where = [
+        "kind IN ('user','voice','reply')",
+        "(NOT json_valid(meta) OR json_extract(meta, '$.visible') IS NULL OR json_extract(meta, '$.visible') != 0)",
+    ]
+    params: list[Any] = []
+    if before_id:
+        where.append("id < ?")
+        params.append(int(before_id))
+    if after_id:
+        where.append("id > ?")
+        params.append(int(after_id))
+    if session_id:
+        where.append("json_extract(meta, '$.api_session') = ?")
+        params.append(session_id)
+    else:
+        where.append("(json_extract(meta, '$.api_session') IS NULL OR json_extract(meta, '$.api_session') = '')")
+    with contextlib.suppress(sqlite3.Error):
+        with sqlite3.connect(str(path)) as conn:
+            return int(conn.execute(f"SELECT COUNT(*) FROM messages WHERE {' AND '.join(where)}", params).fetchone()[0])
+    return 0
+
+
 def relay_rows(
     before_id: int | None,
     session_id: str,
@@ -1707,6 +1750,7 @@ def schedule_compaction(session_id: str, before_id: int | None) -> str:
                 _compaction_failed_at[key] = loop.time()
             elif result.get("compacted"):
                 print(f"[context] compacted {key} in the background", flush=True)
+                _session_tools.pop(session_id or "", None)  # 历史压缩后缓存反正要重建，工具清单也趁这时候瘦身
         except Exception as exc:  # never let a background job crash anything
             _compaction_failed_at[key] = loop.time()
             print(f"[context] background compaction failed for {key}: {type(exc).__name__}: {exc}", flush=True)
@@ -1935,12 +1979,12 @@ async def build_messages(
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_text}]
     had_images = False
     if use_context:
-        rows = relay_rows(
+        rows = stepped_history(relay_rows(
             before_id,
             session_id,
-            history_n(),
+            history_n() + HISTORY_STEP - 1,
             after_id=int(compacted.get("last_id") or 0),
-        )
+        ), history_n(), relay_count(before_id, session_id, int(compacted.get("last_id") or 0)))
         budget = cfg_int("history_images", 0, 20) if with_images else 0
         image_rows: set[int] = set()
         for row in reversed(rows):
@@ -2866,6 +2910,29 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
     return selected
 
 
+_session_tools: dict[str, list[str]] = {}
+
+
+def sticky_tools(session_id: str, picked: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Within one chat window a tool, once handed to him, stays; order is fixed by name.
+
+    The tool list sits at the very front of every request. If it changes or reorders, the provider's
+    prompt cache misses for everything after it. So the list only grows now and then, never shuffles.
+    Reset when the window's history is compacted (the cache is rebuilt then anyway).
+    """
+    by_name = {t["function"]["name"]: t for t in all_tools()}
+    names = [n for n in _session_tools.get(session_id or "", []) if n in by_name]
+    for spec in picked:
+        name = spec["function"]["name"]
+        if name not in names:
+            names.append(name)
+    if len(names) > 30:  # 攒太多了请求会重到中转超时：宁可这一轮缓存重建，也只留这一轮要用的
+        names = [spec["function"]["name"] for spec in picked]
+    names.sort()
+    _session_tools[session_id or ""] = names
+    return [by_name[n] if n in by_name else next(t for t in picked if t["function"]["name"] == n) for n in names]
+
+
 def tool_context_text(text: str, messages: list[dict[str, Any]], limit: int = 8) -> str:
     """Use a little recent dialogue for tool routing without scanning the system prompt."""
     parts = [str(text or "")]
@@ -3244,7 +3311,8 @@ def cached_request(route: dict[str, Any], messages: list[dict[str, Any]], sessio
         ):
             prepared[idx]["content"] = _cache_text_content(prepared[idx].get("content"), control)
             break
-    return prepared, {"session_id": cache_session_id(session_id)}, mode
+    # user：OpenAI 兼容的标准字段，很多中转拿它把同一个人粘在同一个后端上（缓存是按后端账号存的）
+    return prepared, {"session_id": cache_session_id(session_id), "user": cache_session_id(session_id)}, mode
 
 
 def normalize_usage(raw: Any) -> dict[str, Any]:
@@ -3297,6 +3365,7 @@ async def stream_chat(route: dict[str, str], messages: list[dict[str, Any]], too
         if cache_mode != "off":
             plain = {**body, "messages": messages}
             plain.pop("session_id", None)
+            plain.pop("user", None)
             variants.extend([(plain, True), (plain, False)])
         cache_fallback = False
         for variant, include_usage in variants:
@@ -3374,6 +3443,7 @@ async def complete_chat(route: dict[str, str], messages: list[dict[str, Any]], t
             cache_fallback = True
             plain = {**body, "messages": messages}
             plain.pop("session_id", None)
+            plain.pop("user", None)
             resp = await client.post(
                 route["url"].rstrip("/") + "/chat/completions",
                 headers={"Authorization": f"Bearer {route['key']}", "Content-Type": "application/json"},
@@ -3554,7 +3624,7 @@ async def handle_turn(
     messages, had_images = await build_messages(text, atts, before_id=msg_id, session_id=session_id, use_context=use_context, with_images=with_images)
     timing: dict[str, Any] = {"context_s": round(asyncio.get_running_loop().time() - turn_t0, 1), "model": [], "tool_s": 0.0,
                               **CONTEXT_TIMING.get(session_id or "__default__", {})}
-    tools = turn_tools(tool_context_text(text, messages))
+    tools = sticky_tools(session_id, turn_tools(tool_context_text(text, messages)))
     # 账本：这一轮请求里装了些什么（前端长按他的消息可以看）
     system_chars = sum(len(str(m.get("content") or "")) for m in messages if m.get("role") == "system")
     timing["request"] = {

@@ -619,6 +619,37 @@ class ChatHistorySearchTest(unittest.TestCase):
                 self.assertIn("满分100%", api_loop.search_chat_history("0%"))
 
 
+class CacheFriendlyPrefixTest(unittest.TestCase):
+    def test_history_window_start_only_moves_every_step(self):
+        keep, step = 24, api_loop.HISTORY_STEP
+        starts = []
+        for total in range(1, 90):
+            all_rows = [{"id": i} for i in range(1, total + 1)]
+            newest = all_rows[-(keep + step - 1):]
+            kept = api_loop.stepped_history(newest, keep, total)
+            self.assertGreaterEqual(len(kept), min(keep, total))
+            self.assertLessEqual(len(kept), keep + step - 1)
+            self.assertEqual(kept[-1]["id"], total)  # 最新一条一定在
+            starts.append(kept[0]["id"])
+        changes = sum(1 for a, b in zip(starts, starts[1:]) if a != b)
+        self.assertLessEqual(changes, (89 - keep) // step + 1)  # 每 20 条才挪一次，而不是每条都挪
+
+    def test_tools_stay_sorted_and_only_grow_within_a_window(self):
+        def spec(name):
+            return {"type": "function", "function": {"name": name, "parameters": {"type": "object"}}}
+
+        with mock.patch.object(api_loop, "all_tools", lambda: [spec(n) for n in ("c", "a", "b", "d")]):
+            api_loop._session_tools.clear()
+            first = [t["function"]["name"] for t in api_loop.sticky_tools("w", [spec("c"), spec("a")])]
+            second = [t["function"]["name"] for t in api_loop.sticky_tools("w", [spec("a")])]
+            third = [t["function"]["name"] for t in api_loop.sticky_tools("w", [spec("b")])]
+            other = [t["function"]["name"] for t in api_loop.sticky_tools("x", [spec("d")])]
+        self.assertEqual(first, ["a", "c"])
+        self.assertEqual(second, ["a", "c"])  # 这一轮没提到 c，也不拿掉
+        self.assertEqual(third, ["a", "b", "c"])
+        self.assertEqual(other, ["d"])
+
+
 class ReplyOptionsTest(unittest.TestCase):
     def test_marker_is_always_stripped_and_options_need_two_distinct_items(self):
         split = api_loop.split_reply_options

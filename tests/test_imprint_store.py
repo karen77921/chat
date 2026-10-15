@@ -1050,7 +1050,9 @@ class DriveEngineTest(unittest.TestCase):
                 mock.patch.object(api_loop.Turn, "_run_tool", fake_run):
             turn = api_loop.Turn("s", dry=False)
             asyncio.run(turn.run_tool("search_chat_history", json.dumps({"query": "bad"})))
-            self.assertEqual(imprint_action(self.db, "drive_state")["ledger"], [])
+            # 深夜第一次建状态时会自动记一笔「疲惫修正」（按钟点算），那不是这次工具调用带来的
+            ledger = [x for x in imprint_action(self.db, "drive_state")["ledger"] if x.get("reason") != "修正：之前疲惫算重了"]
+            self.assertEqual(ledger, [])
             asyncio.run(turn.run_tool("search_chat_history", json.dumps({"query": "那天"})))
             state = imprint_action(self.db, "drive_state")
             dry = api_loop.Turn("s", dry=True)

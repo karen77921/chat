@@ -5535,7 +5535,9 @@ async def wake_worker() -> None:
 async def lifespan(_: FastAPI):
     LOOP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     ensure_builtin_mcp_servers()
-    await mcp_manager.start_all()
+    # 外部工具（记忆库、花园…）在后台一个个连：以前要等它们全连好（每个最多 20 秒）才开始接请求，
+    # 每次更新重启后 App 都要白等一两分钟
+    mcp_task = asyncio.create_task(mcp_manager.start_all(), name="mcp-start")
     backup_task = asyncio.create_task(backup_worker())
     wake_task = asyncio.create_task(wake_worker(), name="wake-2.0")
     diary_task = asyncio.create_task(diary_worker(), name="diary")
@@ -5543,6 +5545,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        mcp_task.cancel()
         garden_task.cancel()
         diary_task.cancel()
         wake_task.cancel()
@@ -6298,7 +6301,11 @@ def _sweep_old_chunks(max_age_s: int = 3600) -> None:
 
 @app.post("/loop/upload/chunk")
 async def loop_upload_chunk(request: Request):
+    t0 = time.monotonic()
     body = await request.json()
+    took = time.monotonic() - t0
+    if took > 3:
+        print(f"[upload] reading one chunk from the phone took {took:.1f}s", flush=True)
     folder = _chunk_dir(str(body.get("id") or ""))
     index, total = int(body.get("index", -1)), int(body.get("total", 0))
     if not (0 < total <= UPLOAD_MAX_CHUNKS and 0 <= index < total):

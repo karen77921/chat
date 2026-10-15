@@ -97,11 +97,12 @@ export async function uploadInChunks(file, { onProgress } = {}) {
     const data = await toBase64(file.slice(index * CHUNK, (index + 1) * CHUNK));
     for (let attempt = 1; ; attempt++) {
       try {
-        await loop('upload/chunk', { method: 'POST', body: { id, index, total, data }, timeout: 30000 });
+        // 网很慢的时候一块也可能要几十秒：多等一会儿，别在快传完时放弃
+        await loop('upload/chunk', { method: 'POST', body: { id, index, total, data }, timeout: 90000 });
         onProgress?.(++done / total);
         return;
       } catch (e) {
-        if (attempt >= 4 || (e?.status && e.status !== 0 && e.status < 500 && e.status !== 408 && e.status !== 429)) throw e;
+        if (attempt >= 5 || (e?.status && e.status !== 0 && e.status < 500 && e.status !== 408 && e.status !== 429)) throw e;
         await new Promise((ok) => setTimeout(ok, 800 * attempt));
       }
     }

@@ -1,9 +1,12 @@
 /**
  * 发图前先在手机上压一下：手机原图动辄 3–8 MB，原样上传慢、发给模型也慢（还可能超过单张 5 MB 的上限）。
- * 长边缩到 1600（模型看图最多也就用到 ~1568，再大他也看不出区别），转成 JPEG 0.8，一张照片大概只剩 300–600 KB；
+ * 按面积压到 ~240 万像素以内（普通照片约 1780×1335，模型看图本来也用不到更大），转成 JPEG 0.8，一张大概 300–600 KB；
+ * 超长截图（长表格、长聊天记录）按面积算就不会被压成一条细线，最长边放宽到 4096。
+ * 画布也就不会超过 iPhone 的上限（超了会画不出来，只能改传又大又慢的原图）。
  * 动图和本来就小的图原样不动。不限制大小：选什么图都发，压不了的就原样传。
  */
-const MAX_EDGE = 1600;
+const MAX_PIXELS = 2_400_000;
+const MAX_EDGE = 4096;
 const QUALITY = 0.8;
 const SMALL = 400 * 1024;
 
@@ -49,7 +52,7 @@ export async function shrinkImage(file) {
   const canvas = document.createElement('canvas');
   try {
     if (!pic.width || !pic.height) return file;
-    const scale = Math.min(1, MAX_EDGE / Math.max(pic.width, pic.height));
+    const scale = Math.min(1, MAX_EDGE / Math.max(pic.width, pic.height), Math.sqrt(MAX_PIXELS / (pic.width * pic.height)));
     if (scale === 1 && file.size <= SMALL) return file;
     const w = Math.round(pic.width * scale), h = Math.round(pic.height * scale);
     canvas.width = w; canvas.height = h;

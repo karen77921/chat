@@ -173,7 +173,8 @@ export function useChat(chatId, demo) {
     const form = new FormData();
     form.append('file', file);
     form.append('kind', kind);
-    return api('/api/chat/upload', { method: 'POST', form, timeout: 60000 });
+    // 网慢的时候大文件 1 分钟传不完：图片和文件多给点时间
+    return api('/api/chat/upload', { method: 'POST', form, timeout: kind === 'voice' ? 60000 : 180000 });
   };
 
   return { data, now, reload: load, send, resend, reply, pause, regenerate, edit, remove, react, upload };

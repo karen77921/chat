@@ -66,7 +66,12 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
       const ups = await mapLimited(list, 2, async (f) => onUpload(await shrinkImage(f), 'image'),
         (n) => setBusy(n < list.length ? `正在传图 ${n}/${list.length}…` : '马上就好…'));
       await onSend({ type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) });
-    } finally { sendingAttachment.current = false; setBusy(''); }
+      setBusy('');
+    } catch {
+      // 以前传失败了什么都不说，看起来就像「一直传不上去」
+      setBusy('图没传上去，网不太好，再发一次试试');
+      setTimeout(() => setBusy(''), 4000);
+    } finally { sendingAttachment.current = false; }
   };
   const pickFile = async (f) => {
     if (!f || sendingAttachment.current) return;

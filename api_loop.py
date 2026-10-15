@@ -522,14 +522,17 @@ def vocab_due_count() -> int:
     return 0
 
 
-def vocab_context_text() -> str:
-    """单词本：今天有词该复习了，就让他知道，可以找机会抽她。"""
+def vocab_context_text(brief: bool = False) -> str:
+    """单词本：今天有词该复习了，就让他知道，可以找机会抽她。brief：聊天中只说数，不催他抽查。"""
     with contextlib.suppress(Exception):
         data = imprint_action(LOOP_CACHE_DIR / "imprint.db", "vocab", {"operation": "due", "limit": 8})
         st = data["stats"]
         learn = st["learn_left"] if st.get("new") else 0
         if not st["due"] and not learn:
             return ""
+        if brief:
+            bits = ([f"今天 {st['due']} 个词到期"] if st["due"] else []) + ([f"{learn} 个新词没学"] if learn else [])
+            return "【单词本】" + "，".join(bits) + "。"
         parts = []
         if st["due"]:
             sample = "、".join(x["word"] for x in data["items"][:8])
@@ -541,15 +544,18 @@ def vocab_context_text() -> str:
     return ""
 
 
-# 单词本的“该复习了”只在她自己聊到单词、或者他醒来闲着的时候给他看；
-# 每轮都塞，他会在她聊别的事时突然拐去抽查单词
+# 聊天时他照样知道单词本、书房的情况，但只是一句陈述，提不提由他；
+# 带着「去抽查她」「去回批注」的版本只在她聊到这些、或者他自己醒来时给
 VOCAB_TOPIC_RE = re.compile(r"单词|生词|背词|词书|词汇|复习|抽查|考考|英语|vocab|word", re.I)
 
 
-def book_context_text() -> str:
+BOOK_TOPIC_RE = re.compile(r"书|读|批注|划线|章|📖")
+
+
+def book_context_text(brief: bool = False) -> str:
     """书房：在读哪本、两个人各读到哪、她有没有新留的批注。"""
     with contextlib.suppress(Exception):
-        return imprint_action(LOOP_CACHE_DIR / "imprint.db", "book_context")["text"]
+        return imprint_action(LOOP_CACHE_DIR / "imprint.db", "book_context", {"brief": brief})["text"]
     return ""
 
 
@@ -2298,13 +2304,13 @@ async def build_messages(
     if injected:
         volatile_parts.append(injected)
     with contextlib.suppress(Exception):
-        drive_line = imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_context")["text"]
+        drive_line = imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_context", {"chatting": not proactive})["text"]
         if drive_line:
             volatile_parts.append(drive_line)
-    vocab = vocab_context_text() if proactive or VOCAB_TOPIC_RE.search(text or "") else ""
+    vocab = vocab_context_text(brief=not (proactive or VOCAB_TOPIC_RE.search(text or "")))
     if vocab:
         volatile_parts.append(vocab)
-    book = book_context_text()
+    book = book_context_text(brief=not (proactive or BOOK_TOPIC_RE.search(text or "")))
     if book:
         volatile_parts.append(book)
     gifts = gifts_context_text()

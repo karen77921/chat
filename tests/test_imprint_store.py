@@ -1074,6 +1074,11 @@ class DriveEngineTest(unittest.TestCase):
         self.assertGreater(e.fixation_boost(imprint_store.DRIVE_MOTIVES["做答应的事"]), before)
         self.assertEqual(e.fixation_boost(imprint_store.DRIVE_MOTIVES["去花园"]), 0)
         self.assertIn("心里还惦记着 1 件事", e.context_line())
+        chatting = e.context_line(chatting=True)
+        self.assertIn("心里还惦记着 1 件事", chatting)  # 照样知道
+        self.assertNotIn("小时没说话", chatting)      # 她正在说话
+        self.assertIn("由你自己决定", chatting)
+        self.assertIn("3 小时没说话", e.context_line())
         self.assertNotIn("歌单", e.context_line())  # 念头原文不拼进给他的提示
         conn.close()
 
@@ -1430,6 +1435,9 @@ class BookTest(unittest.TestCase):
         ctx = self.act("book_context")
         self.assertIn("Pride and Prejudice", ctx["text"])
         self.assertEqual(ctx["unseen"], 2)
+        brief = self.act("book_context", {"brief": True})["text"]
+        self.assertIn("2 条新划线/批注", brief)
+        self.assertNotIn("imprint_book", brief)  # 聊天里只陈述，不催他去回
         # 他读：从头读起，带着她的划线，书签往前挪
         read = self.act("book_him", {"operation": "read"})
         self.assertIn("[0.0] It is a truth", read["text"])

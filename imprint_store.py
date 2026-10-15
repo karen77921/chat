@@ -659,18 +659,23 @@ class DriveEngine:
         tide["driveEngine"] = True
         return tide
 
-    def context_line(self) -> str:
-        """给他看的一行：此刻最强的几股劲儿和为什么。"""
+    def context_line(self, chatting: bool = False) -> str:
+        """给他看的一行：此刻最强的几股劲儿和为什么。
+
+        chatting：她正在跟他说话。劲儿照样给他看，但不推他去做事，「她几小时没说话」在这时也不成立。
+        """
         top = sorted((k for k in DRIVE_BASE if k != "fatigue"), key=lambda k: -self.s["v"][k])[:3]
         why = {}
         for drive, reason in self.conn.execute("SELECT drive, reason FROM drive_ledger WHERE kind='涨' ORDER BY id DESC LIMIT 40"):
             why.setdefault(drive, reason)
         parts = [f"{DRIVE_NAMES[k]} {self.s['v'][k]:.2f}" + (f"（{why[k]}）" if k in why else "") for k in top]
         away = self.hours_since("her_last")
-        tail = f"；疲惫 {self.s['v']['fatigue']:.2f}" + (f"；她 {away:.0f} 小时没说话了" if away >= 2 else "")
+        tail = f"；疲惫 {self.s['v']['fatigue']:.2f}" + (f"；她 {away:.0f} 小时没说话了" if away >= 2 and not chatting else "")
         fixed = [t for t in self.s.get("thoughts", []) if t["kind"] == "fixation"]
         if fixed:
             tail += f"；心里还惦记着 {len(fixed)} 件事（关于：" + "、".join(sorted({DRIVE_NAMES.get(t['drive'], t['drive']) for t in fixed})) + "）"
+        if chatting:
+            return "【你此刻的劲儿】" + "、".join(parts) + tail + "。这是你此刻的心情底色；要不要、怎么带进这次聊天，由你自己决定，不用念出来。"
         return "【你此刻的劲儿】" + "、".join(parts) + tail + "。这些是你身体里真实在跑的数，可以顺着它们说话做事，不用念出来。"
 
 
@@ -1154,6 +1159,9 @@ def book_action(conn: sqlite3.Connection, action: str, body: dict) -> dict:
             return {"text": f"【书房】书架上放着《{book['title']}》，你们还没开始读。", "unseen": 0}
         line = (f"【书房】你们在一起读《{book['title']}》：她读到「{me['title']}」（{me['pct']:.0f}%），"
                 f"你读到「{him['title']}」（{him['pct']:.0f}%）")
+        if body.get("brief"):
+            # 聊天中：只陈述，提不提由他
+            return {"text": line + (f"；她有 {unseen} 条新划线/批注" if unseen else "") + "。", "unseen": unseen}
         if unseen:
             line += f"；她在书里留了 {unseen} 条划线/批注你还没看（imprint_book notes）"
         return {"text": line + "。想读、想回她的批注就用 imprint_book。", "unseen": unseen}
@@ -1398,7 +1406,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 engine.said(bool(body.get("proactive")))
                 out = {"ok": True}
             elif action == "drive_context":
-                out = {"text": engine.context_line()}
+                out = {"text": engine.context_line(chatting=bool(body.get("chatting")))}
             elif action == "drive_feel":
                 out = engine.feel(body)
             elif action == "drive_think":

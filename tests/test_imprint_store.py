@@ -5,6 +5,7 @@ standard library on development machines that do not have the server venv.
 """
 import asyncio
 import datetime as dt
+import io
 import json
 import os
 import sqlite3
@@ -327,6 +328,23 @@ class ImprintStoreTest(unittest.TestCase):
         # 正常的话不动：中文、短英文、她要的英文句子
         for ok in ("晚安宝宝", "Good night~", "apple 是苹果", "The quick brown fox jumps over the lazy dog.\n\n这句是练字母的"):
             self.assertEqual(split(ok), (ok, ""))
+
+    def test_long_screenshots_are_cut_into_readable_pieces(self):
+        from PIL import Image
+
+        def png(w, h):
+            buf = io.BytesIO()
+            Image.new("RGB", (w, h), (200, 120, 90)).save(buf, "PNG")
+            return buf.getvalue()
+
+        self.assertIsNone(api_loop.image_tiles(png(1600, 1200)))  # 普通照片照旧整张
+        tiles = api_loop.image_tiles(png(768, 7800))
+        self.assertTrue(5 <= len(tiles) <= api_loop.LONG_IMAGE_MAX_TILES)
+        first = Image.open(io.BytesIO(tiles[0]))
+        self.assertEqual(first.width, 768)  # 宽度不缩，小字保得住
+        self.assertLessEqual(max(first.size), api_loop.TILE_LONG_EDGE)
+        self.assertEqual(len(api_loop.image_tiles(png(600, 60000))), api_loop.LONG_IMAGE_MAX_TILES)
+        self.assertIsNone(api_loop.image_tiles(b"not an image"))
 
     def test_short_messages_skip_memory_recall(self):
         self.assertFalse(api_loop.recall_query_worth_searching("搞完了"))

@@ -79,11 +79,13 @@ for name in release["backend"]:
 print(f"      {len(files)} 个文件都对得上")
 PY
 
-# 后端用到的小库：读 PDF 的 pypdf、手机推送要用的 cryptography。没有就装（装不上也不影响更新，只是那一项暂时用不了）
+# 后端用到的小库：读 PDF 的 pypdf、手机推送要用的 cryptography、把长图切段给他看的 Pillow。
+# 没有就装（装不上也不影响更新，只是那一项暂时用不了）
 PY_VENV=/root/companion-loop/venv/bin/python
 if sudo test -x "${PY_VENV}"; then
-  for pkg in pypdf cryptography; do
-    mod="${pkg}"
+  for spec in pypdf:pypdf cryptography:cryptography pillow:PIL; do
+    pkg="${spec%%:*}"
+    mod="${spec##*:}"
     if ! sudo "${PY_VENV}" -c "import ${mod}" 2>/dev/null; then
       echo "      顺手装一下 ${pkg}…"
       sudo "${PY_VENV}" -m pip install -q --disable-pip-version-check "${pkg}" 2>/dev/null \

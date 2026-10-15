@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import contextlib
 import datetime as dt
 import html
@@ -1485,6 +1486,46 @@ def att_label(att: dict[str, Any]) -> str:
     return f"[{'图片' if kind == 'image' else '文件'}: {name}]"
 
 
+# 长图（长表格、长聊天记录）整张给模型，会被缩到最长边一千五百多像素，小字就看不清了：
+# 顺着长的方向切成几段、按顺序给他。太大的图也先缩一下，不再整张丢掉。需要 Pillow，没有就照旧整张给。
+LONG_IMAGE_RATIO = 2.5
+LONG_IMAGE_MAX_TILES = 10
+TILE_LONG_EDGE = 1568
+
+
+def image_tiles(data: bytes) -> list[bytes] | None:
+    """→ JPEG pieces in reading order, or None to send the image as it is."""
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as raw:
+            img = ImageOps.exif_transpose(raw).convert("RGB")
+    except Exception:
+        return None
+    w, h = img.size
+    tall, wide = h >= w * LONG_IMAGE_RATIO, w >= h * LONG_IMAGE_RATIO
+    if not (tall or wide) and len(data) <= IMAGE_MAX_BYTES:
+        return None
+    if tall or wide:
+        short, long_ = (w, h) if tall else (h, w)
+        count = min(LONG_IMAGE_MAX_TILES, -(-long_ // int(short * 1.4)))  # 每段大约 1:1.4，最多切 10 段
+        step = -(-long_ // count)
+        overlap = int(step * 0.05)  # 每段往后多带一点，不会刚好把一行字切成两半
+        boxes = [(i * step, min(long_, (i + 1) * step + overlap)) for i in range(count)]
+        pieces = [img.crop((0, a, w, b) if tall else (a, 0, b, h)) for a, b in boxes]
+    else:
+        pieces = [img]
+    out = []
+    for piece in pieces:
+        piece.thumbnail((TILE_LONG_EDGE, TILE_LONG_EDGE))
+        buf = io.BytesIO()
+        piece.save(buf, "JPEG", quality=85)
+        out.append(buf.getvalue())
+    return out
+
+
 async def attachment_parts(atts: list[dict[str, Any]], *, with_images: bool) -> tuple[list[dict[str, Any]], list[str]]:
     """→ (image_url parts, text notes). Notes always exist so a text-only model still knows what arrived."""
     parts: list[dict[str, Any]] = []
@@ -1503,7 +1544,12 @@ async def attachment_parts(atts: list[dict[str, Any]], *, with_images: bool) -> 
         if data is None:
             notes.append(f"{att_label(att)} (无法读取附件内容)")
             continue
-        if is_image and with_images and len(data) <= IMAGE_MAX_BYTES:
+        tiles = await asyncio.to_thread(image_tiles, data) if is_image and with_images else None
+        if tiles:
+            for tile in tiles:
+                parts.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(tile).decode('ascii')}"}})
+            notes.append(att_label(att) + (f"（长图，按顺序切成了 {len(tiles)} 段给你看，段与段之间有一点重叠）" if len(tiles) > 1 else ""))
+        elif is_image and with_images and len(data) <= IMAGE_MAX_BYTES:
             parts.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"}})
             notes.append(att_label(att))
         elif is_pdf(name, mime):

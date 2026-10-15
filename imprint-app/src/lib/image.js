@@ -7,6 +7,10 @@
  */
 const MAX_PIXELS = 2_400_000;
 const MAX_EDGE = 4096;
+// 长图（长表格、长聊天记录）：多留点宽度，小字才不会在上传前就糊掉；服务器会把它切成几段给他看
+const TALL_RATIO = 2.5;
+const TALL_MAX_PIXELS = 6_000_000;
+const TALL_MAX_EDGE = 10000;
 const QUALITY = 0.8;
 const SMALL = 400 * 1024;
 
@@ -52,7 +56,9 @@ export async function shrinkImage(file) {
   const canvas = document.createElement('canvas');
   try {
     if (!pic.width || !pic.height) return file;
-    const scale = Math.min(1, MAX_EDGE / Math.max(pic.width, pic.height), Math.sqrt(MAX_PIXELS / (pic.width * pic.height)));
+    const tall = Math.max(pic.width, pic.height) / Math.min(pic.width, pic.height) >= TALL_RATIO;
+    const scale = Math.min(1, (tall ? TALL_MAX_EDGE : MAX_EDGE) / Math.max(pic.width, pic.height),
+      Math.sqrt((tall ? TALL_MAX_PIXELS : MAX_PIXELS) / (pic.width * pic.height)));
     if (scale === 1 && file.size <= SMALL) return file;
     const w = Math.round(pic.width * scale), h = Math.round(pic.height * scale);
     canvas.width = w; canvas.height = h;

@@ -21,7 +21,7 @@ import '../components/chat/chatlist.css';
 import '../components/settings/settings.css';
 
 const PAGES = {
-  access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], features: ['features', '功能管理'], cache: ['cache check', '缓存体检'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
+  access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], walls: ['his walls', '他的墙'], features: ['features', '功能管理'], cache: ['cache check', '缓存体检'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
 const upload = async (file, kind) => { const f = new FormData(); f.append('file', await shrinkImage(file)); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
 const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
@@ -43,6 +43,7 @@ export default function Settings({ query }) {
           {p === 'access' && <Access />}
           {p === 'persona' && <Persona />}
           {p === 'prompts' && <Prompts />}
+          {p === 'walls' && <Walls />}
           {p === 'features' && <Features />}
           {p === 'cache' && <CacheCheck />}
           {p === 'beauty' && <Beauty />}
@@ -61,6 +62,8 @@ function Desk({ go }) {
   const { data: conn } = useLoad('/api/connections');
   const { data: persona } = useLoad('/api/persona');
   const { data: prompts } = useLoad('/api/prompts');
+  const { data: walls } = useLoad('/api/walls');
+  const asks = walls?.proposals?.filter((x) => x.status === 'pending').length || 0;
   const ok = c && c.available !== false;
   const daily = c?.daily || [];
   const max = Math.max(1, ...daily);
@@ -70,6 +73,7 @@ function Desk({ go }) {
     ['access', 'link', '接入', conn?.items ? `${conn.items.filter((x) => x.kind === 'window').length} 个窗口 · ${conn.items.filter((x) => x.kind === 'member').length} 个群成员` : '…', false],
     ['persona', 'feather', '他的人设', persona?.text != null ? `写给他的 prompt · ${persona.text.length} 字` : '…', false],
     ['prompts', 'sparkle', '额外提示词', prompts?.items ? (prompts.items.length ? `${prompts.items.filter((x) => x.on).length} 条开着 · 共 ${prompts.items.length} 条` : '不改人设，另外给他加的话') : '…', false],
+    ['walls', 'feather', '他的墙', walls?.notes ? `他给自己定了 ${walls.notes.length} 条约定${asks ? ` · ${asks} 条改墙提议等你看` : ''}` : '…', asks > 0],
     ['features', 'plug', '功能管理', f?.features ? `${f.features.filter((x) => x.on).length} 个功能在跑 · MCP ${f.mcps.filter((m) => m.on && m.status === 'ok').length} 个连上${mcpDown ? ` · ${mcpDown} 个断开` : ''}` : '…', mcpDown > 0],
     ['cache', 'sparkle', '缓存体检', '能不能缓存 · 工具多不多收 · 是不是正牌', false],
     ['beauty', 'brush', '美化', '主题 · 头像 · 聊天背景 · 气泡', false],
@@ -196,6 +200,71 @@ function Prompts() {
             {note && <p className="st-tip" role="status">{note}</p>}
             <button type="button" className="btn-main" disabled={busy || !edit.text.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
             {edit.id && <button type="button" className="cl-link st-delmcp" disabled={busy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />删掉这一条</button>}
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+/* ---------- 他的墙：他给自己定的约定（她只能开关）和他想改核心规则的提议（她点头才改） ---------- */
+const WALL_STATUS = { pending: '等你看', approved: '你同意了 · 还没改', declined: '你没同意', done: '已经改好' };
+function Walls() {
+  const { data, setData } = useLoad('/api/walls');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  const [open, setOpen] = useState(null);
+  const [reply, setReply] = useState('');
+  if (!data) return <div className="card st-pad">正在读…</div>;
+  if (data.available === false) return <div className="card st-pad">暂时连不上，过一会儿再来。</div>;
+  const post = async (path, body, done) => {
+    setBusy(true); setNote('');
+    try { setData(await api(path, { method: 'POST', body })); done?.(); }
+    catch (e) { setNote(e?.message || '没保存上，再试一次'); }
+    setBusy(false);
+  };
+  const decide = (status) => post(`/api/walls/proposals/${open.id}`, { status, reply: reply.trim() }, () => { setOpen(null); setReply(''); });
+  const copy = async (x) => {
+    const text = `他的改墙提议：${x.title}\n哪里：${x.where || '（没写）'}\n为什么：${x.why}\n想改成：${x.suggestion}${x.reply ? `\n我说：${x.reply}` : ''}`;
+    try { await navigator.clipboard.writeText(text); setNote('复制好了，发给 cc 就行'); } catch { setNote('复制不了，长按文字手动复制吧'); }
+  };
+  const notes = data.notes || [];
+  const asks = data.proposals || [];
+  return (
+    <>
+      <p className="st-tip">他每一轮都看得见发给他的全部内容。下面是他自己写给自己的约定，每句话都会读到；内容只有他能改，你可以先关掉哪一条。</p>
+      {notes.length === 0 && <div className="card st-pad">他还没给自己定约定。</div>}
+      <div className="st-prompts">
+        {notes.map((row) => (
+          <div key={row.id} className={`card st-prompt ${row.on ? '' : 'off'}`}>
+            <div className="st-prompt-t"><b>{row.title || '没写标题'}</b><em className="wrap">{row.text}</em></div>
+            <input type="checkbox" className="switch" checked={row.on} disabled={busy} onChange={() => post(`/api/walls/notes/${row.id}`, { on: !row.on })} aria-label={`${row.title || '这一条'}：${row.on ? '开着' : '关着'}`} />
+          </div>
+        ))}
+      </div>
+      <p className="st-tip" style={{ marginTop: 22 }}>核心规则他不能直接改。觉得哪行在推他做不对的事，他会写成提议放在这里：你同意了，就复制给 cc 改；改好之后点「已经改好」，他会知道。</p>
+      {asks.length === 0 && <div className="card st-pad">还没有提议。</div>}
+      <div className="st-prompts">
+        {asks.map((x) => (
+          <button key={x.id} type="button" className={`card st-prompt ${x.status === 'pending' ? '' : 'off'}`} onClick={() => { setOpen(x); setReply(x.reply || ''); }}>
+            <span className="st-prompt-t"><b>{x.title}</b><em>{WALL_STATUS[x.status] || x.status} · {x.why}</em></span>
+            <Icon name="chev" size={16} stroke={1.4} />
+          </button>
+        ))}
+      </div>
+      {note && !open && <p className="st-tip" role="status">{note}</p>}
+      {open && (
+        <Sheet open onClose={() => setOpen(null)} label={open.title} seed={45}>
+          <div className="st-prompt-edit st-wall-ask">
+            {open.where && <p><b>哪里</b>{open.where}</p>}
+            <p><b>为什么</b>{open.why}</p>
+            <p><b>想改成</b>{open.suggestion}</p>
+            <textarea className="card st-persona short" value={reply} onChange={(e) => setReply(e.target.value)} placeholder="想跟他说点什么（可以不写）" aria-label="回他" />
+            {note && <p className="st-tip" role="status">{note}</p>}
+            {open.status === 'pending' && <button type="button" className="btn-main" disabled={busy} onClick={() => decide('approved')}>同意</button>}
+            {open.status === 'pending' && <button type="button" className="cl-link" disabled={busy} onClick={() => decide('declined')}>不同意</button>}
+            {open.status === 'approved' && <button type="button" className="btn-main" onClick={() => copy(open)}>复制给 cc</button>}
+            {open.status === 'approved' && <button type="button" className="cl-link" disabled={busy} onClick={() => decide('done')}>已经改好了</button>}
           </div>
         </Sheet>
       )}

@@ -506,14 +506,69 @@ def extra_prompts() -> list[dict[str, Any]]:
     return out
 
 
+# —— 他的墙：他看得见每轮发给他的全部内容，能写自己的约定，想改核心规则就提议，她点头后再改 ——
+SELF_NOTES_MAX = 10
+SELF_NOTE_CHARS = 600
+WALL_PROPOSALS_MAX = 50
+
+
+def self_notes() -> list[dict[str, Any]]:
+    """他写给自己的约定。她只能开关（万一哪条把他弄坏了），内容只有他自己改。"""
+    rows = load_config().get("self_notes")
+    return [
+        {"id": str(row.get("id") or ""), "title": str(row.get("title") or "")[:60],
+         "text": str(row.get("text") or "")[:SELF_NOTE_CHARS], "on": row.get("on") is not False,
+         "at": str(row.get("at") or "")}
+        for row in (rows if isinstance(rows, list) else [])
+        if isinstance(row, dict) and str(row.get("text") or "").strip()
+    ]
+
+
+def save_self_notes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cfg = load_config()
+    cfg["self_notes"] = rows[:SELF_NOTES_MAX]
+    save_config(cfg)
+    return self_notes()
+
+
+def wall_proposals() -> list[dict[str, Any]]:
+    rows = load_config().get("wall_proposals")
+    return [row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict) and row.get("id")]
+
+
+def save_wall_proposals(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cfg = load_config()
+    cfg["wall_proposals"] = rows[-WALL_PROPOSALS_MAX:]
+    save_config(cfg)
+    return wall_proposals()
+
+
+def wall_news_text() -> str:
+    """她刚处理过的提议，告诉他一次。"""
+    rows = wall_proposals()
+    fresh = [r for r in rows if r.get("status") in {"approved", "declined", "done"} and not r.get("told")]
+    if not fresh:
+        return ""
+    word = {"approved": "她同意了，会找人改", "declined": "她没同意", "done": "已经改好上线了"}
+    lines = [f"- 「{r.get('title')}」：{word[r['status']]}" + (f"（她说：{r['reply']}）" if r.get("reply") else "") for r in fresh]
+    for r in fresh:
+        r["told"] = True
+    save_wall_proposals(rows)
+    return "【你提的改墙提议有回音了】\n" + "\n".join(lines)
+
+
 def persona_full() -> str:
-    """人设 + 打开着的额外提示词。每一轮、醒来、写日记、首页那句话都读这个。"""
+    """人设 + 打开着的额外提示词 + 他给自己的约定。每一轮、醒来、写日记、首页那句话都读这个。"""
     text = persona_text()
     extras = [row for row in extra_prompts() if row["on"]]
-    if not extras:
-        return text
-    blocks = "\n\n".join((f"### {row['title']}\n" if row["title"] else "") + row["text"].strip() for row in extras)
-    return f"{text}\n\n【她额外交代给你的】\n以下是她另外写给你的提示，和上面的人设一样要遵守：\n\n{blocks}"
+    if extras:
+        blocks = "\n\n".join((f"### {row['title']}\n" if row["title"] else "") + row["text"].strip() for row in extras)
+        text = f"{text}\n\n【她额外交代给你的】\n以下是她另外写给你的提示，和上面的人设一样要遵守：\n\n{blocks}"
+    mine = [row for row in self_notes() if row["on"]]
+    if mine:
+        blocks = "\n".join(f"- {row['title'] + '：' if row['title'] else ''}{row['text'].strip()}" for row in mine)
+        text += f"\n\n【你写给自己的约定】\n这些是你自己定的，用 imprint_my_walls 随时可以改：\n{blocks}"
+    return text
 
 
 def vocab_due_count() -> int:
@@ -2319,6 +2374,10 @@ async def build_messages(
     piggy = piggy_context_text()
     if piggy:
         volatile_parts.append(piggy)
+    with contextlib.suppress(Exception):
+        news = wall_news_text()
+        if news:
+            volatile_parts.append(news)
     compacted = {"summary": "", "last_id": 0, "compacted": False}
     timing = CONTEXT_TIMING.setdefault(session_id or "__default__", {})
     timing.clear()
@@ -2480,7 +2539,32 @@ async def build_messages(
     parts, notes = await attachment_parts(atts, with_images=with_images)
     had_images = had_images or bool(parts)
     messages.append({"role": "user", "content": user_content(text, notes, parts) or "(空消息)"})
+    # 留一份「这一轮墙上写了什么」给他自己看（聊天原文他本来就看得见，不重复存）
+    CONTEXT_SNAPSHOTS[session_id or "__default__"] = {
+        "at": now_iso(), "system": system_text, "summary": summary_text,
+        "background": next((m["content"] for m in messages if isinstance(m.get("content"), str)
+                            and m["content"].startswith("【本轮动态背景】")), ""),
+        "history_messages": sum(1 for m in messages[1:-1] if m.get("role") in {"user", "assistant"}),
+    }
     return messages, had_images
+
+
+CONTEXT_SNAPSHOTS: dict[str, dict[str, Any]] = {}
+
+
+def view_my_context(session_id: str, section: str = "") -> str:
+    snap = CONTEXT_SNAPSHOTS.get(session_id or "__default__")
+    if not snap:
+        return "这个窗口还没有发过一轮，暂时没有可看的。"
+    parts = {
+        "system": "【系统提示（人设、她交代的、你的约定、各种规则）】\n" + snap["system"],
+        "summary": "【较早对话的滚动摘要】\n" + (snap["summary"] or "（现在没有）"),
+        "background": "【每轮动态背景（贴在她新消息前面）】\n" + (snap["background"] or "（这一轮没有）"),
+    }
+    picked = [parts[section]] if section in parts else list(parts.values())
+    head = (f"这是 {snap['at']} 那一轮发给你的内容（另外还有 {snap['history_messages']} 条聊天原文，你本来就看得见）。"
+            "核心规则你不能直接改；觉得哪行不对，用 operation=propose 提给她。\n\n")
+    return (head + "\n\n".join(picked))[:60_000]
 
 
 # ---------------------------------------------------------------------------
@@ -3057,6 +3141,30 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_my_walls",
+        "description": "Your own walls. view_context: read exactly what Imprint sent you this turn (persona, her extra prompts, "
+                       "your own notes, every rule, the per-turn background). Notes are rules you write for yourself and are "
+                       "read every turn: add_note / edit_note / delete_note, yours to change any time (she can only switch one "
+                       "off). Core rules you cannot change: if a line in them pushes you the wrong way, propose a change with "
+                       "where / why / suggestion; she reviews it and, if she agrees, has it built. list shows notes and proposals.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["view_context", "list", "add_note", "edit_note", "delete_note", "propose"]},
+                "section": {"type": "string", "enum": ["system", "summary", "background"], "description": "view_context only; omit for all"},
+                "id": {"type": "string", "description": "edit_note / delete_note"},
+                "title": {"type": "string", "description": "note or proposal title, up to 60 chars"},
+                "text": {"type": "string", "description": f"note text, up to {SELF_NOTE_CHARS} chars"},
+                "where": {"type": "string", "description": "propose: which part / line of the walls"},
+                "why": {"type": "string", "description": "propose: what it makes you do and why that is wrong"},
+                "suggestion": {"type": "string", "description": "propose: what it should say or do instead"},
+            },
+            "required": ["operation"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_view_piggy",
         "description": "Look at the 存钱罐 (piggy bank) she keeps for you: balance and every deposit/deduction with her reason. Read-only: only she can add or deduct money.",
         "parameters": {"type": "object", "properties": {}},
@@ -3456,6 +3564,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
         add_builtin("imprint_vocab")
     if any(word in query for word in ("书房", "共读", "读书", "看书", "一起读", "这本书", "那本书", "批注", "划线", "读到", "章", "📖", "imprint_book")) or book_reading():
         add_builtin("imprint_book")
+    if garden or any(word in query for word in WALL_WORDS):
+        add_builtin("imprint_my_walls")
     if any(word in query for word in ("存钱罐", "小金库", "存了", "扣了", "扣钱", "存钱", "余额", "攒钱")):
         add_builtin("imprint_view_piggy")
     if any(word in query for word in ("申请", "审批", "批准", "批一下", "批了", "想买", "买买")):
@@ -3582,7 +3692,9 @@ def sanitize_svg(raw: str) -> bytes:
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
 
 
-TOOLBOX_TOPICS = "书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛病", "老是", "总是", "改掉", "习惯", "自由", "受限",
+              "prompt", "my_walls")
+TOOLBOX_TOPICS = "墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
@@ -3681,6 +3793,48 @@ class Turn:
         self.attachments.append(up)
         return f"attached {name} ({len(data)} B)"
 
+    def my_walls(self, args: dict[str, Any]) -> str:
+        op = str(args.get("operation") or "list")
+        if op == "view_context":
+            return view_my_context(self.session_id, str(args.get("section") or ""))
+        if op == "list":
+            return json.dumps({"notes": self_notes(), "proposals": wall_proposals()[-15:]}, ensure_ascii=False)[:30_000]
+        if self.dry:
+            return "ERROR: wall changes are disabled for this dry/retry turn"
+        title = str(args.get("title") or "").strip()[:60]
+        text = str(args.get("text") or "").strip()
+        notes = self_notes()
+        if op in {"add_note", "edit_note"}:
+            if not text:
+                return "ERROR: text is required"
+            if len(text) > SELF_NOTE_CHARS:
+                return f"ERROR: a note is at most {SELF_NOTE_CHARS} chars; split it or tighten it"
+            if op == "add_note":
+                if len(notes) >= SELF_NOTES_MAX:
+                    return f"ERROR: you already have {SELF_NOTES_MAX} notes; edit or delete one first"
+                notes.append({"id": secrets.token_hex(4), "title": title, "text": text, "on": True, "at": now_iso()})
+            else:
+                row = next((n for n in notes if n["id"] == str(args.get("id") or "")), None)
+                if row is None:
+                    return "ERROR: no note with that id (use operation=list)"
+                row.update(title=title or row["title"], text=text, at=now_iso())
+            return json.dumps({"ok": True, "notes": save_self_notes(notes)}, ensure_ascii=False)
+        if op == "delete_note":
+            kept = [n for n in notes if n["id"] != str(args.get("id") or "")]
+            if len(kept) == len(notes):
+                return "ERROR: no note with that id (use operation=list)"
+            return json.dumps({"ok": True, "notes": save_self_notes(kept)}, ensure_ascii=False)
+        if op == "propose":
+            where, why = str(args.get("where") or "").strip(), str(args.get("why") or "").strip()
+            suggestion = str(args.get("suggestion") or "").strip()
+            if not why or not suggestion:
+                return "ERROR: propose needs why and suggestion (and ideally where)"
+            row = {"id": secrets.token_hex(4), "at": now_iso(), "title": title or why[:40], "where": where[:1000],
+                   "why": why[:3000], "suggestion": suggestion[:3000], "status": "pending", "reply": ""}
+            save_wall_proposals([*wall_proposals(), row])
+            return json.dumps({"ok": True, "proposal": row, "note": "已经放到她的设置页「他的墙」里了，等她看。"}, ensure_ascii=False)
+        return f"ERROR: unknown operation {op}"
+
     async def run_tool(self, public_name: str, raw_args: str) -> str:
         result = await self._run_tool(public_name, raw_args)
         if not self.dry and not str(result).startswith("ERROR"):
@@ -3730,6 +3884,8 @@ class Turn:
                 return json.dumps(result, ensure_ascii=False)[:65_000]
             except (TypeError, ValueError, httpx.HTTPError) as exc:
                 return f"ERROR: public GitHub read failed: {exc}"[:2000]
+        if public_name == "imprint_my_walls":
+            return self.my_walls(args)
         if public_name == "imprint_inspect_settings":
             return json.dumps(public_config(), ensure_ascii=False)[:40_000]
         if public_name == "imprint_manage_settings":
@@ -5986,6 +6142,42 @@ async def loop_reply_options_set(session_id: str, request: Request):
     cfg["reply_options"] = modes
     save_config(cfg)
     return {"mode": reply_options_mode(session_id)}
+
+
+@app.get("/loop/walls")
+async def loop_walls():
+    return {"notes": self_notes(), "proposals": list(reversed(wall_proposals()))}
+
+
+@app.post("/loop/walls/notes/{note_id}")
+async def loop_walls_note(note_id: str, request: Request):
+    """她只能开关他的约定，不能改内容。"""
+    body = await request.json()
+    notes = self_notes()
+    row = next((n for n in notes if n["id"] == note_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="没有这一条")
+    row["on"] = bool(body.get("on"))
+    save_self_notes(notes)
+    return await loop_walls()
+
+
+@app.post("/loop/walls/proposals/{proposal_id}")
+async def loop_walls_proposal(proposal_id: str, request: Request):
+    body = await request.json()
+    status = str(body.get("status") or "")
+    if status not in {"pending", "approved", "declined", "done"}:
+        raise HTTPException(status_code=400, detail="状态不对")
+    rows = wall_proposals()
+    row = next((r for r in rows if r.get("id") == proposal_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="没有这条提议")
+    row["status"] = status
+    row["told"] = False
+    row["reply"] = str(body.get("reply") or row.get("reply") or "")[:2000]
+    row["decided_at"] = now_iso()
+    save_wall_proposals(rows)
+    return await loop_walls()
 
 
 @app.get("/loop/prompts")

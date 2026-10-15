@@ -143,6 +143,10 @@
 .st-prompt-t { flex: 1; min-width: 0; display: grid; gap: 4px; text-align: left; }
 .st-prompt-t b { font-weight: 400; font-size: 14px; }
 .st-prompt-t em { font-style: normal; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-prompt-t em.wrap { white-space: normal; }
+.st-wall-ask p { margin: 0; font-size: 14px; line-height: 1.7; }
+.st-wall-ask textarea { height: 96px; min-height: 96px; }
+.st-wall-ask p b { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
 .st-prompt-edit { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding-bottom: 8px; }
 .st-prompt-edit input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 15px; }
 .st-persona.short { min-height: 34vh; }

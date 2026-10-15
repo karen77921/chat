@@ -472,6 +472,32 @@ class ImprintStoreTest(unittest.TestCase):
                 "SELECT id FROM api_ombre_archive_queue WHERE id=?", (pending_id,)
             ).fetchone())
 
+    def test_his_walls_notes_proposals_and_context_view(self):
+        with mock.patch.object(api_loop, "LOOP_CONFIG", self.root / "walls-config.json"):
+            turn = api_loop.Turn("w", dry=False)
+            out = json.loads(turn.my_walls({"operation": "add_note", "title": "提问", "text": "一次最多问一个问题"}))
+            note_id = out["notes"][0]["id"]
+            self.assertIn("【你写给自己的约定】", api_loop.persona_full())
+            self.assertIn("一次最多问一个问题", api_loop.persona_full())
+            # 她只能关掉，关掉的不再进提示词
+            asyncio.run(api_loop.loop_walls_note(note_id, Request({"on": False})))
+            self.assertNotIn("一次最多问一个问题", api_loop.persona_full())
+            self.assertTrue(turn.my_walls({"operation": "propose", "why": "x"}).startswith("ERROR"))
+            prop = json.loads(turn.my_walls({"operation": "propose", "title": "别催单词", "where": "单词本",
+                                             "why": "老让我抽查", "suggestion": "只陈述"}))["proposal"]
+            self.assertEqual(api_loop.wall_news_text(), "")
+            asyncio.run(api_loop.loop_walls_proposal(prop["id"], Request({"status": "approved", "reply": "好"})))
+            news = api_loop.wall_news_text()
+            self.assertIn("别催单词", news)
+            self.assertIn("她同意了", news)
+            self.assertEqual(api_loop.wall_news_text(), "")  # 只告诉一次
+            self.assertIn("还没有发过一轮", api_loop.view_my_context("nobody"))
+            api_loop.CONTEXT_SNAPSHOTS["w"] = {"at": "t", "system": "SYS", "summary": "", "background": "BG", "history_messages": 3}
+            view = turn.my_walls({"operation": "view_context", "section": "background"})
+            self.assertIn("BG", view)
+            self.assertNotIn("SYS", view)
+            self.assertTrue(api_loop.Turn("w", dry=True).my_walls({"operation": "add_note", "text": "x"}).startswith("ERROR"))
+
     def test_wake_v7_shorter_bounds_and_note_consumption(self):
         old_relay, old_config = api_loop.RELAY_DB, api_loop.LOOP_CONFIG
         api_loop.RELAY_DB = str(self.relay)

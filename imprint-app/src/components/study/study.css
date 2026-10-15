@@ -213,7 +213,7 @@
 .st-reader.paged { position: fixed; inset: 0; padding: 0; overflow: hidden; min-height: 0; }
 .st-reader.paged .st-rbar { position: absolute; left: 0; right: 0; top: 0; margin-top: 0; padding-top: calc(env(safe-area-inset-top, 0px) + 10px); }
 .st-vp { position: absolute; left: 0; right: 0; top: calc(env(safe-area-inset-top, 0px) + 52px); bottom: calc(env(safe-area-inset-bottom, 0px) + 74px); overflow: hidden; touch-action: pan-y; }
-.st-vp .st-text { box-sizing: border-box; height: 100%; max-width: none; margin: 0; padding: 14px 30px 0; column-count: 1; column-gap: 60px; column-fill: auto; }
+.st-vp .st-text { box-sizing: border-box; height: 100%; max-width: none; margin: 0; padding: 14px 30px 0; column-fill: auto; -webkit-column-fill: auto; overflow: visible; }
 .st-vp .st-text.slide { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
 .st-vp .st-annot, .st-vp .st-here, .st-vp .st-chnav { break-inside: avoid; }
 .st-vp .st-chapter { margin-bottom: 22px; }

@@ -329,7 +329,16 @@ function Reader({ id, chParam, paraParam }) {
   const paraEls = () => [...(cols.current?.querySelectorAll('[data-i]') || [])];
   const pageOfPara = (i) => span(cols.current?.querySelector(`[data-i="${i}"]`))[0];
   const paraOfPage = (p) => { const el = paraEls().find((e) => span(e)[1] >= p); return el ? Number(el.dataset.i) : 0; };
-  const measure = () => { const last = cols.current?.lastElementChild; const n = last ? span(last)[1] + 1 : 1; setPages(n); return n; };
+  // 一共几页：两种量法取大的（iPhone 的 Safari 有时量不准最后一段在哪一栏）
+  const measure = () => {
+    const el = cols.current, w = stride();
+    const last = el?.lastElementChild;
+    const bySpan = last ? span(last)[1] + 1 : 1;
+    const byWidth = el ? Math.ceil((el.scrollWidth - 2) / w) : 1;
+    const n = Math.max(1, bySpan, byWidth);
+    setPages(n);
+    return n;
+  };
   const settle = (para) => {
     if (!paged) {
       const el = para > 0 && document.querySelector(`.st-text [data-i="${para}"]`);
@@ -337,6 +346,13 @@ function Reader({ id, chParam, paraParam }) {
       return;
     }
     setSlide(false);
+    const el = cols.current;
+    if (el && el.scrollHeight > el.clientHeight + 24) {
+      // 这台手机没把一章排成一栏一栏（字被截在底下了）：换成上下滑，至少一个字都不会漏
+      setPrefs((x) => ({ ...x, mode: 'scroll' }));
+      say('这台手机排不了左右翻页，先换成上下滑了');
+      return;
+    }
     const n = measure();
     const p = para === 'end' ? n - 1 : Math.min(n - 1, Math.max(0, pageOfPara(para)));
     setPage(p);
@@ -352,7 +368,7 @@ function Reader({ id, chParam, paraParam }) {
       const me = d.book.progress.me;
       const para = target.current != null ? target.current : (me.ch === d.ch ? me.para : 0);
       target.current = null;
-      requestAnimationFrame(() => requestAnimationFrame(() => { settle(para); setTimeout(() => { ready.current = true; }, 400); }));
+      requestAnimationFrame(() => requestAnimationFrame(() => { settle(para); setTimeout(() => { ready.current = true; if (paged) settle(anchor.current); }, 400); }));
     }).catch((e) => setData({ error: e?.message || '打不开这本书' }));
   }, [ch, load]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { localStorage.setItem('imprint.study', JSON.stringify(prefs)); } catch { /* 无痕模式 */ } }, [prefs]);
@@ -365,6 +381,17 @@ function Reader({ id, chParam, paraParam }) {
     addEventListener('resize', on);
     return () => { cancelAnimationFrame(id2); removeEventListener('resize', on); };
   }, [prefs.size, prefs.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 字体晚到、地址栏收起导致页面高度变了：重新排一次页，停在原来那段
+  useEffect(() => {
+    if (!paged || !data?.paras || !vp.current) return undefined;
+    let raf = 0;
+    const again = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { if (ready.current && !flipping.current) settle(anchor.current); }); };
+    document.fonts?.ready?.then(again);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(again) : null;
+    ro?.observe(vp.current);
+    return () => { cancelAnimationFrame(raf); ro?.disconnect(); };
+  }, [paged, data?.paras]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveAt = useCallback((para) => {
     if (!ready.current || !data) return;
@@ -560,12 +587,12 @@ function Reader({ id, chParam, paraParam }) {
       {data?.paras && (
         <div className={paged ? 'st-vp' : ''} ref={vp} onClickCapture={onEdgeTap}
           onTouchStart={paged ? onTouchStart : undefined} onTouchMove={paged ? onTouchMove : undefined} onTouchEnd={paged ? onTouchEnd : undefined}>
-        <article className={`st-text ${slide ? 'slide' : ''}`} ref={cols} style={paged ? { transform: `translateX(${-page * stride()}px)` } : undefined}>
+        <article className={`st-text ${slide ? 'slide' : ''}`} ref={cols} style={paged ? { transform: `translateX(${-page * stride()}px)`, columnWidth: `${stride() - 60}px`, columnGap: '60px' } : undefined}>
           {articleBody}
         </article>
         {paged && flip && (
           <div className={`st-flip ${flip.anim ? 'anim' : ''}`} style={{ '--a': `${flip.angle}deg`, '--p': Math.min(1, Math.abs(flip.angle) / 90) }} aria-hidden="true">
-            <article className="st-text" style={{ transform: `translateX(${-flip.show * stride()}px)` }}>{articleBody}</article>
+            <article className="st-text" style={{ transform: `translateX(${-flip.show * stride()}px)`, columnWidth: `${stride() - 60}px`, columnGap: '60px' }}>{articleBody}</article>
             <i className="st-flip-shade" />
           </div>
         )}

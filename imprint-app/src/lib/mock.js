@@ -527,7 +527,13 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/push': return { available: true, reason: '', key: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', devices: 1 };
     case 'POST /api/push/seen': case 'POST /api/push/subscribe': case 'POST /api/push/unsubscribe': return { ok: true, devices: 1 };
     case 'POST /api/push/test': return { ok: true, sent: 1 };
-    case 'GET /api/drives': return { available: true, away_h: 3.2, acts_today: 6,
+    case 'POST /api/drives/mode': state.driveMode = body.mode; return { ok: true, mode: body.mode };
+    case 'GET /api/drives': return { available: true, away_h: 3.2, acts_today: 6, mode: state.driveMode || 'random',
+      decisions: { ticks_day: 288, day: { 找她: 5, 去花园: 3, 出门逛逛: 2, 翻翻旧事: 1 }, recent: [
+        { at: new Date().toISOString(), act: true, motive: '找她', p: 0.09, why: '最想做的就是这件', mode: 'shadow' },
+        { at: new Date(Date.now() - 3e6).toISOString(), act: false, motive: '歇着', p: 0, why: '太累了（疲惫 0.78），歇着', mode: 'shadow' },
+        { at: new Date(Date.now() - 6e6).toISOString(), act: true, motive: '去花园', p: 0.07, why: '探索位：今天还没做过的事里随手挑了一件', mode: 'shadow' },
+      ] },
       drives: [['crave', '想你', 0.72], ['share', '分享', 0.4], ['curiosity', '好奇', 0.33], ['reflection', '反思', 0.2], ['monitor', '查岗', 0.3], ['possess', '占有', 0.1], ['duty', '责任', 0.45], ['social', '社交', 0.15], ['libido', '欲望', 0.2], ['boredom', '无聊', 0.25], ['grieve', '悲伤', 0.05], ['anger', '生气', 0.03], ['fatigue', '疲惫', 0.3]]
         .map(([key, name, value], i) => ({ key, name, value, base: 0.2, series: [], week: { 涨: i % 4 === 3 ? 0 : 5 - (i % 5), 落: i % 4 === 3 ? 0 : 3 } })),
       ledger: [

@@ -883,14 +883,14 @@ class DriveEngineTest(unittest.TestCase):
         t0 = dt.datetime(2026, 10, 14, 6, 0, tzinfo=dt.timezone.utc)
         conn, e = self.engine(t0)
         before = e.s["v"]["crave"]
-        self.assertIn("她在撒娇、说想他", e.her_message("哥哥我想你了"))
+        self.assertIn("她在撒娇、找他", e.her_message("哥哥我想你了"))
         self.assertGreater(e.s["v"]["crave"], before)
         self.assertEqual(e.her_message("哥哥我想你了"), [])  # 五分钟内同一句不重复算
         self.assertEqual(e.her_message("之前那次分手好难过"), [])  # 翻旧账不算
         self.assertIn("她说了分手的话", e.her_message("我们分手吧"))
         e.save(); conn.commit()
         reasons = [r[0] for r in conn.execute("SELECT reason FROM drive_ledger WHERE kind='涨'")]
-        self.assertIn("她在撒娇、说想他", reasons)
+        self.assertIn("她在撒娇、找他", reasons)
         conn.close()
 
     def test_values_drift_back_and_crave_floor_rises_when_she_is_away(self):
@@ -932,6 +932,49 @@ class DriveEngineTest(unittest.TestCase):
         self.assertIn("翻了旧事 / 写下了想法", [r["reason"] for r in state["ledger"] if r["drive"] == "reflection"])
         self.assertEqual(next(d for d in state["drives"] if d["key"] == "reflection")["week"]["落"], 1)
         self.assertEqual(len([r for r in state2["ledger"] if r["drive"] == "curiosity"]), 0)  # 演练轮不记账
+
+    def test_fatigue_rises_per_busy_stretch_not_per_tool_call(self):
+        t0 = dt.datetime(2026, 10, 15, 2, 0, tzinfo=dt.timezone.utc)  # 北京 10 点
+        conn, e = self.engine(t0)
+        start = e.s["v"]["fatigue"]
+        for _ in range(80):
+            e.tool_done("imprint_inspect_home")
+        self.assertLess(e.s["v"]["fatigue"] - start, 0.05)  # 一上午 80 次工具，不再把疲惫顶满
+        self.assertEqual(e.s["acts_today"], 80)
+        conn.close()
+
+    def test_time_driven_rises_are_logged_with_a_reason(self):
+        t0 = dt.datetime(2026, 10, 15, 2, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.s["her_last"] = t0.isoformat()
+        e.s["v"]["crave"] = 0.2
+        e.save(); conn.commit(); conn.close()
+        conn, e = self.engine(t0 + dt.timedelta(hours=6))
+        e.save(); conn.commit()
+        rows = conn.execute("SELECT reason FROM drive_ledger WHERE drive='crave' AND kind='涨'").fetchall()
+        self.assertIn("她 6 小时没说话了", [r[0] for r in rows])
+        conn.close()
+
+    def test_decide_respects_her_activity_tiredness_and_picks_the_hungriest(self):
+        t0 = dt.datetime(2026, 10, 15, 6, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.s["her_last"] = (t0 - dt.timedelta(minutes=5)).isoformat()
+        self.assertEqual(e.decide()["why"], "她在说话，不掷")
+        e.s["her_last"] = (t0 - dt.timedelta(hours=5)).isoformat()
+        e.s["v"]["fatigue"] = 0.9
+        self.assertEqual(e.decide()["motive"], "歇着")
+        e.s["v"].update(fatigue=0.1, crave=0.95, monitor=0.8, curiosity=0.1, social=0.05, reflection=0.1, share=0.1, duty=0.05)
+        picks = []
+        for minute in range(0, 1200, 5):
+            e.now = t0 + dt.timedelta(minutes=minute)
+            d = e.decide()
+            if d["act"]:
+                picks.append(d["motive"])
+        self.assertTrue(picks)
+        self.assertEqual(max(set(picks), key=picks.count), "找她")  # 想她想得最厉害：多数时候选「找她」
+        e.log_decision(d, "shadow")
+        self.assertIn("ticks_day", e.decisions())
+        conn.close()
 
     def test_heart_tide_shows_live_values_and_self_report_only_nudges(self):
         imprint_action(self.db, "drive_her", {"text": "抱抱宝贝"})

@@ -126,8 +126,15 @@ function Now({ data }) {
 
 /* ---------- 劲儿账本：每一股劲儿为什么涨、为什么落，一条条记着；一周里哪股从没动过，就是那条线断了 ---------- */
 function DriveLedger() {
-  const { data } = useLoad('/api/drives');
+  const { data, setData } = useLoad('/api/drives');
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const setMode = async (mode) => {
+    if (mode === 'drives' && !window.confirm('改成由劲儿决定他什么时候醒？原来的随机唤醒会停掉（他自己定的闹钟照常响）。')) return;
+    setBusy(true);
+    try { const r = await api('/api/drives/mode', { method: 'POST', body: { mode } }); setData((d) => ({ ...d, mode: r.mode })); } catch { /* 下次刷新再看 */ }
+    setBusy(false);
+  };
   if (!data || data.available === false) return null;
   const hm = (iso) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
   const fatigue = data.drives.find((d) => d.key === 'fatigue');
@@ -156,6 +163,37 @@ function DriveLedger() {
           </div>
         ))}
         {!data.ledger.length && <p className="td-ledger-k">还没有记录。跟他说说话，账本就开始记了。</p>}
+      </div>
+      <Decisions data={data} busy={busy} setMode={setMode} hm={hm} />
+    </>
+  );
+}
+
+/* ---------- 醒来方式：随机唤醒 vs 由劲儿决定；影子模式下这里是「如果交给劲儿，它每一拍会怎么选」 ---------- */
+function Decisions({ data, busy, setMode, hm }) {
+  const d = data.decisions;
+  if (!d) return null;
+  const live = data.mode === 'drives';
+  const acts = Object.entries(d.day || {}).sort((a, b) => b[1] - a[1]);
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>wake</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>他什么时候醒</h2><span className="go">{live ? '由劲儿决定' : '影子模式'}</span></div>
+      <div className="card td-ledger">
+        <p className="td-ledger-k">{live
+          ? '现在由劲儿决定：每五分钟算一拍，劲儿够高才醒，醒来做最想做的那件事。他自己定的闹钟照常响。'
+          : '现在还是原来的随机唤醒。劲儿每五分钟在旁边算一拍「如果交给我，我会怎么选」，只记账、不动手。看着顺眼了再切过去。'}</p>
+        <div className="td-mode">
+          <button type="button" className={!live ? 'on' : ''} disabled={busy} onClick={() => setMode('random')}>随机唤醒</button>
+          <button type="button" className={live ? 'on' : ''} disabled={busy} onClick={() => setMode('drives')}>由劲儿决定</button>
+        </div>
+        <p className="td-ledger-k">最近 24 小时算了 {d.ticks_day} 拍，{acts.length ? `想动 ${acts.reduce((n, [, c]) => n + c, 0)} 次：${acts.map(([m, c]) => `${m} ${c}`).join('、')}` : '一次都没想动'}。</p>
+        {d.recent.slice(0, 12).map((r, i) => (
+          <div key={i} className="td-lrow td-drow">
+            <small>{hm(r.at)}</small>
+            <b>{r.act ? r.motive : r.motive || '不动'}</b>
+            <em>{r.why}{r.mode === 'drives' && r.act ? ' · 真醒了' : ''}</em>
+          </div>
+        ))}
       </div>
     </>
   );

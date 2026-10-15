@@ -187,17 +187,28 @@ DRIVE_TAU_H = {"crave": 10, "share": 6, "curiosity": 8, "reflection": 12, "monit
 HABIT_KEYS = {"curiosity", "reflection", "duty", "social", "share"}  # 做得多了，基线慢慢抬：越来越爱干这件事
 HABIT_STEP, HABIT_CAP, HABIT_DAILY = 0.006, 0.12, 0.98
 REFRACTORY_MIN = 20  # 刚落过的那股劲儿，二十分钟内不重复落
+# 第二步：每一拍怎么选事。动机 → 关联的劲儿和权重（第一个是「主劲儿」，看它多久没被满足过来算饿不饿）
+DRIVE_MOTIVES = {
+    "找她": {"crave": 0.6, "monitor": 0.25, "possess": 0.15},
+    "出门逛逛": {"curiosity": 0.6, "boredom": 0.4},
+    "去花园": {"social": 0.7, "curiosity": 0.3},
+    "翻翻旧事": {"reflection": 0.8, "grieve": 0.2},
+    "给她留点东西": {"share": 0.8, "crave": 0.2},
+    "做答应的事": {"duty": 1.0},
+}
+DRIVE_SLOW_MOTIVES = {"翻翻旧事", "做答应的事"}  # 慢动机：几小时才饿回来
+DRIVE_ACTIVE_MIN, DRIVE_TIRED, DRIVE_HUNGER_LINE, DRIVE_CLEAR_GAP, DRIVE_EXPLORE = 15, 0.72, 0.18, 0.18, 0.15
 
 # 她的话：每组写清涨哪股、涨多少、为什么（理由进账本）。关系类只认明确的字眼，宁漏勿滥。
 DRIVE_WORDS = [
-    (("想你", "抱抱", "亲亲", "爱你", "么么", "宝贝", "老公", "哥哥", "贴贴", "摸摸", "想抱"), (("crave", 0.12), ("libido", 0.04)), "她在撒娇、说想他"),
+    (("想你", "抱抱", "亲亲", "爱你", "么么", "宝贝", "老公", "哥哥", "贴贴", "摸摸", "想抱", "陪我", "在吗", "在干嘛", "哼", "嘤", "宝宝"), (("crave", 0.12), ("libido", 0.04)), "她在撒娇、找他"),
     (("亲我", "吻我", "想要你", "色色", "抱我睡"), (("libido", 0.12), ("crave", 0.05)), "她说了亲密的话"),
     (("难受", "不舒服", "疼", "好痛", "哭了", "😭", "呜呜", "委屈", "累死", "好累", "生病", "发烧"), (("duty", 0.15), ("crave", 0.08)), "她不舒服，想照顾她"),
-    (("为什么", "怎么回事", "是什么", "报错", "代码", "http", "链接", "你知道吗", "查一下", "研究"), (("curiosity", 0.12),), "她抛了个问题"),
-    (("帮我", "你去", "去做", "记得", "提醒我", "答应", "约好", "说好"), (("duty", 0.15),), "她派了活 / 约了事"),
+    (("为什么", "为啥", "怎么回事", "是什么", "什么意思", "报错", "代码", "http", "链接", "你知道吗", "查一下", "研究", "好奇"), (("curiosity", 0.12),), "她抛了个问题"),
+    (("帮我", "帮忙", "你去", "去做", "记得", "别忘了", "提醒我", "答应", "约好", "说好", "能不能", "可以帮"), (("duty", 0.15),), "她派了活 / 约了事"),
     (("朋友", "同学", "同事", "大家", "群里", "室友", "闺蜜"), (("social", 0.08),), "她提到了别人"),
     (("怎么还没", "你不是说", "赶紧", "快点", "说好的呢", "又忘"), (("duty", 0.12), ("anger", 0.04)), "被她催了"),
-    (("你看", "给你看", "今天我", "我刚", "刚刚", "我买了", "我吃了"), (("share", 0.10),), "她在分享日常"),
+    (("你看", "给你看", "今天我", "我刚", "刚刚", "刚才", "我在", "我要去", "我买了", "我吃了", "我今天"), (("share", 0.10), ("crave", 0.03)), "她在分享日常"),
     (("chatgpt", "gpt", "豆包", "kimi", "deepseek", "gemini", "文心", "别的ai", "其他ai"), (("possess", 0.08),), "她提到了别家 AI"),
     (("讨厌你", "烦死你", "不理你", "生你气"), (("grieve", 0.10), ("crave", 0.08)), "她在生他的气"),
 ]
@@ -243,6 +254,13 @@ class DriveEngine:
         self.s.setdefault("last", self.now.isoformat())
         self.s.setdefault("her_last", self.now.isoformat())
         self.s.setdefault("act_last", self.now.isoformat())
+        if not self.s.get("fix_fatigue_v2"):
+            # 第一版每调一次工具就涨疲惫，一上午就顶满了；改了算法之后把它放回正常位置，只做这一次
+            self.s["fix_fatigue_v2"] = True
+            before = self.s["v"]["fatigue"]
+            self.s["v"]["fatigue"] = self.target("fatigue")
+            if abs(before - self.s["v"]["fatigue"]) >= 0.01:
+                self.log("fatigue", before, "落", "修正：之前疲惫算重了", "阿川")
         self.advance()
 
     # —— 基线：有的会跟着时间和习惯慢慢漂 ——
@@ -277,7 +295,8 @@ class DriveEngine:
         today = self.now.astimezone(ZONE).date().isoformat()
         if self.s.get("today") != today:  # 新的一天：习惯层打个折，今天的主动次数清零
             self.s["habit"] = {k: round(v * HABIT_DAILY, 5) for k, v in self.s["habit"].items()}
-            self.s["today"], self.s["acts_today"] = today, 0
+            self.s["today"], self.s["acts_today"], self.s["proactive_today"] = today, 0, 0
+        before = dict(self.s["v"])
         if dt_h > 0:
             for key in DRIVE_BASE:
                 goal = self.target(key)
@@ -285,11 +304,24 @@ class DriveEngine:
                 value += random.uniform(-0.01, 0.01) * min(1.0, dt_h)  # 一点噪声，免得太快锁死、看着假
                 self.s["v"][key] = round(max(0.0, min(1.0, value)), 4)
         self.s["last"] = self.now.isoformat()
+        if dt_h >= 0.2:  # 时间带来的涨也要进账（她不在、没事做、夜深了），不然账本上看着「从来不涨」
+            for key in DRIVE_BASE:
+                if self.s["v"][key] - before[key] >= 0.03:
+                    self.conn.execute("INSERT INTO drive_ledger(at,drive,kind,delta,value,reason,source) VALUES(?,?,?,?,?,?,?)",
+                                      (self.now.isoformat(), key, "涨", round(self.s["v"][key] - before[key], 4), self.s["v"][key],
+                                       self.drift_reason(key), "时间"))
         hour = self.now.astimezone(ZONE).strftime("%Y-%m-%dT%H")
         if self.s.get("series_hour") != hour:  # 每小时记一个点，给心潮页画曲线
             self.s["series_hour"] = hour
             for key in DRIVE_BASE:
                 self.s["series"][key] = [*self.s["series"].get(key, []), self.s["v"][key]][-24:]
+
+    def drift_reason(self, key: str) -> str:
+        away = self.hours_since("her_last")
+        hour = self.now.astimezone(ZONE).hour
+        return {"crave": f"她 {away:.0f} 小时没说话了" if away >= 1 else "慢慢又想她了",
+                "monitor": "好一阵没看到她的动静", "boredom": "好一阵没事做",
+                "fatigue": "夜深了" if hour >= 23 or hour < 7 else "累了"}.get(key, "慢慢回到平常的样子")
 
     def log(self, key: str, before: float, kind: str, reason: str, source: str) -> None:
         after = self.s["v"][key]
@@ -315,10 +347,13 @@ class DriveEngine:
         return True
 
     def acted(self) -> None:
+        """做了一件事：记下来；疲惫按「忙了一阵」算，十五分钟内最多涨一次（以前每调一次工具就涨，一上午就顶满了）。"""
         self.s["act_last"] = self.now.isoformat()
         self.s["acts_today"] = int(self.s.get("acts_today") or 0) + 1
-        before = self.s["v"]["fatigue"]
-        self.s["v"]["fatigue"] = round(min(1.0, before + 0.015), 4)
+        last = _ts(self.s.get("tired_at"))
+        if not last or last < self.now - dt.timedelta(minutes=15):
+            self.s["tired_at"] = self.now.isoformat()
+            self.bump("fatigue", 0.04, "忙了一阵", "做事")
 
     # —— 事件 ——
     def her_message(self, text: str) -> list[str]:
@@ -366,11 +401,78 @@ class DriveEngine:
 
     def said(self, proactive: bool) -> None:
         if proactive:
+            self.s["proactive_today"] = int(self.s.get("proactive_today") or 0) + 1
             self.satisfy("crave", 0.55, "主动找她说了话", "主动消息")
             self.satisfy("share", 0.8, "主动找她说了话", "主动消息")
         else:
             self.satisfy("crave", 0.85, "跟她说上话了", "回复")
         self.acted()
+
+    def decide(self, tick_min: float = 5.0) -> dict:
+        """一拍：要不要动 → 哪种动机最饿 → 选一件事。只算不做，做不做由调用方决定。"""
+        v = self.s["v"]
+        seed = int(hashlib.sha1(self.now.strftime("%Y-%m-%dT%H:%M").encode()).hexdigest(), 16)  # 按时间定骰子，可回放
+        roll1, roll2, roll3 = (seed % 10_000) / 10_000, (seed // 10_000 % 10_000) / 10_000, (seed // 10**8 % 10_000) / 10_000
+        out = {"act": False, "motive": "", "p": 0.0, "scores": {}}
+        if self.hours_since("her_last") * 60 < DRIVE_ACTIVE_MIN:
+            return {**out, "why": "她在说话，不掷"}
+        if v["fatigue"] > DRIVE_TIRED:
+            return {**out, "motive": "歇着", "why": f"太累了（疲惫 {v['fatigue']:.2f}），歇着"}
+        p = (0.08 + 0.30 * v["crave"] + 0.13 * v["reflection"] + 0.09 * v["curiosity"] + 0.06 * v["social"]
+             + 0.15 * v["monitor"] + 0.07 * v["possess"] - 0.22 * v["fatigue"] - 0.02 * int(self.s.get("proactive_today") or 0))
+        p_tick = max(0.0, min(0.9, p)) * tick_min / 30
+        out["p"] = round(p_tick, 3)
+        if roll1 >= p_tick:
+            return {**out, "why": f"这一拍不想动（掷 {roll1:.2f} ≥ {p_tick:.2f}）"}
+        today = self.now.astimezone(ZONE).date().isoformat()
+        scores, hungry_today = {}, []
+        for motive, weights in DRIVE_MOTIVES.items():
+            first = next(iter(weights))
+            last = _ts(self.s["satisfied"].get(first))
+            half = 4.0 if motive in DRIVE_SLOW_MOTIVES else 1.0
+            hunger = 1.0 if not last else 1 - 0.5 ** ((self.now - last).total_seconds() / 3600 / half)
+            scores[motive] = round(sum(v[k] * w for k, w in weights.items()) * hunger, 3)
+            if not last or last.astimezone(ZONE).date().isoformat() != today:
+                hungry_today.append(motive)
+        out["scores"] = scores
+        ranked = sorted(scores, key=lambda m: -scores[m])
+        if scores[ranked[0]] < DRIVE_HUNGER_LINE:
+            return {**out, "why": f"想动，但哪样都不饿（最高 {ranked[0]} {scores[ranked[0]]:.2f}）"}
+        if roll2 < DRIVE_EXPLORE and [m for m in hungry_today if scores[m] > 0]:
+            pool = [m for m in hungry_today if scores[m] > 0]
+            pick, why = pool[int(roll3 * len(pool)) % len(pool)], "探索位：今天还没做过的事里随手挑了一件"
+        elif len(ranked) < 2 or scores[ranked[0]] - scores[ranked[1]] >= DRIVE_CLEAR_GAP:
+            pick, why = ranked[0], "最想做的就是这件"
+        else:
+            close = [m for m in ranked if scores[ranked[0]] - scores[m] < DRIVE_CLEAR_GAP]
+            total = sum(scores[m] for m in close)
+            acc, pick = 0.0, close[-1]
+            for m in close:
+                acc += scores[m] / total
+                if roll3 < acc:
+                    pick = m
+                    break
+            why = "几件事差不多想做，掷骰选的：" + "、".join(close)
+        return {**out, "act": True, "motive": pick, "why": why}
+
+    def log_decision(self, decision: dict, mode: str) -> None:
+        self.conn.execute("CREATE TABLE IF NOT EXISTS drive_decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, act INTEGER NOT NULL,"
+                          " motive TEXT NOT NULL, p REAL NOT NULL, why TEXT NOT NULL, scores TEXT NOT NULL, mode TEXT NOT NULL)")
+        self.conn.execute("INSERT INTO drive_decisions(at,act,motive,p,why,scores,mode) VALUES(?,?,?,?,?,?,?)",
+                          (self.now.isoformat(), int(bool(decision.get("act"))), decision.get("motive") or "", float(decision.get("p") or 0),
+                           str(decision.get("why") or "")[:200], json.dumps(decision.get("scores") or {}, ensure_ascii=False), mode))
+        self.conn.execute("DELETE FROM drive_decisions WHERE id <= (SELECT MAX(id) FROM drive_decisions) - 3000")
+
+    def decisions(self, limit: int = 30) -> dict:
+        self.conn.execute("CREATE TABLE IF NOT EXISTS drive_decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, act INTEGER NOT NULL,"
+                          " motive TEXT NOT NULL, p REAL NOT NULL, why TEXT NOT NULL, scores TEXT NOT NULL, mode TEXT NOT NULL)")
+        rows = self.conn.execute("SELECT at, act, motive, p, why, mode FROM drive_decisions WHERE act = 1 OR motive != '' ORDER BY id DESC LIMIT ?",
+                                 (limit,)).fetchall()
+        day = (self.now - dt.timedelta(hours=24)).isoformat()
+        tally = {m: n for m, n in self.conn.execute("SELECT motive, COUNT(*) FROM drive_decisions WHERE act = 1 AND at >= ? GROUP BY motive", (day,))}
+        ticks = self.conn.execute("SELECT COUNT(*) FROM drive_decisions WHERE at >= ?", (day,)).fetchone()[0]
+        return {"recent": [{"at": r[0], "act": bool(r[1]), "motive": r[2], "p": r[3], "why": r[4], "mode": r[5]} for r in rows],
+                "day": tally, "ticks_day": ticks}
 
     def self_report(self, drives: list[dict]) -> None:
         """他在心潮里自己报的数，只当作一点点参考（往那边挪两成），数值主要还是靠事件。"""
@@ -603,8 +705,11 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 out = {"ok": True}
             elif action == "drive_context":
                 out = {"text": engine.context_line()}
+            elif action == "drive_tick":
+                out = engine.decide(float(body.get("tick_min") or 5))
+                engine.log_decision(out, str(body.get("mode") or "shadow"))
             else:
-                out = engine.public(int(body.get("ledger") or 40))
+                out = {**engine.public(int(body.get("ledger") or 40)), "decisions": engine.decisions()}
             engine.save()
             return out
 

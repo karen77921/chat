@@ -429,7 +429,8 @@ async function compat(path, opts) {
   if (method === 'PUT' && p === '/api/together/playlist') return loop('imprint/together/playlist', opts).then(listenPayload);
   if (method === 'DELETE' && (m = /^\/api\/together\/playlist\/([^/]+)$/.exec(p))) return loop(`imprint/together/playlist/${m[1]}`, opts).then(listenPayload);
   if (method === 'GET' && p === '/api/tide') return loop('tide/pulse');
-  if (method === 'GET' && p === '/api/drives') return loop('imprint/drives');
+  if (method === 'GET' && p === '/api/drives') return loop('drives');
+  if (method === 'POST' && p === '/api/drives/mode') return loop('drives/mode', opts);
   if (method === 'GET' && p === '/api/tide/dreams') return loop('imprint/tide/dreams');
   if (method === 'GET' && p === '/api/tide/memory') {
     const query = new URL(path, window.location.origin).searchParams.get('q') || '';

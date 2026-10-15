@@ -208,3 +208,21 @@
 .st.embedded .st-head { padding-top: 16px; }
 .st.embedded .st-head .st-ghost { margin-bottom: 0 !important; }
 .st.embedded .st-stage { margin-top: 8px; }
+
+/* —— 左右翻页：一章排成横向的很多栏，一栏一页 —— */
+.st-reader.paged { position: fixed; inset: 0; padding: 0; overflow: hidden; min-height: 0; }
+.st-reader.paged .st-rbar { position: absolute; left: 0; right: 0; top: 0; margin-top: 0; padding-top: calc(env(safe-area-inset-top, 0px) + 10px); }
+.st-vp { position: absolute; left: 0; right: 0; top: calc(env(safe-area-inset-top, 0px) + 52px); bottom: calc(env(safe-area-inset-bottom, 0px) + 74px); overflow: hidden; touch-action: pan-y; }
+.st-vp .st-text { box-sizing: border-box; height: 100%; max-width: none; margin: 0; padding: 14px 30px 0; column-count: 1; column-gap: 60px; column-fill: auto; }
+.st-vp .st-text.slide { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+.st-vp .st-annot, .st-vp .st-here, .st-vp .st-chnav { break-inside: avoid; }
+.st-vp .st-chapter { margin-bottom: 22px; }
+.st-tocb { font-size: 12.5px !important; letter-spacing: .14em; color: var(--st-muted) !important; }
+.st-c { cursor: pointer; }
+.st-rfoot .st-row { align-items: center; }
+.st-fch, .st-turn button { pointer-events: auto; color: var(--st-muted) !important; letter-spacing: .08em; }
+.st-fch { font-size: 11.5px !important; }
+.st-turn { display: flex; align-items: center; gap: 4px; pointer-events: auto; }
+.st-turn button { font-size: 22px !important; line-height: 1; padding: 2px 12px !important; }
+.st-turn em { font-style: normal; font-size: 11.5px; min-width: 52px; text-align: center; }
+.st .st-c { flex: 1; min-width: 0; text-align: center; font-family: var(--st-serif); font-size: 12px; letter-spacing: .28em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -686,7 +686,9 @@ BOOK_HEAD_RE = re.compile(
     r"^(?:(?:chapter|letter|book|part|volume|stave)\s+" + BOOK_NUM + r"\b[.:]?(?:\s.{0,50})?"
     r"|第\s*[\d一二三四五六七八九十百千零〇两]+\s*[章回节卷部篇幕].{0,30}"
     r"|(?:prologue|epilogue|preface|foreword|introduction|afterword)\b.{0,30}"
-    r"|(?:序章?|自序|代序|前言|引子|楔子|后记|尾声|番外)(?:[\s:：.、].{0,30})?)$", re.I)
+    r"|(?:序章?|自序|代序|前言|引子|楔子|后记|尾声|番外)(?:[\s:：.、].{0,30})?"
+    r"|[一二三四五六七八九十百]{1,4}[、.．]\s*\S.{0,24}"
+    r"|(?:\d{1,3}|[IVXLC]{1,7})\.?)$", re.I)
 _CJK = re.compile(r"[　-鿿＀-￯]")
 
 

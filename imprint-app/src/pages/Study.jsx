@@ -269,7 +269,7 @@ function BookMenu({ book, onClose, onDone }) {
 /* ——————————————— 读书页 ——————————————— */
 
 function loadPrefs() {
-  try { return { size: 1, night: false, ...JSON.parse(localStorage.getItem('imprint.study') || '{}') }; } catch { return { size: 1, night: false }; }
+  try { return { size: 1, night: false, mode: 'page', ...JSON.parse(localStorage.getItem('imprint.study') || '{}') }; } catch { return { size: 1, night: false, mode: 'page' }; }
 }
 
 function Para({ text, idx, marks, sel, onPick, first }) {
@@ -302,12 +302,44 @@ function Reader({ id, chParam, paraParam }) {
   const [pick, setPick] = useState(null); // { para, si, text, top, left }
   const [thread, setThread] = useState(null); // { mode:'view'|'note'|'ask'|'word', root?, para, quote }
   const [toast, setToast] = useState('');
+  const [page, setPage] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [slide, setSlide] = useState(false); // 翻页动画：换章、改字号时不要动画
   const ready = useRef(false);
   const lastSaved = useRef('');
   const target = useRef(paraParam != null ? Number(paraParam) : null);
+  const vp = useRef(null), cols = useRef(null);
+  const anchor = useRef(0);
+  const touch = useRef(null);
+  const paged = prefs.mode !== 'scroll';
 
   const say = (t) => { setToast(t); setTimeout(() => setToast(''), 2200); };
   const load = useCallback((which) => api(`/api/books/${id}/ch/${which}`).then((d) => { setData(d); return d; }), [id]);
+
+  // —— 翻页模式：一章排成横向的很多栏，一栏一页 ——
+  const stride = () => vp.current?.clientWidth || window.innerWidth;
+  const span = (el) => {
+    const rects = el?.getClientRects();
+    if (!rects?.length || !cols.current) return [0, 0];
+    const base = cols.current.getBoundingClientRect().left, w = stride();
+    return [Math.floor((rects[0].left - base + 2) / w), Math.floor((rects[rects.length - 1].left - base + 2) / w)];
+  };
+  const paraEls = () => [...(cols.current?.querySelectorAll('[data-i]') || [])];
+  const pageOfPara = (i) => span(cols.current?.querySelector(`[data-i="${i}"]`))[0];
+  const paraOfPage = (p) => { const el = paraEls().find((e) => span(e)[1] >= p); return el ? Number(el.dataset.i) : 0; };
+  const measure = () => { const last = cols.current?.lastElementChild; const n = last ? span(last)[1] + 1 : 1; setPages(n); return n; };
+  const settle = (para) => {
+    if (!paged) {
+      const el = para > 0 && document.querySelector(`.st-text [data-i="${para}"]`);
+      if (el) el.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0);
+      return;
+    }
+    setSlide(false);
+    const n = measure();
+    const p = para === 'end' ? n - 1 : Math.min(n - 1, Math.max(0, pageOfPara(para)));
+    setPage(p);
+    anchor.current = para === 'end' ? paraOfPage(p) : para;
+  };
 
   useEffect(() => { api('/api/books').then((d) => d?.names && setNames(d.names)).catch(() => {}); }, []);
   useEffect(() => {
@@ -318,36 +350,78 @@ function Reader({ id, chParam, paraParam }) {
       const me = d.book.progress.me;
       const para = target.current != null ? target.current : (me.ch === d.ch ? me.para : 0);
       target.current = null;
-      requestAnimationFrame(() => {
-        const el = para > 0 && document.querySelector(`.st-text [data-i="${para}"]`);
-        if (el) el.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0);
-        setTimeout(() => { ready.current = true; }, 400);
-      });
+      requestAnimationFrame(() => requestAnimationFrame(() => { settle(para); setTimeout(() => { ready.current = true; }, 400); }));
     }).catch((e) => setData({ error: e?.message || '打不开这本书' }));
-  }, [ch, load]);
+  }, [ch, load]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { localStorage.setItem('imprint.study', JSON.stringify(prefs)); } catch { /* 无痕模式 */ } }, [prefs]);
-
-  // 书签：停下来的那一段（顶上第一段看得见的）
+  // 改字号、换模式、转屏：停在原来那一段
   useEffect(() => {
     if (!data?.paras) return undefined;
+    const keep = anchor.current;
+    const id2 = requestAnimationFrame(() => settle(keep));
+    const on = () => settle(anchor.current);
+    addEventListener('resize', on);
+    return () => { cancelAnimationFrame(id2); removeEventListener('resize', on); };
+  }, [prefs.size, prefs.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveAt = useCallback((para) => {
+    if (!ready.current || !data) return;
+    const key = `${data.ch}.${para}`;
+    if (key === lastSaved.current) return;
+    lastSaved.current = key;
+    api(`/api/books/${id}/progress`, { method: 'POST', body: { ch: data.ch, para } })
+      .then((r) => setData((d) => (d && d.ch === data.ch ? { ...d, book: { ...d.book, progress: r.progress, minutes: r.minutes } } : d))).catch(() => {});
+  }, [data, id]);
+
+  // 书签（翻页）：这一页开头那一段
+  useEffect(() => {
+    if (!paged || !data?.paras) return undefined;
+    const timer = setTimeout(() => {
+      const para = page >= pages - 1 ? data.paras.length - 1 : paraOfPage(page);
+      anchor.current = paraOfPage(page);
+      saveAt(para);
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [page, pages, paged, data?.paras, saveAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 书签（滚动）：顶上第一段看得见的
+  useEffect(() => {
+    if (paged || !data?.paras) return undefined;
     let timer = 0;
     const save = () => {
-      if (!ready.current) return;
       const ps = [...document.querySelectorAll('.st-text [data-i]')];
       const atEnd = window.innerHeight + window.scrollY >= document.body.scrollHeight - 40;
       const top = atEnd ? ps[ps.length - 1] : ps.find((p) => p.getBoundingClientRect().bottom > 90);
       if (!top) return;
-      const para = Number(top.dataset.i);
-      const key = `${data.ch}.${para}`;
-      if (key === lastSaved.current) return;
-      lastSaved.current = key;
-      api(`/api/books/${id}/progress`, { method: 'POST', body: { ch: data.ch, para } })
-        .then((r) => setData((d) => (d && d.ch === data.ch ? { ...d, book: { ...d.book, progress: r.progress, minutes: r.minutes } } : d))).catch(() => {});
+      anchor.current = Number(top.dataset.i);
+      saveAt(Number(top.dataset.i));
     };
     const on = () => { clearTimeout(timer); timer = setTimeout(save, 1200); setPick(null); };
     addEventListener('scroll', on, { passive: true });
     return () => { removeEventListener('scroll', on); clearTimeout(timer); };
-  }, [data?.ch, data?.paras, id]);
+  }, [paged, data?.paras, saveAt]);
+
+  const turn = (dir) => {
+    setPick(null);
+    if (!data?.paras) return;
+    if (dir > 0) {
+      if (page < pages - 1) { setSlide(true); setPage(page + 1); } else if (data.ch < data.toc.length - 1) { target.current = 0; setCh(data.ch + 1); } else say('这本读完啦');
+    } else if (page > 0) { setSlide(true); setPage(page - 1); } else if (data.ch > 0) { target.current = 'end'; setCh(data.ch - 1); }
+  };
+  const jump = (i) => { target.current = 0; setToc(false); if (i === data?.ch) settle(0); else setCh(i); };
+  useEffect(() => {
+    if (!paged) return undefined;
+    const on = (e) => { if (e.key === 'ArrowRight') turn(1); if (e.key === 'ArrowLeft') turn(-1); };
+    addEventListener('keydown', on);
+    return () => removeEventListener('keydown', on);
+  });
+  const onTouchStart = (e) => { const p = e.touches[0]; touch.current = { x: p.clientX, y: p.clientY }; };
+  const onTouchEnd = (e) => {
+    const s = touch.current; touch.current = null;
+    if (!s) return;
+    const p = e.changedTouches[0], dx = p.clientX - s.x, dy = p.clientY - s.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2) turn(dx < 0 ? 1 : -1);
+  };
 
   if (data?.error) return <main className="st st-reader"><p className="st-quiet">{data.error}　<a href="#/together?tab=read">回书架</a></p></main>;
   const book = data?.book;
@@ -377,10 +451,11 @@ function Reader({ id, chParam, paraParam }) {
   };
 
   return (
-    <main className={`st st-reader ${prefs.night ? 'night' : ''}`} style={{ '--fs': `${SIZES[prefs.size]}px` }} onClick={() => { setPick(null); setAa(false); }}>
+    <main className={`st st-reader ${prefs.night ? 'night' : ''} ${paged ? 'paged' : ''}`} style={{ '--fs': `${SIZES[prefs.size]}px` }} onClick={() => { setPick(null); setAa(false); }}>
       <header className="st-rbar">
         <a href="#/together?tab=read" className="st-x" aria-label="回书架">×</a>
-        <span className="st-c">{book?.title || ''}</span>
+        <button type="button" className="st-c" onClick={(e) => { e.stopPropagation(); setToc(true); }}>{book?.title || ''}</button>
+        <button type="button" className="st-tocb" onClick={(e) => { e.stopPropagation(); setToc(true); }} aria-label="目录">目录</button>
         <button type="button" className="st-aa" onClick={(e) => { e.stopPropagation(); setAa((v) => !v); }}>Aa</button>
       </header>
       {aa && (
@@ -388,6 +463,9 @@ function Reader({ id, chParam, paraParam }) {
           <div className="st-aa-row"><span>字号</span>
             <button type="button" disabled={prefs.size === 0} onClick={() => setPrefs((p) => ({ ...p, size: p.size - 1 }))}>A−</button>
             <button type="button" disabled={prefs.size === SIZES.length - 1} onClick={() => setPrefs((p) => ({ ...p, size: p.size + 1 }))}>A+</button></div>
+          <div className="st-aa-row"><span>翻书</span>
+            <button type="button" className={paged ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, mode: 'page' }))}>左右翻</button>
+            <button type="button" className={!paged ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, mode: 'scroll' }))}>上下滑</button></div>
           <div className="st-aa-row"><span>夜读</span><button type="button" className={prefs.night ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, night: !p.night }))}>{prefs.night ? '开' : '关'}</button></div>
           <button type="button" className="st-aa-toc" onClick={() => { setAa(false); setToc(true); }}>目录 · {data?.toc?.length || 0} 章</button>
         </div>
@@ -395,7 +473,8 @@ function Reader({ id, chParam, paraParam }) {
 
       {!data && <p className="st-quiet">翻开中…</p>}
       {data?.paras && (
-        <article className="st-text">
+        <div className={paged ? 'st-vp' : ''} ref={vp} onTouchStart={paged ? onTouchStart : undefined} onTouchEnd={paged ? onTouchEnd : undefined}>
+        <article className={`st-text ${slide ? 'slide' : ''}`} ref={cols} style={paged ? { transform: `translateX(${-page * stride()}px)` } : undefined}>
           <div className="st-num">{head ? head[1].toUpperCase() : `${data.ch + 1} / ${data.toc.length}`}</div>
           <h1 className={`st-chapter ${head ? '' : 'long'}`}>{head ? head[2] : data.title}</h1>
           {data.paras.map((text, i) => {
@@ -419,19 +498,28 @@ function Reader({ id, chParam, paraParam }) {
             );
           })}
           <nav className="st-chnav">
-            {data.ch > 0 ? <button type="button" onClick={() => setCh(data.ch - 1)}>← 上一章</button> : <span />}
+            {data.ch > 0 ? <button type="button" onClick={() => jump(data.ch - 1)}>← 上一章</button> : <span />}
             {data.ch < data.toc.length - 1
-              ? <button type="button" className="st-black" onClick={() => setCh(data.ch + 1)}>下一章 →</button>
+              ? <button type="button" className="st-black" onClick={() => jump(data.ch + 1)}>下一章 →</button>
               : <button type="button" className="st-black" onClick={() => api(`/api/books/${id}/progress`, { method: 'POST', body: { ch: data.ch, para: data.paras.length - 1, done: true } }).then(() => say('读完了。去书架上看看你们留下的批注吧'))}>读完了</button>}
           </nav>
         </article>
+        </div>
       )}
 
       {book && (
         <footer className="st-rfoot">
           <Progress me={book.progress.me} him={book.progress.him} meI={meI} himI={himI} />
-          <div className="st-row"><span>{roman(data.ch + 1)} · {Math.round(book.progress.me.pct)}%</span>
-            <span>批注 {roots.filter((m) => m.text).length}　·　生词 {roots.filter((m) => m.kind === 'word').length}</span></div>
+          <div className="st-row">
+            <button type="button" className="st-fch" onClick={(e) => { e.stopPropagation(); setToc(true); }}>{roman(data.ch + 1)} · {Math.round(book.progress.me.pct)}%</button>
+            {paged ? (
+              <span className="st-turn">
+                <button type="button" aria-label="上一页" onClick={(e) => { e.stopPropagation(); turn(-1); }}>‹</button>
+                <em>{page + 1} / {pages}</em>
+                <button type="button" aria-label="下一页" onClick={(e) => { e.stopPropagation(); turn(1); }}>›</button>
+              </span>
+            ) : <span>批注 {roots.filter((m) => m.text).length}　·　生词 {roots.filter((m) => m.kind === 'word').length}</span>}
+          </div>
         </footer>
       )}
 
@@ -456,7 +544,7 @@ function Reader({ id, chParam, paraParam }) {
           <div className="st-pad st-toc">
             <div className="st-eyebrow">Contents</div>
             {data?.toc?.map((t, i) => (
-              <button key={i} type="button" className={i === data.ch ? 'on' : ''} onClick={() => { setToc(false); setCh(i); }}>
+              <button key={i} type="button" className={i === data.ch ? 'on' : ''} onClick={() => jump(i)} ref={i === data.ch ? (el) => el?.scrollIntoView({ block: 'center' }) : undefined}>
                 <span>{t}</span>
                 {book.progress.me.ch === i && <i className="her">{meI}</i>}
                 {book.progress.him.started && book.progress.him.ch === i && <i className="him">{himI}</i>}

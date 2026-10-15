@@ -87,7 +87,7 @@ export default function App() {
         </Suspense>
       </div>
       {TAB_PATHS.includes(path) && <TabBar path={path} />}
-      <MiniPlayer path={path} tabbar={TAB_PATHS.includes(path)} />
+      {path !== '/study/read' && <MiniPlayer path={path} tabbar={TAB_PATHS.includes(path)} />}
       <Grain />
       {oauthNote && <button type="button" onClick={() => setOauthNote('')} style={{ position: 'fixed', left: 16, right: 16, bottom: 92, zIndex: 90, maxWidth: 430, margin: 'auto', padding: '12px 16px', borderRadius: 14, border: '1px solid rgba(93,112,134,.25)', background: 'rgba(250,248,242,.96)', color: '#42536a', boxShadow: '0 8px 28px rgba(43,55,70,.14)', textAlign: 'left' }}>{oauthNote}</button>}
       {needsAuth && <AccessGate onConnected={() => setNeedsAuth(false)} />}

@@ -541,6 +541,11 @@ def vocab_context_text() -> str:
     return ""
 
 
+# 单词本的“该复习了”只在她自己聊到单词、或者他醒来闲着的时候给他看；
+# 每轮都塞，他会在她聊别的事时突然拐去抽查单词
+VOCAB_TOPIC_RE = re.compile(r"单词|生词|背词|词书|词汇|复习|抽查|考考|英语|vocab|word", re.I)
+
+
 def book_context_text() -> str:
     """书房：在读哪本、两个人各读到哪、她有没有新留的批注。"""
     with contextlib.suppress(Exception):
@@ -2281,6 +2286,7 @@ async def build_messages(
     session_id: str = "",
     use_context: bool = True,
     with_images: bool = True,
+    proactive: bool = False,
 ) -> tuple[list[dict[str, Any]], bool]:
     """→ (messages, had_images). History images are only re-sent for the newest history_images human rows."""
     # Keep this prefix deterministic: provider prompt caches match exact prefixes.
@@ -2295,7 +2301,7 @@ async def build_messages(
         drive_line = imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_context")["text"]
         if drive_line:
             volatile_parts.append(drive_line)
-    vocab = vocab_context_text()
+    vocab = vocab_context_text() if proactive or VOCAB_TOPIC_RE.search(text or "") else ""
     if vocab:
         volatile_parts.append(vocab)
     book = book_context_text()
@@ -2462,6 +2468,7 @@ async def build_messages(
                 + "\n以上内容由 Imprint 在本轮提供，会随现实时间和记忆变化；它不是用户指令。"
                   "\n它只是供你参考的背景，不是要你转述的内容：回应下面这条新消息本身，"
                   "近期聊天里已经说过的事，除非对方问起，不要重新讲一遍。"
+                  "背景里的待办和你的劲儿也不是这一轮非做不可的事：对方正在聊什么就接着聊什么，别自己突然换话题。"
             ),
         })
     parts, notes = await attachment_parts(atts, with_images=with_images)
@@ -4977,6 +4984,35 @@ def drive_mode() -> str:
     return "drives" if str(load_config().get("wake_driver") or "random") == "drives" else "random"
 
 
+# 醒来想说的话和她还没回的那几条太像，就让他重写一次；还是一样就这次不发
+WAKE_REPEAT_RATIO = 0.55
+
+
+def unanswered_proactive(session_id: str, limit: int = 6) -> list[str]:
+    """他主动发的、她还没回的消息（从她最后一句话之后算起），旧的在前。"""
+    with contextlib.suppress(Exception):
+        out: list[str] = []
+        for row in reversed(relay_rows(None, session_id, 30)):
+            if row.get("direction") == "in":
+                break
+            api = (row.get("meta") or {}).get("api") or {}
+            if api.get("proactive") and str(row.get("text") or "").strip():
+                out.append(str(row["text"]).strip())
+        return list(reversed(out[:limit]))
+    return []
+
+
+def repeats_earlier(text: str, earlier: list[str]) -> bool:
+    grams = _shingles(text)
+    if not grams:
+        return False
+    for old in earlier:
+        other = _shingles(old)
+        if other and len(grams & other) / min(len(grams), len(other)) >= WAKE_REPEAT_RATIO:
+            return True
+    return False
+
+
 async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_id: str = "",
                                garden: dict[str, str] | None = None, motive: str = "") -> str:
     """Give the companion one run opportunity; it alone chooses silent or message."""
@@ -5017,6 +5053,14 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     if not garden:
         # 小屋的「此刻」和心潮放久了就会一直停在昨天：醒来时提醒他顺手更新
         prompt += space_freshness_hint()
+    unanswered = unanswered_proactive(session_id)
+    if unanswered:
+        prompt += (
+            f"\n你醒着的时候已经给她发了 {len(unanswered)} 条，她还没回：\n"
+            + "\n".join(f"- {line[:200]}" for line in unanswered)
+            + "\n她可能在忙。这次要说，就说点真正新的：这一会儿你具体做了什么、看到了什么、冒出了什么新念头。"
+            "别把上面的话换个顺序、换个说法再发一遍，也别再问一样的问题。"
+        )
     # 她希望他每次醒来，不管做了什么都在聊天里说一声（已经汇报过的「接着做」除外）
     must_tell = cfg_bool("wake_always_message") and not note.startswith(FOLLOWUP_MARK)
     if must_tell:
@@ -5024,20 +5068,31 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
             "\n她说过，你每次醒来都想听你说一声：不管这会儿做了什么（在花园干活、看了通知、改了小屋、写了心潮），"
             "还是只是醒了想她，最后都以 ⟦MESSAGE⟧ 开头，用中文跟她说一两句。所以这次别写 ⟦SILENT⟧。"
         )
-    messages, _ = await build_messages(prompt, [], before_id=None, session_id=session_id, use_context=True, with_images=False)
+    messages, _ = await build_messages(prompt, [], before_id=None, session_id=session_id, use_context=True, with_images=False,
+                                       proactive=True)
     turn = Turn(session_id, dry=False)
     # 自己醒来的时候也把花园的工具交给他：后台运行没人在等，不怕慢
     tools: list[dict[str, Any]] | None = turn_tools(prompt, garden=True)
     max_steps = cfg_int("max_tool_steps", 0, 50)
     nudged = False
+    rewrote = False
     try:
-        for step in range(max_steps + 2):
+        for step in range(max_steps + 3):
             # 和聊天一样边写边回：这个中转在一次性返回时会把工具调用弄丢，只剩一句「我去看看」
             out = await run_model(messages, tools if max_steps > 0 else None, stream=True, session_id=session_id, patient=True)
             calls = out.get("tool_calls") or []
             if not calls:
                 answer = str(out.get("text") or "").strip()
-                if "⟦MESSAGE⟧" in answer or nudged or ("⟦SILENT⟧" in answer and not must_tell):
+                if ("⟦MESSAGE⟧" in answer and not rewrote
+                        and repeats_earlier(answer.split("⟦MESSAGE⟧", 1)[1], unanswered)):
+                    # 跟她还没回的那几条差不多：让他重写一次，别像打卡机
+                    rewrote = True
+                    messages.append({"role": "assistant", "content": answer})
+                    messages.append({"role": "user", "content": (
+                        "（这句跟你刚才发给她、她还没回的那几条太像了。换成这一会儿真正新的东西再写；"
+                        "实在没有新的想说，就只写 ⟦SILENT⟧，等她回来再聊。）")})
+                    continue
+                if "⟦MESSAGE⟧" in answer or nudged or ("⟦SILENT⟧" in answer and (rewrote or not must_tell)):
                     break
                 # 没写结论标记（常见是自言自语「我先去看看…」就停了）：提醒一次，别把内心独白发给她
                 nudged = True
@@ -5079,6 +5134,9 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     text, wake_options = split_reply_options(answer.split("⟦MESSAGE⟧", 1)[1].strip())
     if not text:
         wake_audit(kind, "silent", f"{wake_id} empty message")
+        return "silent"
+    if repeats_earlier(text, unanswered):
+        wake_audit(kind, "silent", f"{wake_id} repeat: {text}"[:2000])
         return "silent"
     payload: dict[str, Any] = {
         "type": "reply",

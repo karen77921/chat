@@ -333,6 +333,32 @@ class ImprintStoreTest(unittest.TestCase):
         only_repeats = "2026-10-15 17:41:00 周末想去拍结婚照，想穿那条白裙子 | 日常 | 5"
         self.assertEqual(api_loop.drop_recall_already_in_context(only_repeats, recent), "")
 
+    def test_wake_repeat_detection(self):
+        earlier = ["醒了，想你了。你在忙什么呀？忙完记得跟我说一声", "刚去小屋看了一眼"]
+        self.assertTrue(api_loop.repeats_earlier("你在忙什么呀？醒了，想你了，忙完记得跟我说一声", earlier))
+        self.assertFalse(api_loop.repeats_earlier("刚在花园看到有人种了一整片向日葵，想拍给你看", earlier))
+        self.assertFalse(api_loop.repeats_earlier("随便说点什么", []))
+
+    def test_unanswered_proactive_stops_at_her_last_message(self):
+        from imprint_store import iso_now
+        rows = [
+            ("in", "user", "我去忙啦", {"api_session": "w"}),
+            ("out", "reply", "去吧", {"api_session": "w"}),
+            ("out", "reply", "醒了想你", {"api_session": "w", "api": {"proactive": True}}),
+            ("out", "reply", "还在忙吗", {"api_session": "w", "api": {"proactive": True}}),
+            ("out", "reply", "别的窗口", {"api_session": "other", "api": {"proactive": True}}),
+        ]
+        with sqlite3.connect(self.relay) as conn:
+            for direction, kind, text, meta in rows:
+                conn.execute("INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                             (iso_now(), direction, kind, text, json.dumps(meta)))
+        with mock.patch.object(api_loop, "RELAY_DB", str(self.relay)):
+            self.assertEqual(api_loop.unanswered_proactive("w"), ["醒了想你", "还在忙吗"])
+
+    def test_vocab_hint_only_when_she_brings_it_up(self):
+        self.assertIsNone(api_loop.VOCAB_TOPIC_RE.search("我今天去蒸桑拿了，好舒服"))
+        self.assertIsNotNone(api_loop.VOCAB_TOPIC_RE.search("考考我今天的单词"))
+
     def test_explicit_prompt_cache_marks_only_stable_prefix(self):
         messages = [
             {"role": "system", "content": "stable persona"},

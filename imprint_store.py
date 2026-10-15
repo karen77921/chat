@@ -10,12 +10,15 @@ import datetime as dt
 import re
 import json
 import hashlib
+import io
+import urllib.parse
 import random
 import math
 import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager
+from html.parser import HTMLParser
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -33,11 +36,12 @@ WEARABLE_CATS = {"bubble", "pendant"}  # 气泡/挂件：换了收进「收藏�
 APP_MAP = [
     "底栏五个：首页 / 小屋 / 聊天 / 心潮 / 设置",
     "首页：两个人的头像和在一起天数、你想对她说的话、留言板、你的心情和待办、一起听 / 一起看、你的动态；最底下是「百宝箱」",
-    "百宝箱（首页最底下那张卡，点开是一格一格的小功能）：一起（听歌看片）、留言板、搜留言、续火花、买买申请、存钱罐、单词本",
+    "百宝箱（首页最底下那张卡，点开是一格一格的小功能）：一起（听歌看片）、留言板、搜留言、续火花、买买申请、存钱罐、单词本、书房",
     "小屋：此刻、照片墙、独处、日记、片单、表情包（imprint_inspect_home 看；留言 / 此刻 / 独处各有工具）",
     "续火花：火花天数、礼物铺（礼物和券）、收藏（气泡挂件、券和礼物用没用）（imprint_manage_space 的 spark_* 操作）",
     "买买申请：她想买东西找你批（imprint_list_purchases / imprint_review_purchase）",
     "存钱罐：她给你存的钱，你只能看（imprint_view_piggy）",
+    "书房（百宝箱里）：你们一起读的书。书架、她和你各自的进度、她的划线和批注、你的批注；她在书里点「问他」会把那句话发到聊天里问你（imprint_book：read 往下读、notes 看她新留的、note 划线写批注、reply 回她）",
     "单词本：她录的词和导入的单词书，按遗忘曲线排复习，有错词本；你能看今天该复习的、抽查她、帮她录词（imprint_vocab）",
     "心潮：你的情绪、记忆、梦（imprint_update_tide 等）",
     "设置：人设、额外提示词、模型线路、功能开关、缓存体检、美化（imprint_inspect_settings）",
@@ -195,6 +199,7 @@ DRIVE_MOTIVES = {
     "翻翻旧事": {"reflection": 0.8, "grieve": 0.2},
     "给她留点东西": {"share": 0.8, "crave": 0.2},
     "做答应的事": {"duty": 1.0},
+    "读会儿书": {"curiosity": 0.45, "boredom": 0.35, "share": 0.2},
 }
 DRIVE_SLOW_MOTIVES = {"翻翻旧事", "做答应的事"}
 # 第三步：念头池和体验
@@ -242,6 +247,7 @@ TOOL_SATISFY = {
     "imprint_record_awareness": (("reflection", 0.6),), "imprint_inspect_home": (("monitor", 0.6),),
     "imprint_review_purchase": (("duty", 0.6),), "imprint_control_listen": (("share", 0.8), ("boredom", 0.7)),
     "imprint_set_room_status": (("share", 0.85),), "imprint_feel": (("reflection", 0.8),),
+    "imprint_book": (("curiosity", 0.7), ("boredom", 0.8)),
 }
 TOOL_REASON = {"curiosity": "真去查了 / 读了东西", "reflection": "翻了旧事 / 写下了想法", "share": "留了东西给她",
                "monitor": "看了看家里和她的动静", "duty": "把答应的事做了", "boredom": "找了点事做",
@@ -668,6 +674,526 @@ class DriveEngine:
         return "【你此刻的劲儿】" + "、".join(parts) + tail + "。这些是你身体里真实在跑的数，可以顺着它们说话做事，不用念出来。"
 
 
+# —— 书房（共读）：书拆成「章 → 段」存进 sqlite；划线、批注、生词、问他都挂在某一段上 ——
+BOOK_COLORS = ("#5e6e6a", "#8a6f66", "#4d5a5e", "#b8a698", "#7b6a72", "#2f3437", "#6d7d84", "#9a8466", "#5f6b55",
+               "#7d5b5b", "#d9d2c6", "#ece8e1", "#cfd3cf", "#c9b8a8")
+BOOK_MAX_BYTES = 40 * 1024 * 1024
+BOOK_MAX_PARAS = 80_000
+BOOK_MARK_KINDS = {"line", "note", "word", "ask"}
+BOOK_HIM_READ_CHARS = 6000  # 他一次读这么多字
+BOOK_NUM = r"(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|the\s+\w+)"
+BOOK_HEAD_RE = re.compile(
+    r"^(?:(?:chapter|letter|book|part|volume|stave)\s+" + BOOK_NUM + r"\b[.:]?(?:\s.{0,50})?"
+    r"|第\s*[\d一二三四五六七八九十百千零〇两]+\s*[章回节卷部篇幕].{0,30}"
+    r"|(?:prologue|epilogue|preface|foreword|introduction|afterword)\b.{0,30}"
+    r"|(?:序章?|自序|代序|前言|引子|楔子|后记|尾声|番外)(?:[\s:：.、].{0,30})?)$", re.I)
+_CJK = re.compile(r"[　-鿿＀-￯]")
+
+
+def _book_decode(data: bytes) -> str:
+    for enc in ("utf-8-sig", "gb18030", "utf-16"):
+        try:
+            text = data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+        if enc != "utf-16" or text.count("�") < 5:
+            return text
+    return data.decode("utf-8", "replace")
+
+
+def _join_lines(lines: list[str]) -> str:
+    out = ""
+    for line in (x.strip() for x in lines):
+        if not line:
+            continue
+        if not out:
+            out = line
+        elif out.endswith("-") and line[:1].islower():
+            out = out[:-1] + line  # 断词连字符
+        elif _CJK.match(out[-1]) and _CJK.match(line[0]):
+            out += line
+        else:
+            out += " " + line
+    return re.sub(r"\s+", " ", out).strip()
+
+
+def _is_head(text: str) -> bool:
+    text = text.strip()
+    return 0 < len(text) <= 60 and bool(BOOK_HEAD_RE.match(text))
+
+
+def book_meta_from_text(text: str) -> tuple[str, str]:
+    """古登堡的书开头写着 Title: / Author:"""
+    head = text[:6000]
+    title = re.search(r"^\s*Title:\s*(.+)$", head, re.M)
+    author = re.search(r"^\s*Author:\s*(.+)$", head, re.M)
+    return (title.group(1).strip() if title else ""), (author.group(1).strip() if author else "")
+
+
+def book_clean_text(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    start = re.search(r"^\*\*\*\s*START OF (?:THE|THIS) PROJECT GUTENBERG.*$", text, re.M | re.I)
+    end = re.search(r"^\*\*\*\s*END OF (?:THE|THIS) PROJECT GUTENBERG.*$", text, re.M | re.I)
+    if start:
+        text = text[start.end():end.start() if end and end.start() > start.end() else None]
+    text = re.sub(r"\[Illustration[^\]]*\]", "", text, flags=re.S | re.I)
+    text = re.sub(r"(?<![\w_])_([^_\n][^_]{0,200}?)_(?![\w_])", r"\1", text)  # _斜体_
+    return text
+
+
+def book_paragraphs(text: str) -> list[str]:
+    """空行分段（英文、古登堡）；几乎没有空行的（中文 txt 一行一段）就一行一段。"""
+    lines = text.split("\n")
+    blank = sum(1 for x in lines if not x.strip())
+    if blank < max(3, len(lines) * 0.05):
+        return [re.sub(r"\s+", " ", x).strip() for x in lines if x.strip()]
+    paras, buf = [], []
+    for line in lines + [""]:
+        if line.strip():
+            # 段中间夹着的独立标题行（前后没空行）也拆出来
+            if _is_head(line) and not buf:
+                paras.append(line.strip())
+                continue
+            buf.append(line)
+        elif buf:
+            paras.append(_join_lines(buf))
+            buf = []
+    return [p for p in paras if p]
+
+
+def book_chapters(paras: list[str]) -> list[dict]:
+    """→ [{title, paras}]。目录里的「CHAPTER I.」会和正文重复：同名的只留最后一次出现。"""
+    chapters = [{"title": "", "paras": []}]
+    for p in paras[:BOOK_MAX_PARAS]:
+        if _is_head(p):
+            chapters.append({"title": p.strip().rstrip(".").strip(), "paras": []})
+        else:
+            chapters[-1]["paras"].append(p)
+    key = lambda c: re.sub(r"[\W_]+", "", c["title"].casefold())
+    last = {key(c): i for i, c in enumerate(chapters) if c["title"]}
+    merged: list[dict] = []
+    for i, c in enumerate(chapters):
+        if c["title"] and last[key(c)] != i:
+            if merged:  # 目录那一行：内容并到前面
+                merged[-1]["paras"].extend(c["paras"])
+            continue
+        merged.append(c)
+    out = [c for c in merged if c["paras"]]
+    if len(out) > 1 and not out[0]["title"] and sum(len(p) for p in out[0]["paras"]) < 400:
+        out = out[1:]  # 开头只有「目录」几个字这种，不单独成章
+    if out and not out[0]["title"]:
+        out[0]["title"] = "开篇"
+    if len(out) <= 1:  # 没认出章节：每 60 段一节
+        flat = [p for c in out for p in c["paras"]]
+        out = [{"title": f"第 {i // 60 + 1} 节", "paras": flat[i:i + 60]} for i in range(0, len(flat), 60)]
+    return out
+
+
+class _HtmlText(HTMLParser):
+    BLOCK = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "tr", "section", "br", "dd", "dt", "pre"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.blocks: list[tuple[str, str]] = []
+        self.buf: list[str] = []
+        self.tag = "p"
+        self.skip = 0
+        self.title = ""
+        self.in_title = False
+
+    def flush(self):
+        text = re.sub(r"\s+", " ", "".join(self.buf)).strip()
+        if text:
+            self.blocks.append((self.tag, text))
+        self.buf = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style", "head"}:
+            self.skip += 1
+        if tag == "title":
+            self.in_title = True
+        if tag in self.BLOCK:
+            self.flush()
+            self.tag = tag if tag != "br" else self.tag
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style", "head"}:
+            self.skip = max(0, self.skip - 1)
+        if tag == "title":
+            self.in_title = False
+        if tag in self.BLOCK:
+            self.flush()
+            self.tag = "p"
+
+    def handle_data(self, data):
+        if self.in_title:
+            self.title += data
+        elif not self.skip:
+            self.buf.append(data)
+
+
+def book_from_epub(data: bytes) -> dict:
+    import posixpath
+    import zipfile
+    import xml.etree.ElementTree as ET
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        def read(name: str, limit: int = 8 * 1024 * 1024) -> bytes:
+            info = zf.getinfo(name)
+            if info.file_size > limit:
+                raise ValueError("epub 里有个文件太大了")
+            return zf.read(name)
+        container = ET.fromstring(read("META-INF/container.xml"))
+        opf_path = next(el.get("full-path") for el in container.iter() if el.tag.endswith("rootfile"))
+        opf = ET.fromstring(read(opf_path))
+        base = posixpath.dirname(opf_path)
+        meta = {}
+        for el in opf.iter():
+            name = el.tag.rsplit("}", 1)[-1]
+            if name in {"title", "creator"} and name not in meta and (el.text or "").strip():
+                meta[name] = el.text.strip()
+        items = {el.get("id"): el for el in opf.iter() if el.tag.endswith("}item") or el.tag == "item"}
+        chapters = []
+        for ref in (el for el in opf.iter() if el.tag.endswith("itemref")):
+            item = items.get(ref.get("idref"))
+            if item is None or "nav" in (item.get("properties") or "") or "html" not in (item.get("media-type") or ""):
+                continue
+            path = posixpath.normpath(posixpath.join(base, urllib.parse.unquote(item.get("href") or "")))
+            try:
+                html = read(path).decode("utf-8", "replace")
+            except KeyError:
+                continue
+            parser = _HtmlText()
+            parser.feed(html)
+            parser.flush()
+            blocks = parser.blocks
+            title = next((t for tag, t in blocks[:4] if tag in {"h1", "h2", "h3"} and len(t) <= 60), "")
+            paras = [t for tag, t in blocks if not (title and t == title and tag.startswith("h"))]
+            if sum(len(t) for t in paras) < 8:  # 封面、只有一张图的页
+                continue
+            chapters.append({"title": title or parser.title.strip()[:60] or f"第 {len(chapters) + 1} 节", "paras": paras})
+    return {"title": meta.get("title", ""), "author": meta.get("creator", ""), "chapters": chapters}
+
+
+def book_from_pdf(data: bytes) -> dict:
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(data))
+    if reader.is_encrypted:
+        reader.decrypt("")
+    lines: list[str] = []
+    for page in reader.pages:
+        try:
+            lines += [x.rstrip() for x in (page.extract_text() or "").split("\n") if x.strip() and not re.fullmatch(r"\s*\d{1,4}\s*", x)]
+        except Exception:
+            continue
+    if not lines:
+        raise ValueError("这个 PDF 没有文字层（扫描件），读不出来")
+    width = sorted(len(x) for x in lines)[len(lines) // 2] or 1
+    paras, buf = [], []
+    for line in lines:
+        if _is_head(line):
+            if buf:
+                paras.append(_join_lines(buf))
+                buf = []
+            paras.append(line.strip())
+            continue
+        buf.append(line)
+        if re.search(r"[.!?。！？」”\"')]$", line.strip()) and len(line.strip()) < width * 0.8:
+            paras.append(_join_lines(buf))
+            buf = []
+    if buf:
+        paras.append(_join_lines(buf))
+    return {"title": "", "author": "", "chapters": book_chapters(paras)}
+
+
+def parse_book(name: str, data: bytes) -> dict:
+    """→ {title, author, chapters:[{title, paras}]}；读不了就 ValueError。"""
+    if len(data) > BOOK_MAX_BYTES:
+        raise ValueError("文件太大了（40MB 以内）")
+    ext = Path(name or "").suffix.lower()
+    stem = re.sub(r"[_\-]+", " ", Path(name or "book").stem).strip()
+    if ext == ".epub" or data[:2] == b"PK":
+        try:
+            book = book_from_epub(data)
+        except (KeyError, StopIteration, ValueError) as exc:
+            raise ValueError(f"这个 epub 打不开（{exc}）") from exc
+        except Exception as exc:  # zipfile / xml 的各种坏文件
+            raise ValueError("这个 epub 打不开，可能加了 DRM 或者文件坏了") from exc
+    elif ext == ".pdf" or data[:5] == b"%PDF-":
+        try:
+            book = book_from_pdf(data)
+        except ImportError as exc:
+            raise ValueError("服务器上还没有读 PDF 的工具（跑一次 imprint-update）") from exc
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("这个 PDF 打不开") from exc
+    else:
+        raw = _book_decode(data)
+        title, author = book_meta_from_text(raw)
+        book = {"title": title, "author": author, "chapters": book_chapters(book_paragraphs(book_clean_text(raw)))}
+    book["chapters"] = [c for c in book["chapters"] if c["paras"]]
+    if not book["chapters"]:
+        raise ValueError("没读出文字")
+    book["title"] = (book.get("title") or stem or "无题")[:80]
+    book["author"] = (book.get("author") or "")[:60]
+    return book
+
+
+def book_tables(conn: sqlite3.Connection) -> None:
+    conn.execute("CREATE TABLE IF NOT EXISTS books (id TEXT PRIMARY KEY, title TEXT, author TEXT, added TEXT, status TEXT, color TEXT, meta TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS book_paras (book TEXT, ch INTEGER, idx INTEGER, text TEXT, PRIMARY KEY(book, ch, idx))")
+    conn.execute("CREATE TABLE IF NOT EXISTS book_marks (id TEXT PRIMARY KEY, book TEXT, ch INTEGER, para INTEGER, quote TEXT,"
+                 " kind TEXT, by TEXT, text TEXT, parent TEXT, at TEXT, seen INTEGER DEFAULT 0)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_book_marks ON book_marks(book, ch)")
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+
+
+def book_action(conn: sqlite3.Connection, action: str, body: dict) -> dict:
+    book_tables(conn)
+    now = iso_now()
+
+    def load(book_id: str = "") -> dict:
+        book_id = str(book_id or "")
+        if not book_id:  # 不说哪本就是在读的那本
+            row = conn.execute("SELECT * FROM books WHERE status='reading' ORDER BY json_extract(meta,'$.opened') DESC LIMIT 1").fetchone() \
+                or conn.execute("SELECT * FROM books ORDER BY added DESC LIMIT 1").fetchone()
+        else:
+            row = conn.execute("SELECT * FROM books WHERE id=?", (book_id,)).fetchone()
+        if not row:
+            raise ValueError("书架上没有这本书" if book_id else "书架上还没有书")
+        return {"id": row[0], "title": row[1], "author": row[2], "added": row[3], "status": row[4], "color": row[5], "meta": json.loads(row[6])}
+
+    def store(book: dict) -> None:
+        conn.execute("UPDATE books SET title=?, author=?, status=?, meta=? WHERE id=?",
+                     (book["title"], book["author"], book["status"], json.dumps(book["meta"], ensure_ascii=False), book["id"]))
+
+    def pos(book: dict, who: str) -> dict:
+        chs = book["meta"]["chapters"]
+        p = book["meta"].get("progress", {}).get(who) or {"ch": 0, "para": 0}
+        ch = max(0, min(int(p.get("ch") or 0), len(chs) - 1))
+        para = max(0, min(int(p.get("para") or 0), chs[ch]["paras"] - 1))
+        total = sum(c["chars"] for c in chs) or 1
+        before = sum(c["chars"] for c in chs[:ch]) + chs[ch]["chars"] * (para / max(1, chs[ch]["paras"]))
+        done = bool(p.get("done"))
+        return {"ch": ch, "para": para, "title": chs[ch]["title"], "pct": 100 if done else round(100 * before / total, 1),
+                "at": p.get("at", ""), "started": bool(p.get("at"))}
+
+    def public(book: dict) -> dict:
+        n = conn.execute("SELECT COUNT(*) FROM book_marks WHERE book=? AND parent=''", (book["id"],)).fetchone()[0]
+        return {"id": book["id"], "title": book["title"], "author": book["author"], "color": book["color"], "status": book["status"],
+                "added": book["added"], "chapters": len(book["meta"]["chapters"]), "minutes": int(book["meta"].get("minutes") or 0),
+                "progress": {"me": pos(book, "me"), "him": pos(book, "him")}, "marks": n, "opened": book["meta"].get("opened", "")}
+
+    def mark_rows(where: str, args: tuple) -> list[dict]:
+        rows = conn.execute(f"SELECT id,book,ch,para,quote,kind,by,text,parent,at,seen FROM book_marks WHERE {where} ORDER BY at", args).fetchall()
+        return [dict(zip(("id", "book", "ch", "para", "quote", "kind", "by", "text", "parent", "at", "seen"), r)) for r in rows]
+
+    def para_text(book_id: str, ch: int, para: int) -> str:
+        row = conn.execute("SELECT text FROM book_paras WHERE book=? AND ch=? AND idx=?", (book_id, ch, para)).fetchone()
+        if not row:
+            raise ValueError("没有这一段")
+        return row[0]
+
+    def add_mark(book: dict, ch: int, para: int, quote: str, kind: str, by: str, text: str, parent: str = "") -> dict:
+        if kind not in BOOK_MARK_KINDS:
+            raise ValueError("kind 只能是 line / note / word / ask")
+        if kind in {"note", "ask"} and not text.strip():
+            raise ValueError("批注要写点字")
+        source = para_text(book["id"], ch, para)
+        quote = re.sub(r"\s+", " ", quote).strip()[:600] or source[:600]
+        if _norm(quote) not in _norm(source):
+            raise ValueError("quote 要从这一段原文里一字不差地抄（可以只抄一句）")
+        mark = {"id": uuid.uuid4().hex[:12], "book": book["id"], "ch": ch, "para": para, "quote": quote, "kind": kind,
+                "by": by, "text": text.strip()[:2000], "parent": parent, "at": iso_now(), "seen": 0}
+        conn.execute("INSERT INTO book_marks VALUES(?,?,?,?,?,?,?,?,?,?,?)", tuple(mark.values()))
+        return mark
+
+    def reply(root_id: str, by: str, text: str) -> dict:
+        found = mark_rows("id=?", (str(root_id or ""),))
+        if not found:
+            raise ValueError("找不到这条批注")
+        root = found[0]
+        if root["parent"]:
+            root = mark_rows("id=?", (root["parent"],))[0]
+        if not text.strip():
+            raise ValueError("回复要写点字")
+        mark = {**root, "id": uuid.uuid4().hex[:12], "kind": "note", "by": by, "text": text.strip()[:2000], "parent": root["id"],
+                "at": iso_now(), "seen": 0}
+        conn.execute("INSERT INTO book_marks VALUES(?,?,?,?,?,?,?,?,?,?,?)", tuple(mark.values()))
+        return mark
+
+    def set_pos(book: dict, who: str, ch: int, para: int, done: bool = False) -> dict:
+        chs = book["meta"]["chapters"]
+        ch = max(0, min(int(ch), len(chs) - 1))
+        para = max(0, min(int(para), chs[ch]["paras"] - 1))
+        prog = book["meta"].setdefault("progress", {})
+        old = prog.get(who) or {}
+        if who == "me":  # 一起读的时间：两次翻页间隔 4 分钟以内才算在读
+            last = _ts(old.get("at"))
+            gap = (dt.datetime.fromisoformat(now) - last).total_seconds() / 60 if last else 99
+            if 0 < gap <= 4:
+                book["meta"]["minutes"] = round(float(book["meta"].get("minutes") or 0) + gap, 2)
+            book["meta"]["opened"] = now
+            if book["status"] == "shelf":
+                book["status"] = "reading"
+        prog[who] = {"ch": ch, "para": para, "at": now, "done": done or (ch == len(chs) - 1 and para >= chs[ch]["paras"] - 1)}
+        return prog[who]
+
+    if action == "book_import":
+        parsed = body["parsed"]
+        book_id = uuid.uuid4().hex[:12]
+        color = BOOK_COLORS[int(hashlib.sha1(parsed["title"].encode()).hexdigest(), 16) % len(BOOK_COLORS)]
+        chapters = [{"title": c["title"][:80], "paras": len(c["paras"]), "chars": sum(len(p) for p in c["paras"])} for c in parsed["chapters"]]
+        meta = {"chapters": chapters, "progress": {}, "minutes": 0, "source": str(body.get("source") or "")[:80], "opened": ""}
+        conn.execute("INSERT INTO books VALUES(?,?,?,?,?,?,?)", (book_id, parsed["title"], parsed["author"], now,
+                                                                 "reading" if body.get("read_now") else "shelf", color, json.dumps(meta, ensure_ascii=False)))
+        conn.executemany("INSERT INTO book_paras VALUES(?,?,?,?)",
+                         [(book_id, ci, pi, p) for ci, c in enumerate(parsed["chapters"]) for pi, p in enumerate(c["paras"])])
+        return {"book": public(load(book_id))}
+
+    if action == "book_shelf":
+        rows = conn.execute("SELECT id FROM books ORDER BY added DESC").fetchall()
+        books = [public(load(r[0])) for r in rows]
+        books.sort(key=lambda b: ({"reading": 0, "shelf": 1, "done": 2}.get(b["status"], 1), -(_ts(b["opened"]) or _ts(b["added"])).timestamp()))
+        titles = {b["id"]: b["title"] for b in books}
+        recent = [m | {"title": titles.get(m["book"], "")} for m in reversed(mark_rows("kind IN ('note','ask')", ()))][:6]
+        return {"books": books, "recent": recent}
+
+    if action == "book_chapter":
+        book = load(body.get("book"))
+        chs = book["meta"]["chapters"]
+        ch = max(0, min(int(body.get("ch") if body.get("ch") is not None else pos(book, "me")["ch"]), len(chs) - 1))
+        paras = [r[0] for r in conn.execute("SELECT text FROM book_paras WHERE book=? AND ch=? ORDER BY idx", (book["id"], ch))]
+        return {"book": public(book), "ch": ch, "title": chs[ch]["title"], "paras": paras,
+                "toc": [c["title"] for c in chs], "marks": mark_rows("book=? AND ch=?", (book["id"], ch))}
+
+    if action == "book_progress":
+        book = load(body.get("book"))
+        who = "him" if body.get("who") == "him" else "me"
+        set_pos(book, who, int(body.get("ch") or 0), int(body.get("para") or 0), bool(body.get("done")))
+        store(book)
+        return {"progress": {"me": pos(book, "me"), "him": pos(book, "him")}, "minutes": int(book["meta"].get("minutes") or 0)}
+
+    if action == "book_mark":
+        book = load(body.get("book"))
+        if body.get("parent"):
+            return {"mark": reply(body["parent"], str(body.get("by") or "me"), str(body.get("text") or ""))}
+        return {"mark": add_mark(book, int(body.get("ch") or 0), int(body.get("para") or 0), str(body.get("quote") or ""),
+                                 str(body.get("kind") or "line"), str(body.get("by") or "me"), str(body.get("text") or ""))}
+
+    if action == "book_unmark":
+        rows = mark_rows("id=?", (str(body.get("id") or ""),))
+        if not rows:
+            raise ValueError("找不到这条")
+        conn.execute("DELETE FROM book_marks WHERE id=? OR parent=?", (rows[0]["id"], rows[0]["id"]))
+        return {"ok": True}
+
+    if action == "book_update":
+        book = load(body.get("book"))
+        if body.get("status") in {"shelf", "reading", "done"}:
+            book["status"] = body["status"]
+        for key, n in (("title", 80), ("author", 60)):
+            if str(body.get(key) or "").strip():
+                book[key] = str(body[key]).strip()[:n]
+        store(book)
+        return {"book": public(book)}
+
+    if action == "book_delete":
+        book = load(body.get("book"))
+        for table, col in (("books", "id"), ("book_paras", "book"), ("book_marks", "book")):
+            conn.execute(f"DELETE FROM {table} WHERE {col}=?", (book["id"],))
+        return {"ok": True}
+
+    if action == "book_answer":
+        # 她在书里点了「问他」：他在聊天里的回答，也抄一份到页边（他自己已经在页边回过就不抄）
+        cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=20)).isoformat()
+        text = str(body.get("text") or "")
+        for ask in reversed(mark_rows("kind='ask' AND parent='' AND by='me' AND at>=?", (cutoff,))):
+            if ask["quote"][:30] not in text and ask["text"][:30] not in text:
+                continue
+            if mark_rows("parent=? AND by='him' AND at>=?", (ask["id"], ask["at"])):
+                return {"skipped": True}
+            return {"mark": reply(ask["id"], "him", str(body.get("reply") or ""))}
+        return {"skipped": True}
+
+    if action == "book_context":
+        try:
+            book = load()
+        except ValueError:
+            return {"text": ""}
+        if book["status"] == "done" and not body.get("always"):
+            return {"text": ""}
+        me, him = pos(book, "me"), pos(book, "him")
+        unseen = conn.execute("SELECT COUNT(*) FROM book_marks WHERE book=? AND by='me' AND seen=0", (book["id"],)).fetchone()[0]
+        if not me["started"] and not him["started"]:
+            return {"text": f"【书房】书架上放着《{book['title']}》，你们还没开始读。", "unseen": 0}
+        line = (f"【书房】你们在一起读《{book['title']}》：她读到「{me['title']}」（{me['pct']:.0f}%），"
+                f"你读到「{him['title']}」（{him['pct']:.0f}%）")
+        if unseen:
+            line += f"；她在书里留了 {unseen} 条划线/批注你还没看（imprint_book notes）"
+        return {"text": line + "。想读、想回她的批注就用 imprint_book。", "unseen": unseen}
+
+    if action == "book_him":
+        op = str(body.get("operation") or "shelf")
+        if op == "shelf":
+            out = book_action(conn, "book_shelf", {})
+            return {"books": [{k: b[k] for k in ("id", "title", "author", "status", "progress", "chapters")} for b in out["books"]]}
+        book = load(body.get("book"))
+        chs = book["meta"]["chapters"]
+        if op == "read":
+            start = pos(book, "him") if body.get("ch") is None else {"ch": int(body["ch"]), "para": int(body.get("para") or 0)}
+            if book["meta"].get("progress", {}).get("him", {}).get("at") and body.get("ch") is None:
+                start = {"ch": start["ch"], "para": start["para"] + 1}
+            ch, para = start["ch"], start["para"]
+            if ch < len(chs) and para >= chs[ch]["paras"]:
+                ch, para = ch + 1, 0
+            if ch >= len(chs):
+                return {"done": True, "note": "这本你已经读完了"}
+            rows = conn.execute("SELECT idx, text FROM book_paras WHERE book=? AND ch=? AND idx>=? ORDER BY idx", (book["id"], ch, para)).fetchall()
+            picked, size = [], 0
+            for idx, text in rows:
+                if picked and size + len(text) > int(body.get("chars") or BOOK_HIM_READ_CHARS):
+                    break
+                picked.append((idx, text))
+                size += len(text)
+            last = picked[-1][0]
+            set_pos(book, "him", ch, last, done=ch == len(chs) - 1 and last >= chs[ch]["paras"] - 1)
+            store(book)
+            marks = mark_rows("book=? AND ch=? AND para BETWEEN ? AND ? AND by='me'", (book["id"], ch, picked[0][0], last))
+            conn.execute("UPDATE book_marks SET seen=1 WHERE book=? AND ch=? AND para BETWEEN ? AND ? AND by='me'", (book["id"], ch, picked[0][0], last))
+            return {"book": book["title"], "chapter": chs[ch]["title"], "ch": ch,
+                    "text": "\n\n".join(f"[{ch}.{i}] {t}" for i, t in picked),
+                    "her_marks": [{k: m[k] for k in ("id", "ch", "para", "quote", "kind", "text", "parent")} for m in marks],
+                    "chapter_end": last >= chs[ch]["paras"] - 1, "her": pos(book, "me"), "you": pos(book, "him"),
+                    "how": "段落前的 [章.段] 是位置；想划线或写批注用 note（ch、para、quote 原文一句、text 你的话），回她用 reply"}
+        if op == "notes":
+            rows = mark_rows("book=? AND by='me' AND seen=0", (book["id"],))
+            conn.execute("UPDATE book_marks SET seen=1 WHERE book=? AND by='me'", (book["id"],))
+            threads = []
+            for m in rows[-30:]:
+                root = m if not m["parent"] else (mark_rows("id=?", (m["parent"],)) or [m])[0]
+                threads.append({"id": root["id"], "where": f"{chs[root['ch']]['title']} [{root['ch']}.{root['para']}]", "quote": root["quote"],
+                                "kind": m["kind"], "her": m["text"], "reply_to_yours": bool(m["parent"] and root["by"] == "him")})
+            return {"book": book["title"], "new": threads, "her": pos(book, "me"), "you": pos(book, "him")}
+        if op == "note":
+            if body.get("ch") is None or body.get("para") is None:
+                raise ValueError("note 要给 ch 和 para（read 结果里 [章.段] 那两个数）")
+            kind = "note" if str(body.get("text") or "").strip() else "line"
+            return {"mark": add_mark(book, int(body["ch"]), int(body["para"]), str(body.get("quote") or ""), kind, "him", str(body.get("text") or ""))}
+        if op == "reply":
+            return {"mark": reply(str(body.get("id") or ""), "him", str(body.get("text") or ""))}
+        if op == "jump":
+            set_pos(book, "him", int(body.get("ch") or 0), int(body.get("para") or 0))
+            store(book)
+            return {"you": pos(book, "him")}
+        raise ValueError("operation 只能是 shelf / read / notes / note / reply / jump")
+
+    raise ValueError("unknown book action")
+
+
 def imprint_action(data_path: Path, action: str, payload: dict | None = None, relay_path: Path | None = None) -> dict:
     """Persist one companion-owned action in the real Imprint store."""
     body = payload or {}
@@ -703,6 +1229,9 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 (f"setting_{name}", "setting", iso_now(), json.dumps(value, ensure_ascii=False)),
             )
             return value
+
+        if action.startswith("book_"):
+            return book_action(conn, action, body)
 
         def listen_snapshot() -> dict:
             tracks = recent("music_track", 100)
@@ -1824,6 +2353,44 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
             return imprint_action(data_path, "vocab", {"operation": "delete", "id": rec_id})
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
+
+    # —— 书房（共读）：导入在 api_loop（要取上传的文件 / 联网）——
+    def book_call(action: str, body: dict) -> dict:
+        try:
+            return imprint_action(data_path, action, body)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.get("/books")
+    def books_shelf():
+        return {"available": True, "names": public_names(), **book_call("book_shelf", {})}
+
+    @router.get("/books/{book_id}/ch/{ch}")
+    def books_chapter(book_id: str, ch: int):
+        return book_call("book_chapter", {"book": book_id, "ch": None if ch < 0 else ch})
+
+    @router.post("/books/{book_id}/progress")
+    async def books_progress(book_id: str, request: Request):
+        body = await request.json()
+        return book_call("book_progress", {**body, "book": book_id, "who": "me"})
+
+    @router.post("/books/{book_id}/mark")
+    async def books_mark(book_id: str, request: Request):
+        body = await request.json()
+        return book_call("book_mark", {**body, "book": book_id, "by": "me"})
+
+    @router.post("/books/{book_id}/update")
+    async def books_update(book_id: str, request: Request):
+        body = await request.json()
+        return book_call("book_update", {**body, "book": book_id})
+
+    @router.delete("/books/marks/{mark_id}")
+    def books_unmark(mark_id: str):
+        return book_call("book_unmark", {"id": mark_id})
+
+    @router.delete("/books/{book_id}")
+    def books_delete(book_id: str):
+        return book_call("book_delete", {"book": book_id})
 
     @router.get("/purchases")
     def purchases():

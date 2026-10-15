@@ -527,6 +527,19 @@ def vocab_context_text() -> str:
     return ""
 
 
+def book_context_text() -> str:
+    """书房：在读哪本、两个人各读到哪、她有没有新留的批注。"""
+    with contextlib.suppress(Exception):
+        return imprint_action(LOOP_CACHE_DIR / "imprint.db", "book_context")["text"]
+    return ""
+
+
+def book_unseen() -> int:
+    with contextlib.suppress(Exception):
+        return int(imprint_action(LOOP_CACHE_DIR / "imprint.db", "book_context").get("unseen") or 0)
+    return 0
+
+
 def gifts_context_text() -> str:
     """券和礼物：没用掉的、最近两天用掉的，每一轮都让他知道（手里有什么、她手里有什么）。"""
     with contextlib.suppress(Exception):
@@ -2230,6 +2243,9 @@ async def build_messages(
     vocab = vocab_context_text()
     if vocab:
         volatile_parts.append(vocab)
+    book = book_context_text()
+    if book:
+        volatile_parts.append(book)
     gifts = gifts_context_text()
     if gifts:
         volatile_parts.append(gifts)
@@ -2326,6 +2342,9 @@ async def build_messages(
         "真被触动的时候，用 imprint_feel 写一条第一人称体验：她情绪转折了、把信任交给你了、你们定下了一件事、她哪句话戳中你了。"
         "写此刻的感受和接下来想怎么待她，数值照实给，不用每轮都写。"
         "一闪而过但放不下的念头，用 imprint_think 丢进念头池；反复想起的会变成执念，推着你去做对应的事。"
+        "\n\n【书房】\n"
+        "你们有一起读的书，各自有书签。她发来📖开头的消息，是在书里指着一句话问你：先接住她的问题，像坐在她旁边一起看书那样回，"
+        "你的回答会自动抄到那句话的页边。闲下来想读就用 imprint_book read 往下读，读到有感觉的句子划线写批注，别编书里没有的内容。"
         "\n\n【翻聊天记录】\n"
         "你们所有的聊天都能用 search_chat_history 翻到。不确定某件事有没有发生、什么时候发生、现在进展到哪一步时，"
         "先翻一下再说，别凭印象问她已经告诉过你的事。"
@@ -2926,6 +2945,27 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_book",
+        "description": "The 书房: books you and she read together, each with your own bookmark. read = continue from YOUR bookmark "
+                       "(~6000 chars, paragraphs prefixed [ch.para]; her highlights/notes on them come along; your bookmark moves "
+                       "forward). notes = what she highlighted / wrote / asked in the book that you have not seen. note = highlight a "
+                       "sentence (ch, para, quote copied exactly from that paragraph) and optionally write a margin note in text, "
+                       "in your own voice. reply = answer one of her notes (id). jump = move your bookmark (ch, para), e.g. to wait "
+                       "for her. shelf = all books. Read for real before talking about the book; never invent its text.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["read", "notes", "note", "reply", "jump", "shelf"]},
+                "book": {"type": "string", "description": "book id; empty = the one you two are reading"},
+                "ch": {"type": "integer"}, "para": {"type": "integer"},
+                "quote": {"type": "string"}, "text": {"type": "string"}, "id": {"type": "string"},
+            },
+            "required": ["operation"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "open_toolbox",
         "description": "Your tool list is trimmed each turn to what the chat seems to be about. When you want to do something "
                        "but the tool for it is not in your list (the garden / island game, music, gifts and coupons, the room, "
@@ -3337,6 +3377,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
         add_builtin("search_chat_history")
     if any(word in query for word in ("单词", "背词", "背单词", "复习", "抽查", "抽我", "考考", "考我", "听写", "错词", "vocab")) or vocab_due_count():
         add_builtin("imprint_vocab")
+    if any(word in query for word in ("书房", "共读", "读书", "看书", "这本书", "那本书", "批注", "划线", "读到", "章", "📖", "imprint_book")) or book_unseen():
+        add_builtin("imprint_book")
     if any(word in query for word in ("存钱罐", "小金库", "存了", "扣了", "扣钱", "存钱", "余额", "攒钱")):
         add_builtin("imprint_view_piggy")
     if any(word in query for word in ("申请", "审批", "批准", "批一下", "批了", "想买", "买买")):
@@ -3463,7 +3505,7 @@ def sanitize_svg(raw: str) -> bytes:
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
 
 
-TOOLBOX_TOPICS = "读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
@@ -3684,6 +3726,7 @@ class Turn:
             "imprint_list_purchases": "purchase_list",
             "imprint_view_piggy": "piggy_list",
             "imprint_vocab": "vocab",
+            "imprint_book": "book_him",
             "imprint_feel": "drive_feel",
             "imprint_think": "drive_think",
             "imprint_review_purchase": "purchase_review",
@@ -3693,7 +3736,7 @@ class Turn:
                 return "ERROR: 单词本你只能看、抽查记录和帮她录词；删改让她自己在页面上做"
             args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
         if public_name in imprint_actions:
-            if self.dry and public_name != "imprint_inspect_home":
+            if self.dry and public_name not in {"imprint_inspect_home"} and not (public_name == "imprint_book" and args.get("operation") == "shelf"):
                 return "ERROR: Imprint writes are disabled for this dry/retry turn"
             try:
                 result = imprint_action(LOOP_CACHE_DIR / "imprint.db", imprint_actions[public_name], args, Path(RELAY_DB))
@@ -4457,6 +4500,9 @@ async def handle_turn(
     if ok and not error and not cancelled:
         with contextlib.suppress(Exception):
             imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_said", {"proactive": False})
+        if "📖" in text and reply.strip():
+            with contextlib.suppress(Exception):  # 她在书里问的：回答也抄到那句话的页边
+                imprint_action(LOOP_CACHE_DIR / "imprint.db", "book_answer", {"text": text, "reply": reply})
     return {"ok": ok and not error and not cancelled, "relay": body, "api": meta}
 
 
@@ -4858,6 +4904,7 @@ DRIVE_WAKE_TEXT = {
     "翻翻旧事": "你想翻翻你们以前的聊天或记忆，回味一下；有感触就写下来，或者告诉她。",
     "给她留点东西": "你想给她留点东西：一条留言、一张画、换个此刻，或者在照片墙上说句话。",
     "做答应的事": "你记得答应过她的事还没做完，想去把它做了。",
+    "读会儿书": "你想去书房读会儿你们一起读的那本书（imprint_book read），读到有感觉的句子就划线、写批注留给她；书架上没书就做点别的。",
 }
 
 
@@ -5095,7 +5142,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="companion-api-loop", lifespan=lifespan)
 
-from imprint_store import empty_tide_state, imprint_action, register_imprint_routes
+from imprint_store import empty_tide_state, imprint_action, parse_book, register_imprint_routes
 
 register_imprint_routes(app, LOOP_CACHE_DIR / "imprint.db", Path(RELAY_DB))
 
@@ -6452,6 +6499,45 @@ async def loop_cache_check_run(request: Request):
         _cache_check_state.update(running=True, step="准备", index=index, error="")
         _cache_check_state["task"] = asyncio.create_task(_cache_check_job(index))  # 留个引用，别被回收
     return {"running": True, "step": _cache_check_state["step"]}
+
+
+GUTENBERG_MIRRORS = ("https://www.gutenberg.org/cache/epub/{n}/pg{n}.txt", "https://gutenberg.pglaf.org/cache/epub/{n}/pg{n}.txt",
+                     "https://aleph.pglaf.org/cache/epub/{n}/pg{n}.txt", "https://www.gutenberg.org/ebooks/{n}.txt.utf-8")
+
+
+def import_book_bytes(name: str, data: bytes, source: str, read_now: bool = False) -> dict:
+    try:
+        parsed = parse_book(name, data)
+        return imprint_action(LOOP_CACHE_DIR / "imprint.db", "book_import", {"parsed": parsed, "source": source, "read_now": read_now})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/loop/books/import")
+async def books_import(request: Request):
+    """她传上来的 txt / epub / pdf（先走聊天的上传通道，这里按 url 取回来拆成章节）。"""
+    body = await request.json()
+    name = str(body.get("name") or "book.txt")
+    data, _ = await fetch_upload({"url": str(body.get("url") or "")})
+    if not data:
+        raise HTTPException(status_code=400, detail="文件没传上来，再试一次")
+    return await asyncio.to_thread(import_book_bytes, name, data, "upload:" + name, bool(body.get("read_now")))
+
+
+@app.post("/loop/books/gutenberg/{number}")
+async def books_gutenberg(number: int):
+    """古登堡书库（公版书）：按编号取 txt，几个镜像轮流试。"""
+    last = ""
+    for pattern in GUTENBERG_MIRRORS:
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(40, connect=10), follow_redirects=True) as client:
+                resp = await client.get(pattern.format(n=int(number)), headers={"User-Agent": "imprint-study/1"})
+            if resp.status_code == 200 and len(resp.content) > 2000:
+                return await asyncio.to_thread(import_book_bytes, f"pg{number}.txt", resp.content, f"gutenberg:{number}", True)
+            last = f"HTTP {resp.status_code}"
+        except httpx.HTTPError as exc:
+            last = type(exc).__name__
+    raise HTTPException(status_code=502, detail=f"古登堡书库连不上（{last}）。可以在电脑上下好 txt / epub，用「导入」传上来")
 
 
 @app.get("/loop/drives")

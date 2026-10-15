@@ -36,6 +36,7 @@ const P = {
   mic: <><rect x="9" y="3.5" width="6" height="11" rx="3" /><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V20.5" /></>,
   send: <><path d="M4 12 20 4l-5 16-3-7z" /><path d="m12 13 8-9" /></>,
   feather: <><path d="M19 5c-6 0-11 4-12 11l-2 3" /><path d="M19 5c0 6-4 10-10 11" /><path d="M9 12h5" /></>,
+  book: <><path d="M5 5.5c2.5-1 4.8-1 7 .8v13c-2.2-1.8-4.5-1.8-7-.8z" /><path d="M19 5.5c-2.5-1-4.8-1-7 .8v13c2.2-1.8 4.5-1.8 7-.8z" /></>,
   stop: <rect x="7.5" y="7.5" width="9" height="9" rx="1.5" fill="currentColor" />,
   more: <><circle cx="6" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="18" cy="12" r="1.2" fill="currentColor" /></>,
   quote: <path d="M5 17V12q0-5 5-6M13 17V12q0-5 5-6" />,

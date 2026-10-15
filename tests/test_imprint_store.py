@@ -1270,3 +1270,160 @@ class GardenWatchTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+GUTENBERG = """The Project Gutenberg eBook of Pride and Prejudice
+
+Title: Pride and Prejudice
+
+Author: Jane Austen
+
+*** START OF THE PROJECT GUTENBERG EBOOK PRIDE AND PREJUDICE ***
+
+CONTENTS
+
+CHAPTER I.
+
+CHAPTER II.
+
+[Illustration:
+  Mr. Bennet]
+
+CHAPTER I.
+
+It is a truth universally acknowledged, that a single man in possession
+of a good fortune, must be in want of a wife.
+
+However little known the feelings or views of such a man may be on his
+first entering a neighbourhood, this truth is so _well_ fixed.
+
+"My dear Mr. Bennet," said his lady to him one day, "have you heard that
+Netherfield Park is let at last?"
+
+CHAPTER II.
+
+Mr. Bennet was among the earliest of those who waited on Mr. Bingley.
+
+*** END OF THE PROJECT GUTENBERG EBOOK PRIDE AND PREJUDICE ***
+license text here
+"""
+
+
+def tiny_epub():
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+        zf.writestr("OEBPS/content.opf", '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                    '<metadata><dc:title>东京八平米</dc:title><dc:creator>吉井忍</dc:creator></metadata>'
+                    '<manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+                    '<item id="c1" href="text/c1.xhtml" media-type="application/xhtml+xml"/>'
+                    '<item id="c2" href="text/c2.xhtml" media-type="application/xhtml+xml"/></manifest>'
+                    '<spine><itemref idref="nav"/><itemref idref="c1"/><itemref idref="c2"/></spine></package>')
+        zf.writestr("OEBPS/nav.xhtml", "<html><body><nav><a href='text/c1.xhtml'>自序</a></nav></body></html>")
+        zf.writestr("OEBPS/text/c1.xhtml", "<html><head><title>x</title><style>p{}</style></head><body><h2>自序 回到八平米</h2>"
+                    "<p>在那里你不用伪装，可以好好地面对自我。</p><p>第二段&amp;文字，足够长一点点。</p></body></html>")
+        zf.writestr("OEBPS/text/c2.xhtml", "<html><body><h1>第一章</h1><p>东京的房子很小，小到只能放下一张床。</p></body></html>")
+    return buf.getvalue()
+
+
+class BookTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.db = Path(self.temp.name) / "imprint.db"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def act(self, action, body=None):
+        return imprint_action(self.db, action, body or {})
+
+    def test_gutenberg_text_is_split_into_real_chapters(self):
+        book = imprint_store.parse_book("pg1342.txt", GUTENBERG.encode())
+        self.assertEqual((book["title"], book["author"]), ("Pride and Prejudice", "Jane Austen"))
+        self.assertEqual([c["title"] for c in book["chapters"]], ["CHAPTER I", "CHAPTER II"])
+        first = book["chapters"][0]["paras"]
+        self.assertEqual(len(first), 3)
+        self.assertTrue(first[0].startswith("It is a truth universally acknowledged, that a single man in possession of"))
+        self.assertIn("so well fixed", first[1])
+        self.assertNotIn("license", json.dumps(book))
+
+    def test_chinese_txt_and_epub(self):
+        txt = "东京八平米\n第一章 回到八平米\n在那里你不用伪装。\n可以好好地面对自我。\n第二章 小房子\n房子很小。\n".encode("gb18030")
+        book = imprint_store.parse_book("东京八平米.txt", txt)
+        self.assertEqual(book["title"], "东京八平米")
+        self.assertEqual([c["title"] for c in book["chapters"]], ["第一章 回到八平米", "第二章 小房子"])
+        self.assertEqual(book["chapters"][0]["paras"], ["在那里你不用伪装。", "可以好好地面对自我。"])
+        ep = imprint_store.parse_book("x.epub", tiny_epub())
+        self.assertEqual((ep["title"], ep["author"]), ("东京八平米", "吉井忍"))
+        self.assertEqual([c["title"] for c in ep["chapters"]], ["自序 回到八平米", "第一章"])
+        self.assertEqual(ep["chapters"][0]["paras"][1], "第二段&文字，足够长一点点。")
+        with self.assertRaises(ValueError):
+            imprint_store.parse_book("坏.epub", b"PK\x03\x04garbage")
+        pdf = imprint_store.parse_book("讲义.pdf", tiny_pdf(["Chapter 1", "Hello reading together."]))
+        self.assertIn("Hello reading together.", json.dumps(pdf))
+
+    def test_reading_together_flow(self):
+        parsed = imprint_store.parse_book("pg1342.txt", GUTENBERG.encode())
+        book = self.act("book_import", {"parsed": parsed})["book"]
+        self.assertEqual(book["status"], "shelf")
+        shelf = self.act("book_shelf")
+        self.assertEqual(shelf["books"][0]["progress"]["me"]["pct"], 0)
+        ch = self.act("book_chapter", {"book": book["id"], "ch": 0})
+        self.assertEqual(len(ch["paras"]), 3)
+        self.assertEqual(ch["toc"], ["CHAPTER I", "CHAPTER II"])
+        prog = self.act("book_progress", {"book": book["id"], "who": "me", "ch": 0, "para": 2})["progress"]
+        self.assertGreater(prog["me"]["pct"], 0)
+        self.assertEqual(self.act("book_shelf")["books"][0]["status"], "reading")
+        # 她划线、写批注；quote 必须是原文
+        line = self.act("book_mark", {"book": book["id"], "ch": 0, "para": 0, "quote": "It is a truth universally acknowledged", "kind": "line", "by": "me"})["mark"]
+        with self.assertRaises(ValueError):
+            self.act("book_mark", {"book": book["id"], "ch": 0, "para": 0, "quote": "not in the book", "kind": "note", "text": "hm", "by": "me"})
+        ask = self.act("book_mark", {"book": book["id"], "ch": 0, "para": 2, "quote": "have you heard that Netherfield Park is let at last?",
+                                     "kind": "ask", "text": "她为什么这么激动", "by": "me"})["mark"]
+        ctx = self.act("book_context")
+        self.assertIn("Pride and Prejudice", ctx["text"])
+        self.assertEqual(ctx["unseen"], 2)
+        # 他读：从头读起，带着她的划线，书签往前挪
+        read = self.act("book_him", {"operation": "read"})
+        self.assertIn("[0.0] It is a truth", read["text"])
+        self.assertEqual({m["id"] for m in read["her_marks"]}, {line["id"], ask["id"]})
+        self.assertTrue(read["chapter_end"])
+        self.assertEqual(self.act("book_context")["unseen"], 0)
+        nxt = self.act("book_him", {"operation": "read"})
+        self.assertEqual(nxt["chapter"], "CHAPTER II")
+        self.assertTrue(self.act("book_him", {"operation": "read"})["done"])
+        # 他写批注、回她
+        note = self.act("book_him", {"operation": "note", "ch": 0, "para": 1, "quote": "this truth is so well fixed", "text": "反讽"})["mark"]
+        self.assertEqual((note["by"], note["kind"]), ("him", "note"))
+        rep = self.act("book_him", {"operation": "reply", "id": ask["id"], "text": "她有五个女儿要嫁"})["mark"]
+        self.assertEqual(rep["parent"], ask["id"])
+        # 聊天里的回答抄到页边：他已经在页边回过了，就不重复
+        self.assertTrue(self.act("book_answer", {"text": "📖 have you heard that Netherfield Park is let at last? 她为什么这么激动", "reply": "x"})["skipped"])
+        ask2 = self.act("book_mark", {"book": book["id"], "ch": 1, "para": 0, "quote": "Mr. Bennet was among the earliest", "kind": "ask", "text": "他早就去了？", "by": "me"})["mark"]
+        got = self.act("book_answer", {"text": "📖《Pride and Prejudice》\n「Mr. Bennet was among the earliest」\n他早就去了？", "reply": "嘴硬心软"})["mark"]
+        self.assertEqual((got["parent"], got["by"], got["text"]), (ask2["id"], "him", "嘴硬心软"))
+        marks = self.act("book_chapter", {"book": book["id"], "ch": 0})["marks"]
+        self.assertEqual(len(marks), 4)
+        self.act("book_unmark", {"id": ask["id"]})
+        self.assertEqual(len(self.act("book_chapter", {"book": book["id"], "ch": 0})["marks"]), 2)
+        self.act("book_delete", {"book": book["id"]})
+        self.assertEqual(self.act("book_shelf")["books"], [])
+        self.assertEqual(self.act("book_context")["text"], "")
+
+    def test_book_tool_is_offered(self):
+        names = {t["function"]["name"] for t in api_loop.turn_tools("我们读到第几章了")}
+        self.assertIn("imprint_book", names)
+
+    def test_import_route_reads_the_upload(self):
+        async def fake_fetch(att):
+            return (GUTENBERG.encode(), None) if att["url"] == "/relay/uploads/att-1.txt" else (None, None)
+
+        with mock.patch.object(api_loop, "fetch_upload", fake_fetch):
+            out = asyncio.run(api_loop.books_import(Request({"url": "/relay/uploads/att-1.txt", "name": "pp.txt", "read_now": True})))
+            with self.assertRaises(HTTPException):
+                asyncio.run(api_loop.books_import(Request({"url": "/relay/uploads/missing", "name": "x.txt"})))
+        self.assertEqual((out["book"]["title"], out["book"]["status"], out["book"]["chapters"]), ("Pride and Prejudice", "reading", 2))

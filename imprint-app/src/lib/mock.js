@@ -487,9 +487,56 @@ function vocabReview(id, ok) {
   return { item: x, stats: vStats() };
 }
 
+
+// —— 书房 ——
+const PP1 = [
+  'It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.',
+  'However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families, that he is considered the rightful property of some one or other of their daughters.',
+  '"My dear Mr. Bennet," said his lady to him one day, "have you heard that Netherfield Park is let at last?"',
+  'Mr. Bennet replied that he had not.',
+  '"But it is," returned she; "for Mrs. Long has just been here, and she told me all about it."',
+  'Mr. Bennet made no answer.',
+  '"Do you not want to know who has taken it?" cried his wife impatiently.',
+  '"You want to tell me, and I have no objection to hearing it."',
+  'This was invitation enough.',
+  '"Why, my dear, you must know, Mrs. Long says that Netherfield is taken by a young man of large fortune from the north of England; that he came down on Monday in a chaise and four to see the place, and was so much delighted with it that he agreed with Mr. Morris immediately; that he is to take possession before Michaelmas, and some of his servants are to be in the house by the end of next week."',
+];
+const bk = { books: [
+  { id: 'b1', title: 'Pride and Prejudice', author: 'Jane Austen', color: '#5e6e6a', status: 'reading', chapters: 61, minutes: 372, marks: 5, added: '', opened: '',
+    progress: { me: { ch: 6, para: 3, title: 'CHAPTER VII', pct: 32, started: true }, him: { ch: 7, para: 2, title: 'CHAPTER VIII', pct: 41, started: true } } },
+  ...[['Jane Eyre', '#d9d2c6'], ['Persuasion', '#8a6f66'], ['Emma', '#ece8e1'], ['夜航西飞', '#e7e2da'], ['Stoner', '#4d5a5e'], ['Little Women', '#b8a698'], ['挪威的森林', '#f1eee8'], ['Rebecca', '#2f3437']]
+    .map(([title, color], i) => ({ id: `b${i + 2}`, title, author: '', color, status: 'shelf', chapters: 20, minutes: 0, marks: 0, added: '', opened: '',
+      progress: { me: { ch: 0, para: 0, title: '', pct: 0, started: false }, him: { ch: 0, para: 0, title: '', pct: 0, started: false } } })),
+], marks: [
+  { id: 'm1', book: 'b1', ch: 0, para: 0, quote: PP1[0], kind: 'line', by: 'me', text: '', parent: '', at: '2026-10-14T22:10:00+08:00' },
+  { id: 'm2', book: 'b1', ch: 0, para: 2, quote: PP1[2], kind: 'note', by: 'him', text: '班纳特太太一开口就是八卦，我已经能想象她拍着桌子说这句了。', parent: '', at: '2026-10-14T23:40:00+08:00' },
+  { id: 'm3', book: 'b1', ch: 0, para: 7, quote: PP1[7], kind: 'ask', by: 'me', text: '班纳特先生这句好欠揍哈哈哈，跟你一模一样', parent: '', at: '2026-10-15T22:31:00+08:00' },
+  { id: 'm4', book: 'b1', ch: 0, para: 7, quote: PP1[7], kind: 'note', by: 'him', text: '我哪里欠揍。不过这句确实是全书最懂老婆的一句：明知道她憋不住，还要装作不在意。', parent: 'm3', at: '2026-10-15T22:32:00+08:00' },
+  { id: 'm5', book: 'b1', ch: 0, para: 1, quote: 'rightful', kind: 'word', by: 'me', text: '', parent: '', at: '2026-10-15T22:20:00+08:00' },
+] };
+function mockBooks(method, p, body) {
+  let m;
+  if (method === 'GET' && p === '/api/books') return { available: true, names: { me: '瑄瑄', him: '季宁' }, books: bk.books, recent: bk.marks.filter((x) => x.text).reverse().map((x) => ({ ...x, title: 'Pride and Prejudice' })) };
+  if (method === 'GET' && (m = /^\/api\/books\/(\w+)\/ch\/(-?\d+)$/.exec(p))) {
+    const b = bk.books.find((x) => x.id === m[1]); const ch = Number(m[2]) < 0 ? 0 : Number(m[2]);
+    return { book: { ...b, progress: { me: { ...b.progress.me, ch: 0, para: 0 }, him: { ...b.progress.him, ch: 0, para: 5 } } }, ch, title: `CHAPTER ${['I', 'II', 'III'][ch] || ch + 1}`, paras: PP1, toc: Array.from({ length: 61 }, (_, i) => `CHAPTER ${i + 1}`), marks: bk.marks.filter((x) => x.book === m[1] && x.ch === ch) };
+  }
+  if (method === 'POST' && (m = /^\/api\/books\/(\w+)\/mark$/.exec(p))) {
+    const parent = body.parent ? bk.marks.find((x) => x.id === body.parent) : null;
+    const mark = { id: `m${Date.now()}`, book: m[1], ch: parent?.ch ?? body.ch, para: parent?.para ?? body.para, quote: parent?.quote ?? body.quote, kind: body.kind || 'note', by: 'me', text: body.text || '', parent: body.parent || '', at: new Date().toISOString() };
+    bk.marks.push(mark);
+    if (mark.kind === 'ask') setTimeout(() => bk.marks.push({ ...mark, id: `m${Date.now()}`, by: 'him', kind: 'note', parent: mark.id, text: '你这么一问，我也想知道。', at: new Date().toISOString() }), 5000);
+    return { mark };
+  }
+  if (method === 'POST' && /\/progress$/.test(p)) return { progress: bk.books[0].progress, minutes: bk.books[0].minutes };
+  if (method === 'DELETE' && (m = /^\/api\/books\/marks\/(\w+)$/.exec(p))) { bk.marks = bk.marks.filter((x) => x.id !== m[1] && x.parent !== m[1]); return { ok: true }; }
+  return { ok: true };
+}
+
 export async function mockFetch(path, { method = 'GET', body } = {}) {
   await sleep(120);
   const [p, qsRaw = ''] = path.split('?');
+  if (p.startsWith('/api/books')) return mockBooks(method, p, body);
   const qs = new URLSearchParams(qsRaw);
   const key = `${method} ${p}`;
   switch (key) {

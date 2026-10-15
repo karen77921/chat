@@ -364,6 +364,28 @@ async function compat(path, opts) {
   if (method === 'POST' && (m = /^\/api\/vocab\/do\/(learn|settings|delete_book)$/.exec(p))) return loop(`imprint/vocab/do/${m[1]}`, opts);
   if (method === 'POST' && (m = /^\/api\/vocab\/([0-9a-f]+)\/(review|edit)$/.exec(p))) return loop(`imprint/vocab/${m[1]}/${m[2]}`, opts);
   if (method === 'DELETE' && (m = /^\/api\/vocab\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/vocab/${m[1]}`, { method: 'DELETE' });
+  // 书房（共读）
+  if (method === 'GET' && p === '/api/books') return loop('imprint/books');
+  if (method === 'GET' && (m = /^\/api\/books\/([0-9a-f]+)\/ch\/(-?\d+)$/.exec(p))) return loop(`imprint/books/${m[1]}/ch/${m[2]}`);
+  if (method === 'POST' && (m = /^\/api\/books\/([0-9a-f]+)\/(progress|mark|update)$/.exec(p))) return loop(`imprint/books/${m[1]}/${m[2]}`, opts);
+  if (method === 'DELETE' && (m = /^\/api\/books\/marks\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/books/marks/${m[1]}`, { method: 'DELETE' });
+  if (method === 'DELETE' && (m = /^\/api\/books\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/books/${m[1]}`, { method: 'DELETE' });
+  if (method === 'POST' && (m = /^\/api\/books\/gutenberg\/(\d+)$/.exec(p))) return loop(`books/gutenberg/${m[1]}`, { method: 'POST', body: {}, timeout: 180000 });
+  if (method === 'POST' && p === '/api/books/import') {
+    // 先走聊天的上传通道把文件传上去，再让后端按 url 取回来拆章节
+    const file = opts.body?.file;
+    const up = await request(`${RELAY}/app/upload?name=${encodeURIComponent(file?.name || 'book.txt')}`, { method: 'POST', raw: file, timeout: 180000 });
+    return loop('books/import', { method: 'POST', body: { url: up.url, name: file?.name || 'book.txt', read_now: !!opts.body?.readNow }, timeout: 180000 });
+  }
+  if (method === 'POST' && p === '/api/books/ask') {
+    // 书里点「问他」：发到正在用的聊天窗口，再叫他回
+    const ss = await request(`${RELAY}/app/sessions`);
+    const sid = ss.active_session || ss.sessions?.[0]?.id;
+    if (!sid) throw new ApiError(400, '还没有聊天窗口');
+    await sendMessage(sid, { type: 'text', text: opts.body?.text || '' });
+    await request(`${RELAY}/app/trigger`, { method: 'POST', body: { api_session: sid } });
+    return { ok: true, session: sid };
+  }
   if (method === 'GET' && p === '/api/piggy') return loop('imprint/piggy');
   if (method === 'POST' && p === '/api/piggy') return loop('imprint/piggy', opts);
   if (method === 'DELETE' && (m = /^\/api\/piggy\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/piggy/${m[1]}`, { method: 'DELETE' });

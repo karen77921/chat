@@ -316,6 +316,18 @@ class ImprintStoreTest(unittest.TestCase):
         item = self.call("GET", "/usage/cache")["items"][0]
         self.assertEqual((item["inputTokens"], item["hitTokens"], item["writeTokens"]), (160, 60, 80))
 
+    def test_leaked_english_monologue_is_kept_out_of_replies(self):
+        split = api_loop.split_leaked_thinking
+        self.assertEqual(split("I need a short line under 40 characters, staying in character—playful about her")[0], "")
+        reply, leaked = split("I can see her current status shows she's gaming. Let me reply warmly.\n\n打游戏呢？赢了没")
+        self.assertEqual(reply, "打游戏呢？赢了没")
+        self.assertIn("Let me", leaked)
+        self.assertEqual(split("She's asking about the drawer, I should keep it short. 抽屉做好了，去看看")[0], "抽屉做好了，去看看")
+        self.assertEqual(split("<think>she is tired</think>早点睡")[0], "早点睡")
+        # 正常的话不动：中文、短英文、她要的英文句子
+        for ok in ("晚安宝宝", "Good night~", "apple 是苹果", "The quick brown fox jumps over the lazy dog.\n\n这句是练字母的"):
+            self.assertEqual(split(ok), (ok, ""))
+
     def test_short_messages_skip_memory_recall(self):
         self.assertFalse(api_loop.recall_query_worth_searching("搞完了"))
         self.assertFalse(api_loop.recall_query_worth_searching("嗯嗯！！"))

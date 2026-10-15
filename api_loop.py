@@ -2518,6 +2518,7 @@ async def build_messages(
             content = str(row.get("text") or "").strip()
             row_atts = row["meta"].get("attachments") or []
             if row.get("direction") == "out":
+                content = split_leaked_thinking(content)[0]  # 以前漏进正文的英文独白别再喂回给他
                 if content:
                     messages.append({"role": "assistant", "content": content})
                 continue
@@ -4455,6 +4456,45 @@ def route_credentials(body: dict[str, Any], *, require_model: bool = False) -> d
     return route
 
 
+# 有的线路会把模型的内心独白（多半是英文：“I need a short line…”“She's asking…”）直接写进正文。
+# 只在明显是独白时才拿掉：没有中文、像在自言自语，后面还跟着中文回复（或者整段都是独白）。
+CJK_RE = re.compile(r"[\u3400-\u9fff]")
+THINK_TAG_RE = re.compile(r"<(think|thinking|reasoning)>.*?</\1>\s*", re.S | re.I)
+MONOLOGUE_RE = re.compile(
+    r"\b(I need|I should|I'll|I will|I want to|I can see|Let me|Let's|She's|She is|she wants|she said|the user|"
+    r"in character|respond|reply|her message|characters|staying)\b", re.I)
+
+
+def _is_monologue(text: str) -> bool:
+    letters = sum(ch.isascii() and ch.isalpha() for ch in text)
+    return (not CJK_RE.search(text) and len(text.strip()) >= 25 and letters >= 0.6 * len(text.replace(" ", ""))
+            and bool(MONOLOGUE_RE.search(text)))
+
+
+def split_leaked_thinking(text: str) -> tuple[str, str]:
+    """→ (reply, leaked monologue)."""
+    leaked: list[str] = []
+    raw = THINK_TAG_RE.sub(lambda m: leaked.append(m.group(0)) or "", str(text or ""))
+    opened = re.match(r"\s*<(think|thinking|reasoning)>", raw, re.I)
+    if opened:  # 只有开头没有结尾：整段都是没想完的
+        return "", "\n".join([*leaked, raw]).strip()
+    paras = re.split(r"\n\s*\n", raw.strip())
+    i = 0
+    while i < len(paras) and _is_monologue(paras[i]):
+        i += 1
+    leaked += paras[:i]
+    reply = "\n\n".join(paras[i:]).strip()
+    # 同一段里：英文独白后面直接接中文回复
+    first = CJK_RE.search(reply)
+    if first and first.start() >= 40:
+        head = reply[:first.start()]
+        cut = max(head.rfind("\n"), head.rfind(". "), head.rfind("."))
+        if cut > 0 and _is_monologue(head[:cut + 1]):
+            leaked.append(head[:cut + 1])
+            reply = reply[cut + 1:].strip()
+    return reply, "\n\n".join(x.strip() for x in leaked if x.strip())
+
+
 async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, *, sink=None, think_sink=None, stream: bool = True, session_id: str = "", patient: bool = False, budget_s: int | None = None) -> dict[str, Any]:
     """Walk the model chain. Falls back to the next route only if nothing was streamed yet."""
     tried: list[str] = []
@@ -4500,6 +4540,10 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
                 timing["dropped_tools"] = True  # 带工具的请求超时，去掉工具重问
                 request = stream_chat(route, messages, None, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, None, session_id)
                 out = await asyncio.wait_for(request, timeout=retry_remaining)
+            reply, leaked = split_leaked_thinking(out.get("text") or "")
+            if leaked:
+                print(f"[model] moved {len(leaked)} chars of leaked monologue out of the reply", flush=True)
+                out["text"], out["thinking"] = reply, "\n\n".join(x for x in (out.get("thinking") or "", leaked) if x)
             out["model"] = route.get("model")
             out["tried"] = tried[:-1]
             out["timing"] = {**timing, "total_s": round(loop.time() - t0, 1)}
@@ -4611,7 +4655,8 @@ async def handle_turn(
             step_text = out.get("text") or ""
             thinking = out.get("thinking") or ""
             last_finish = str(out.get("finish") or "")
-            if not step_text and thinking and not calls and "claude" not in str(out.get("model") or "").lower():
+            if (not step_text and thinking and not calls and "claude" not in str(out.get("model") or "").lower()
+                    and CJK_RE.search(thinking) and not split_leaked_thinking(thinking)[1]):
                 # Some OpenAI-compatible gateways (seen with Qwen3-VL after a tool result) put the
                 # whole final answer in reasoning_content and leave content empty. Promote it.
                 # Claude 的思考是它自己的内心独白（常常是英文），绝不能当回复发给她。

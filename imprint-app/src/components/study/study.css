@@ -202,3 +202,9 @@
 .st-reader.night .st-black { background: #e6dfd5 !important; color: #1f1e1c !important; }
 .st-reader.night .st-rfoot { background: linear-gradient(180deg, rgba(31, 30, 28, 0), var(--st-paper) 34%); }
 @media (max-width: 360px) { .st-text { padding: 22px 26px 0; } .st-mk { right: -18px; } }
+
+/* 嵌在「一起」里：不占满整屏，像一张纸 */
+.st.embedded { min-height: 0; margin: 14px 16px 24px; border-radius: 24px; padding: 4px 0 30px; box-shadow: 0 14px 40px rgba(120, 100, 90, .10); }
+.st.embedded .st-head { padding-top: 16px; }
+.st.embedded .st-head .st-ghost { margin-bottom: 0 !important; }
+.st.embedded .st-stage { margin-top: 8px; }

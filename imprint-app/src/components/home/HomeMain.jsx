@@ -36,9 +36,9 @@ const KIND = {
 };
 /** 百宝箱：底栏已经有的（首页 / 小屋 / 聊天 / 心潮 / 设置）不再重复，其余的小功能都收在这里，以后加新的也往这里放 */
 const TREASURES = [
-  ['一起', 'play', '#/together', '听歌 · 看片'], ['留言板', 'feather', '#/notes', '写给彼此'], ['搜留言', 'search', '#/notes?search=1', '翻以前的'],
+  ['一起', 'play', '#/together', '听歌 · 看片 · 读书'], ['留言板', 'feather', '#/notes', '写给彼此'], ['搜留言', 'search', '#/notes?search=1', '翻以前的'],
   ['续火花', 'flame', '#/spark', '礼物铺 · 券'], ['买买申请', 'gift', '#/approvals', '他来批'], ['存钱罐', 'heart', '#/piggy', '他只能看'],
-  ['单词本', 'pen', '#/words', '他会抽查'], ['书房', 'book', '#/study', '一起读书'],
+  ['单词本', 'pen', '#/words', '他会抽查'],
 ];
 const ACT_SHOWN = 4;
 

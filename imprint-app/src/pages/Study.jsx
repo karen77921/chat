@@ -1,5 +1,6 @@
 /**
  * 书房（共读）：书架 → 读书页。她和他各有一枚书签；划线、批注、生词、问他都挂在某一句话上。
+ * 入口：一起 → 一起读（#/together?tab=read，书架嵌在里面）；#/study 是单独的书架页
  * 网址：#/study（书架）、#/study/read?id=…&ch=…（读书）
  * 数据：GET /api/books、GET /api/books/:id/ch/:n、POST /api/books/:id/progress|mark|update、
  *       DELETE /api/books/:id、DELETE /api/books/marks/:id、POST /api/books/import|gutenberg/:n|ask
@@ -100,7 +101,7 @@ const spineSize = (b, base = 92) => ({ h: base - 10 + (hash(b.id) % 14), w: 17 +
 
 /* ——————————————— 书架 ——————————————— */
 
-function Shelf() {
+export function Shelf({ embedded = false }) {
   const { data, reload } = useLoad('/api/books');
   const [sheet, setSheet] = useState(null); // 'import' | 'menu'
   const books = data?.books || [];
@@ -113,12 +114,17 @@ function Shelf() {
   const meI = initial(names.me, '我'), himI = initial(names.him, '他');
 
   return (
-    <main className="st st-shelf">
-      <header className="st-head">
-        <a href="#/" className="st-back" aria-label="返回">‹</a>
-        <div><div className="st-eyebrow">The Study</div><h1>书房</h1></div>
-        <button type="button" className="st-ghost" onClick={() => setSheet('import')}>导入</button>
-      </header>
+    <main className={`st st-shelf ${embedded ? 'embedded' : ''}`}>
+      {embedded ? (
+        <header className="st-head"><div><div className="st-eyebrow">The Study</div></div>
+          <button type="button" className="st-ghost" onClick={() => setSheet('import')}>导入</button></header>
+      ) : (
+        <header className="st-head">
+          <a href="#/together?tab=read" className="st-back" aria-label="返回">‹</a>
+          <div><div className="st-eyebrow">The Study</div><h1>书房</h1></div>
+          <button type="button" className="st-ghost" onClick={() => setSheet('import')}>导入</button>
+        </header>
+      )}
 
       {!data && <p className="st-quiet">正在把书搬上架…</p>}
       {data?.available === false && <p className="st-quiet">暂时连不上，过一会儿再来。</p>}
@@ -343,7 +349,7 @@ function Reader({ id, chParam, paraParam }) {
     return () => { removeEventListener('scroll', on); clearTimeout(timer); };
   }, [data?.ch, data?.paras, id]);
 
-  if (data?.error) return <main className="st st-reader"><p className="st-quiet">{data.error}　<a href="#/study">回书架</a></p></main>;
+  if (data?.error) return <main className="st st-reader"><p className="st-quiet">{data.error}　<a href="#/together?tab=read">回书架</a></p></main>;
   const book = data?.book;
   const marks = data?.marks || [];
   const roots = marks.filter((m) => !m.parent);
@@ -373,7 +379,7 @@ function Reader({ id, chParam, paraParam }) {
   return (
     <main className={`st st-reader ${prefs.night ? 'night' : ''}`} style={{ '--fs': `${SIZES[prefs.size]}px` }} onClick={() => { setPick(null); setAa(false); }}>
       <header className="st-rbar">
-        <a href="#/study" className="st-x" aria-label="回书架">×</a>
+        <a href="#/together?tab=read" className="st-x" aria-label="回书架">×</a>
         <span className="st-c">{book?.title || ''}</span>
         <button type="button" className="st-aa" onClick={(e) => { e.stopPropagation(); setAa((v) => !v); }}>Aa</button>
       </header>

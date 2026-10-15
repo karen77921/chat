@@ -1,5 +1,5 @@
 /**
- * 05 一起：一起听 / 一起看两个分页，加一份两个人一起攒的歌单。
+ * 05 一起：一起听 / 一起看 / 一起读（书房）三个分页，加一份两个人一起攒的歌单。
  * 网址：#/together   ?tab=listen|watch   ?playlist=1 打开歌单
  * 一起听的状态在 src/lib/listen.jsx（和悬浮小窗共用）；一起看：GET /api/together/watch。
  * 一起看的同步播放用「共影」，前端只放共影房间的入口，见 docs/05-一起.md。
@@ -16,13 +16,15 @@ import { Avatar } from './Chat.jsx';
 import '../components/chat/chat.css';
 import '../components/chat/chatlist.css';
 import '../components/together/together.css';
+import { Shelf } from './Study.jsx';
 
 const ME = { id: 'me', name: '我', color: '#AED0EE' };
 
 export default function Together({ query }) {
-  const [tab, setTab] = useState(query.tab === 'watch' ? 'watch' : 'listen');
+  const tabOf = (x) => (x === 'watch' || x === 'read' ? x : 'listen');
+  const [tab, setTab] = useState(tabOf(query.tab));
   const [listOpen, setListOpen] = useState(query.playlist === '1');
-  useEffect(() => { if (query.tab) setTab(query.tab === 'watch' ? 'watch' : 'listen'); }, [query.tab]);
+  useEffect(() => { if (query.tab) setTab(tabOf(query.tab)); }, [query.tab]);
   const pick = (k) => { setTab(k); replaceQuery({ tab: k }); };
   const back = () => (history.length > 1 ? history.back() : (location.hash = '#/'));
   return (
@@ -31,11 +33,12 @@ export default function Together({ query }) {
         <button type="button" className="rbtn" aria-label="返回" onClick={back}><Icon name="back" size={18} stroke={1.5} /></button>
         <h1><span className="hand">together</span><span>一起</span></h1>
       </header>
-      <div className="tp-seg" role="tablist" aria-label="一起听 / 一起看">
+      <div className="tp-seg" role="tablist" aria-label="一起听 / 一起看 / 一起读">
         <button type="button" role="tab" aria-selected={tab === 'listen'} className={tab === 'listen' ? 'on' : ''} onClick={() => pick('listen')}>一起听</button>
         <button type="button" role="tab" aria-selected={tab === 'watch'} className={tab === 'watch' ? 'on' : ''} onClick={() => pick('watch')}>一起看</button>
+        <button type="button" role="tab" aria-selected={tab === 'read'} className={tab === 'read' ? 'on' : ''} onClick={() => pick('read')}>一起读</button>
       </div>
-      {tab === 'listen' ? <Listen onList={() => { setListOpen(true); replaceQuery({ tab: 'listen', playlist: '1' }); }} /> : <Watch />}
+      {tab === 'listen' ? <Listen onList={() => { setListOpen(true); replaceQuery({ tab: 'listen', playlist: '1' }); }} /> : tab === 'watch' ? <Watch /> : <Shelf embedded />}
       {listOpen && <Playlist onClose={() => { setListOpen(false); replaceQuery({ tab }); }} />}
     </main>
   );

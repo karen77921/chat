@@ -534,10 +534,11 @@ def book_context_text() -> str:
     return ""
 
 
-def book_unseen() -> int:
+def book_reading() -> bool:
+    """书架上有在读的书：读书的工具一直放在他手边（接通了，随时能去翻、回她的批注）。"""
     with contextlib.suppress(Exception):
-        return int(imprint_action(LOOP_CACHE_DIR / "imprint.db", "book_context").get("unseen") or 0)
-    return 0
+        return bool(imprint_action(LOOP_CACHE_DIR / "imprint.db", "book_context").get("text"))
+    return False
 
 
 def gifts_context_text() -> str:
@@ -3377,7 +3378,7 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
         add_builtin("search_chat_history")
     if any(word in query for word in ("单词", "背词", "背单词", "复习", "抽查", "抽我", "考考", "考我", "听写", "错词", "vocab")) or vocab_due_count():
         add_builtin("imprint_vocab")
-    if any(word in query for word in ("书房", "共读", "读书", "看书", "这本书", "那本书", "批注", "划线", "读到", "章", "📖", "imprint_book")) or book_unseen():
+    if any(word in query for word in ("书房", "共读", "读书", "看书", "一起读", "这本书", "那本书", "批注", "划线", "读到", "章", "📖", "imprint_book")) or book_reading():
         add_builtin("imprint_book")
     if any(word in query for word in ("存钱罐", "小金库", "存了", "扣了", "扣钱", "存钱", "余额", "攒钱")):
         add_builtin("imprint_view_piggy")

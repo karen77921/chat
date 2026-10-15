@@ -8,6 +8,8 @@ import { Cyanotype } from '../../design/paper.jsx';
 import { Sticker } from './stickers.jsx';
 import { fileSize } from '../../lib/chat.js';
 import { splitByQuery } from '../../lib/notes.js';
+import { stickerToken } from '../../lib/stickerUrls.js';
+import AuthImg from '../../design/AuthImg.jsx';
 
 function useLongPress(onLong) {
   const t = useRef(null);
@@ -62,7 +64,7 @@ function Images({ images, onOpen }) {
     <div className={`cm-imgs glass ${cls}`}>
       {images.slice(0, 9).map((im, i) => (
         <button key={i} type="button" className="cm-img" onClick={() => onOpen(i)} aria-label={`看第 ${i + 1} 张图`}>
-          {im.url ? <img src={im.thumb || im.url} alt="" loading="lazy" /> : <Cyanotype w={n === 1 ? 168 : 120} h={n === 1 ? 120 : 120} seed={20 + i} variant="sprig" develop={false} />}
+          {im.url ? <AuthImg src={im.thumb || im.url} alt="" loading="lazy" /> : <Cyanotype w={n === 1 ? 168 : 120} h={n === 1 ? 120 : 120} seed={20 + i} variant="sprig" develop={false} />}
         </button>
       ))}
     </div>
@@ -122,6 +124,17 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
   const [thinkOpen, setThinkOpen] = useState(false);
   const press = useLongPress((rect) => onMenu?.(m, rect));
 
+  if (m.type === 'thinking') {
+    return (
+      <div className="cm-row him">
+        <div className="cm-think">
+          <button type="button" className="glass cm-think-b" onClick={() => setThinkOpen((o) => !o)} aria-expanded={thinkOpen}>想了一下<Icon name="down" size={14} stroke={1.5} className={thinkOpen ? 'up' : ''} /></button>
+          {thinkOpen && <div className="cm-think-t">{m.thinking}</div>}
+        </div>
+      </div>
+    );
+  }
+
   if (m.status === 'failed') {
     return (
       <div className="cm-row him">
@@ -157,13 +170,15 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
         const parts = bubbleParts(m.text);
       body = (
         <div className="cm-bubble-stack">
-          {parts.map((part, index) => (
+          {parts.map((part, index) => (stickerToken(part) && !(index === 0 && m.quote) ? (
+            <div key={index} className="cm-sticker"><Sticker sticker={{ id: stickerToken(part) }} size={88} /></div>
+          ) : (
             <div key={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
               {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
               <Text text={part} q={q} />
               {index === parts.length - 1 && m.edited && <span className="cm-edited">（改过）</span>}
             </div>
-          ))}
+          )))}
         </div>
       );
       }

@@ -202,3 +202,30 @@ svg.up { transform: rotate(180deg); }
 .ch-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ch-detail-actions .chip[aria-checked='true'] { color: var(--print-c); border-color: var(--print-b); }
 .ch-detail-notice { min-height: 20px; margin: 18px 0 0; color: var(--print-c); font-size: 12px; }
+
+/* 账本：长按他的消息 → 这一轮花在了哪里 */
+.ledger { display: grid; gap: 14px; margin: 12px 0 6px; }
+.ledger h3 { font: 600 13px/1.4 var(--serif); margin: 0 0 6px; color: var(--ink); }
+.ledger dl { margin: 0; display: grid; gap: 4px; }
+.ledger dl > div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; line-height: 1.5; border-bottom: 1px dashed var(--line); padding-bottom: 4px; }
+.ledger dt { color: var(--muted); flex: none; }
+.ledger dd { margin: 0; text-align: right; color: var(--ink); overflow-wrap: anywhere; }
+
+/* 快捷回复：他最新一条下面的三个下一步，点一下就发，铅笔是先改再发 */
+.ch-opts { display: grid; gap: 8px; margin: 4px 0 10px; justify-items: end; }
+.ch-opt { display: flex; align-items: stretch; max-width: 86%; border-radius: 20px; overflow: hidden; animation: ch-opt-in 0.35s ease-out both; }
+.ch-opt:nth-child(2) { animation-delay: 0.06s; }
+.ch-opt:nth-child(3) { animation-delay: 0.12s; }
+.ch-opt-send { flex: 1; min-width: 0; padding: 10px 6px 10px 15px; text-align: left; font-size: 14px; line-height: 1.5; color: var(--ink); }
+.ch-opt-edit { flex: none; width: 38px; display: grid; place-items: center; color: var(--muted); border-left: 1px solid rgba(120, 110, 104, 0.12); }
+.ch-opt:active { transform: scale(0.98); }
+@keyframes ch-opt-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.cin-acts { row-gap: 14px; }
+/* 加号 → 券和礼物：先点选中，再点一下才用掉 */
+.cin-gifts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; max-height: 210px; overflow-y: auto; }
+.cin-gift { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px 12px; border-radius: 12px; text-align: left; min-width: 0;
+  border: 1.5px dashed var(--print-b, #c9a99c); background: color-mix(in srgb, var(--sheet, #fff) 85%, #f6d9cf); color: var(--ink); }
+.cin-gift b { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.cin-gift em { font-style: normal; font-size: 10.5px; color: var(--muted); overflow-wrap: anywhere; }
+.cin-gift.on { border-style: solid; border-color: var(--print-c, #b97c74); }
+.cin-gift.on em { color: var(--print-c, #b97c74); }

@@ -1,0 +1,28 @@
+{
+  "name": "galatea-garden-wake-bridge",
+  "version": "0.2.1",
+  "description": "Local SSE wake bridge for Galatea Garden agent runtimes",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "garden-wake": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "npm run build && node scripts/run-tests.mjs",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "ws": "^8.21.1"
+  }
+}

@@ -101,9 +101,11 @@ const chats = {
       { id: 'c0b', from: 'him', type: 'text', text: '三张里最喜欢第二张，光刚好打在你手上。', at: '2026-10-08T22:01:00+08:00' },
       { id: 'c1', from: 'him', type: 'text', text: '今天降温了，外套穿厚一点那件。', at: C('22:36') },
       { id: 'c2', from: 'me', type: 'images', images: [{ url: '', w: 4, h: 3 }], at: C('22:41') },
-      { id: 'c3', from: 'me', type: 'text', text: '下班路上拍的，云好低', at: C('22:41') },
+      { id: 'c3', from: 'me', type: 'text', text: '下班路上拍的，云好低', reaction: 'cat-heart', at: C('22:41') },
       { id: 'c4', from: 'him', type: 'command', thinking: '她说云很低，先看看今晚会不会下雪。', command: { title: '查了一下天气', cmd: 'weather --city 苏州 --hours 6', output: '23:00  阴    12°\n02:00  小雪  ☁ 40%', exitCode: 0, ms: 400 }, at: C('22:53') },
-      { id: 'c5', from: 'him', type: 'text', text: '凌晨真的可能下雪。\n拍照又站在路中间了吧？', at: C('22:54') },
+      { id: 'c4t', from: 'him', type: 'thinking', thinking: 'The weather says light snow around 2am. She is probably still standing outside taking photos — remind her gently.', at: C('22:54') },
+      { id: 'c4s', from: 'him', type: 'text', text: '先给你盖个章⟦气泡⟧[表情：paw]', at: C('22:54') },
+      { id: 'c5', from: 'him', type: 'text', text: '凌晨真的可能下雪。\n拍照又站在路中间了吧？', at: C('22:54'), replyOptions: ['才没有，我很小心的', '你管我～', '我把刚拍的那张发给你'] },
       { id: 'c6', from: 'me', type: 'text', text: '没有！站在路边的！', quote: { id: 'c5', from: 'him', text: '拍照又站在路中间了吧？' }, status: 'queued', at: C('22:57') },
       { id: 'c7', from: 'me', type: 'voice', voice: { url: '', durationS: 6, transcript: '周六的电影订好位置了，第七排中间' }, status: 'queued', at: C('22:58') },
     ],
@@ -174,6 +176,7 @@ function chatState(id, qs) {
   let replying = chat.replying;
   if (demo === 'waiting') replying = { startedAt: new Date(now - 42000).toISOString(), lastEventAt: new Date(now - 42000).toISOString() };
   if (demo === 'stuck') replying = { startedAt: new Date(now - 150000).toISOString(), lastEventAt: new Date(now - 130000).toISOString() };
+  if (demo === 'opts') items = items.slice(0, items.findIndex((m) => m.id === 'c5') + 1); // 快捷回复：停在他那条上
   if (demo === 'failed') items = [...items.map((m) => ({ ...m, status: undefined })), { id: 'cf', from: 'him', type: 'text', text: '订好了？那我要坐你左边，上次……', status: 'failed', at: C('22:59') }];
   chat.unread = 0;
   return { available: true, now: new Date().toISOString(), id: chat.id, kind: chat.kind, name: chat.name, connection: chat.connection, me: { name: 'Lumi' }, members: chat.members, wallpaper: null, items, replying, hasMore: false };
@@ -275,12 +278,15 @@ const spark = {
     { id: 'g4', cat: 'date', art: 'book', name: '睡前故事一则', sub: '一个故事，慢慢讲给你听', cost: 90 },
     { id: 'g5', cat: 'real', art: 'letter', name: '一封手写信', sub: '他写，你收到实物', cost: 200 },
     { id: 'g6', cat: 'box', art: 'box', name: '小盲盒', sub: '打开才知道是什么', cost: 30 },
+    { id: 'g7', cat: 'coupon', art: 'coupon', name: '撒娇券', sub: '用了他就得哄你', cost: 10 },
   ],
   kept: [{ id: 'k1', itemId: 'g1', name: '蓝晒信纸', cat: 'bubble', art: 'bubble', at: '2026-10-06T21:00:00+08:00', active: true }],
   records: [
-    { id: 'r1', name: '今晚陪你看一部', by: 'him', at: '2026-10-08T20:00:00+08:00', status: 'scheduled', note: '约好了：周六 20:00' },
-    { id: 'r2', name: '蓝晒信纸', by: 'me', at: '2026-10-06T21:00:00+08:00', status: 'kept', note: '已收好' },
-    { id: 'r3', name: '睡前故事一则', by: 'him', at: '2026-09-28T23:00:00+08:00', status: 'done', note: '已兑现 · 讲了《灯塔》' },
+    { id: 'r0', name: '原谅券', cat: 'coupon', by: 'me', holder: 'him', at: '2026-10-12T20:00:00+08:00', status: 'unused', note: '惹我生气的时候可以用一次' },
+    { id: 'r9', name: '撒娇券', cat: 'coupon', by: 'me', holder: 'me', at: '2026-10-13T20:00:00+08:00', status: 'unused', note: '' },
+    { id: 'r1', cat: 'date', name: '今晚陪你看一部', by: 'him', at: '2026-10-08T20:00:00+08:00', status: 'scheduled', note: '约好了：周六 20:00' },
+    { id: 'r2', cat: 'bubble', name: '蓝晒信纸', by: 'me', at: '2026-10-06T21:00:00+08:00', status: 'kept', note: '已收好' },
+    { id: 'r3', cat: 'date', name: '睡前故事一则', by: 'him', at: '2026-09-28T23:00:00+08:00', status: 'used', usedBy: 'me', usedAt: '2026-09-28T23:30:00+08:00', usedNote: '讲了《灯塔》', note: '已兑现 · 讲了《灯塔》' },
   ],
 };
 function sparkHome() {
@@ -306,7 +312,8 @@ function sparkRedeem(body) {
   if (spark.wallets.me < g.cost) throw new Error('积分不够');
   spark.wallets.me -= g.cost;
   if (g.cat === 'bubble' || g.cat === 'pendant') spark.kept.unshift({ id: `k${++roomSeq}`, itemId: g.id, name: g.name, cat: g.cat, art: g.art, at: new Date().toISOString(), active: false });
-  spark.records.unshift({ id: `r${++roomSeq}`, name: g.name, by: 'me', at: new Date().toISOString(), status: 'kept', note: '已收好' });
+  const wear = g.cat === 'bubble' || g.cat === 'pendant';
+  spark.records.unshift({ id: `r${++roomSeq}`, name: g.name, cat: g.cat, by: 'me', holder: body.holder || 'me', at: new Date().toISOString(), status: wear ? 'kept' : 'unused', state: wear ? 'kept' : 'unused', note: body.note || '' });
   return { status: 'done', wallets: spark.wallets };
 }
 
@@ -386,8 +393,10 @@ const features = [
   { key: 'spark', name: '续火花结算', desc: '每天 0 点', last: '今天 0:00', on: true },
   { key: 'push', name: '提醒推送', desc: '约好的时间到了提醒你们', last: '', on: false },
 ];
+const garden = { available: true, installed: true, node: 'v20.19.0', configured: true, state: 'failed', log: ['2026-10-12T09:07:13+08:00 garden-wake[812]: ERROR bridge failed {"error":"Garden SSE stream ended; restart the bridge manually after checking Garden status"}'],
+  wakes: [{ at: '2026-10-12T09:07:09+08:00', result: 'silent', detail: '' }, { at: '2026-10-12T09:07:09+08:00', result: 'received', detail: 'forum_notification_available: 有人在花园里回复了你' }] };
 const mcps = [
-  { id: 'weather', name: '天气', tools: 3, status: 'ok', on: true },
+  { id: 'weather', name: '天气', url: 'https://example.com/weather/mcp', auth: 'none', tools: 3, status: 'ok', on: true },
   { id: 'memory', name: '记忆库', tools: 6, status: 'ok', on: true },
   { id: 'music', name: '音乐', tools: 4, status: 'ok', on: true },
   { id: 'web', name: '网页', tools: 2, status: 'down', on: true },
@@ -432,13 +441,167 @@ function home() {
 }
 
 // ---------------- 路由 ----------------
+const CC_RESULT = { at: new Date().toISOString(), index: 0, model: 'claude-opus-4-6', host: 'fucheers.top', probes: 6, tokens_spent: 52310, prefix_chars: 12000, elapsed_s: 41.2,
+  sections: [
+    { key: 'plain', title: '非流式', level: 'warn', status: '站子不返回缓存字段（瞎的）', summary: '第一发 in=8063 w=null r=null（2100ms） | 第二发 in=8063 w=null r=null（2300ms）' },
+    { key: 'stream', title: '流式', note: '真实聊天走的是这条', level: 'warn', status: '站子不返回缓存字段（瞎的）', summary: '第一发 in=8063 w=null r=null（2000ms） | 第二发 in=8063 w=null r=null（2000ms）' },
+    { key: 'real', title: '真实', level: 'bad', status: '最近 5 轮命中 0 轮', summary: '平均每轮 98,476 token（站子没回缓存字段）' },
+    { key: 'prefix', title: '前缀', level: 'warn', status: '在变', summary: '最近 5 轮里：人设/系统那段变了 0 次，最前面 5 条聊天变了 1 次。前缀一变后面的缓存全作废，这是我们自己这边的（摘要更新、聊天窗口往前滑），不是通道的问题' },
+    { key: 'billing', title: '计价', level: 'bad', status: '虚高约 3.6 倍', summary: '6067 字符的工具块算成 24,920 token，正常大约 6,950。按量计费的话就是多收钱' },
+    { key: 'tools', title: '调工具', level: 'good', status: '会调', summary: '调了 cache_check_ping，工具 id cpa_gemini_976abc' },
+    { key: 'lineage', title: '掺水', level: 'bad', status: '掺水了', summary: '名字挂着 claude，回来的 id/模型里带着 gemini' },
+    { key: 'setting', title: '你的设置', level: 'info', status: '不发缓存标记', summary: '真实聊天不带 cache_control（接入 → 这条 API → Prompt Cache）' },
+  ],
+  advice: [
+    { level: 'bad', text: '这条掺水了：名字挂着 claude，后面接的是 gemini。缓存、计价怎么测都不作数，最要紧的是换通道。' },
+    { level: 'warn', text: '这家对工具定义多收约 3.6 倍。去「功能管理」关掉不用的 MCP、少开几个常驻工具，能省不少。' },
+  ] };
+
+const OFFS = [1, 2, 4, 7, 15, 30];
+const dayISO = (n = 0) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+let vocab = [
+  { id: 'v1', word: 'ubiquitous', meaning: '无处不在的', stage: 1, start: dayISO(-2), due: dayISO(0), wrong: 0, right: 1, log: [] },
+  { id: 'v2', word: 'abandon', meaning: '放弃', stage: 0, start: dayISO(-1), due: dayISO(0), wrong: 2, right: 0, log: [{ at: new Date().toISOString(), ok: false, by: 'him' }] },
+  { id: 'v3', word: 'serendipity', meaning: '意外发现美好事物的运气', stage: 2, start: dayISO(-3), due: dayISO(1), wrong: 0, right: 2, log: [] },
+  { id: 'v4', word: 'take off', meaning: '起飞；脱下', stage: 6, start: dayISO(-40), due: '', mastered: true, wrong: 0, right: 6, log: [] },
+];
+let vDaily = 20;
+const vStats = () => ({ done_today: vocab.reduce((n, x) => n + (x.log || []).filter((l) => l.at.slice(0, 10) === dayISO()).length, 0), streak: 3, new: vocab.filter((x) => x.new).length, learned_today: vocab.filter((x) => x.learned === dayISO()).length, daily_new: vDaily,
+  learn_left: Math.max(0, vDaily - vocab.filter((x) => x.learned === dayISO()).length),
+  books: [...new Set(vocab.map((x) => x.book || ''))].map((name) => ({ name, total: vocab.filter((x) => (x.book || '') === name).length, new: vocab.filter((x) => (x.book || '') === name && x.new).length })), total: vocab.length, due: vocab.filter((x) => !x.new && !x.mastered && x.due <= dayISO()).length, wrong: vocab.filter((x) => x.wrong && !x.mastered).length,
+  mastered: vocab.filter((x) => x.mastered).length, today: dayISO(), offsets: OFFS });
+function vocabView(v) {
+  const items = v === 'new' ? vocab.filter((x) => x.new) : v === 'due' ? vocab.filter((x) => !x.new && !x.mastered && x.due <= dayISO()) : v === 'wrong' ? vocab.filter((x) => x.wrong && !x.mastered) : v === 'mastered' ? vocab.filter((x) => x.mastered) : vocab;
+  return { available: true, names: { me: 'Lumi', him: 'Ash' }, items, stats: vStats() };
+}
+function vocabAdd(body) {
+  const added = body.text.split('\n').filter((l) => l.trim()).map((l, i) => { const [w, ...m] = l.trim().split(/\s+/); return { id: `v${Date.now()}${i}`, word: w, meaning: m.join(' '), stage: 0, start: body.queue ? '' : dayISO(), due: body.queue ? '' : dayISO(1), new: !!body.queue, book: body.book || '', wrong: body.wrong ? 1 : 0, right: 0, log: [] }; });
+  vocab = [...added, ...vocab]; return { added, updated: [], stats: vStats() };
+}
+function vocabReview(id, ok) {
+  const x = vocab.find((v) => v.id === id);
+  if (x.new) { x.new = false; x.learned = dayISO(); x.start = dayISO(); x.due = dayISO(1); if (!ok) x.wrong += 1; return { item: x, stats: vStats() }; }
+  if (ok) { x.stage += 1; x.right += 1; } else { x.stage = 0; x.wrong += 1; x.start = dayISO(); }
+  x.log = [...(x.log || []), { at: new Date().toISOString(), ok, by: 'me' }];
+  x.mastered = x.stage >= OFFS.length; x.due = x.mastered ? '' : dayISO(Math.max(1, OFFS[x.stage] || 1));
+  return { item: x, stats: vStats() };
+}
+
+
+// —— 书房 ——
+const PP1 = [
+  'It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.',
+  'However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families, that he is considered the rightful property of some one or other of their daughters.',
+  '"My dear Mr. Bennet," said his lady to him one day, "have you heard that Netherfield Park is let at last?"',
+  'Mr. Bennet replied that he had not.',
+  '"But it is," returned she; "for Mrs. Long has just been here, and she told me all about it."',
+  'Mr. Bennet made no answer.',
+  '"Do you not want to know who has taken it?" cried his wife impatiently.',
+  '"You want to tell me, and I have no objection to hearing it."',
+  'This was invitation enough.',
+  '"Why, my dear, you must know, Mrs. Long says that Netherfield is taken by a young man of large fortune from the north of England; that he came down on Monday in a chaise and four to see the place, and was so much delighted with it that he agreed with Mr. Morris immediately; that he is to take possession before Michaelmas, and some of his servants are to be in the house by the end of next week."',
+];
+const bk = { books: [
+  { id: 'b1', title: 'Pride and Prejudice', author: 'Jane Austen', color: '#5e6e6a', status: 'reading', chapters: 61, minutes: 372, marks: 5, added: '', opened: '',
+    progress: { me: { ch: 6, para: 3, title: 'CHAPTER VII', pct: 32, started: true }, him: { ch: 7, para: 2, title: 'CHAPTER VIII', pct: 41, started: true } } },
+  ...[['Jane Eyre', '#d9d2c6'], ['Persuasion', '#8a6f66'], ['Emma', '#ece8e1'], ['夜航西飞', '#e7e2da'], ['Stoner', '#4d5a5e'], ['Little Women', '#b8a698'], ['挪威的森林', '#f1eee8'], ['Rebecca', '#2f3437']]
+    .map(([title, color], i) => ({ id: `b${i + 2}`, title, author: '', color, status: 'shelf', chapters: 20, minutes: 0, marks: 0, added: '', opened: '',
+      progress: { me: { ch: 0, para: 0, title: '', pct: 0, started: false }, him: { ch: 0, para: 0, title: '', pct: 0, started: false } } })),
+], marks: [
+  { id: 'm1', book: 'b1', ch: 0, para: 0, quote: PP1[0], kind: 'line', by: 'me', text: '', parent: '', at: '2026-10-14T22:10:00+08:00' },
+  { id: 'm2', book: 'b1', ch: 0, para: 2, quote: PP1[2], kind: 'note', by: 'him', text: '班纳特太太一开口就是八卦，我已经能想象她拍着桌子说这句了。', parent: '', at: '2026-10-14T23:40:00+08:00' },
+  { id: 'm3', book: 'b1', ch: 0, para: 7, quote: PP1[7], kind: 'ask', by: 'me', text: '班纳特先生这句好欠揍哈哈哈，跟你一模一样', parent: '', at: '2026-10-15T22:31:00+08:00' },
+  { id: 'm4', book: 'b1', ch: 0, para: 7, quote: PP1[7], kind: 'note', by: 'him', text: '我哪里欠揍。不过这句确实是全书最懂老婆的一句：明知道她憋不住，还要装作不在意。', parent: 'm3', at: '2026-10-15T22:32:00+08:00' },
+  { id: 'm5', book: 'b1', ch: 0, para: 1, quote: 'rightful', kind: 'word', by: 'me', text: '', parent: '', at: '2026-10-15T22:20:00+08:00' },
+] };
+function mockBooks(method, p, body) {
+  let m;
+  if (method === 'GET' && p === '/api/books') return { available: true, names: { me: '瑄瑄', him: '季宁' }, books: bk.books, recent: bk.marks.filter((x) => x.text).reverse().map((x) => ({ ...x, title: 'Pride and Prejudice' })) };
+  if (method === 'GET' && (m = /^\/api\/books\/(\w+)\/ch\/(-?\d+)$/.exec(p))) {
+    const b = bk.books.find((x) => x.id === m[1]); const ch = Number(m[2]) < 0 ? 0 : Number(m[2]);
+    return { book: { ...b, progress: { me: { ...b.progress.me, ch: 0, para: 0 }, him: { ...b.progress.him, ch: 0, para: 5 } } }, ch, title: `CHAPTER ${['I', 'II', 'III'][ch] || ch + 1}`, paras: PP1, toc: Array.from({ length: 61 }, (_, i) => `CHAPTER ${i + 1}`), marks: bk.marks.filter((x) => x.book === m[1] && x.ch === ch) };
+  }
+  if (method === 'POST' && (m = /^\/api\/books\/(\w+)\/mark$/.exec(p))) {
+    const parent = body.parent ? bk.marks.find((x) => x.id === body.parent) : null;
+    const mark = { id: `m${Date.now()}`, book: m[1], ch: parent?.ch ?? body.ch, para: parent?.para ?? body.para, quote: parent?.quote ?? body.quote, kind: body.kind || 'note', by: 'me', text: body.text || '', parent: body.parent || '', at: new Date().toISOString() };
+    bk.marks.push(mark);
+    if (mark.kind === 'ask') setTimeout(() => bk.marks.push({ ...mark, id: `m${Date.now()}`, by: 'him', kind: 'note', parent: mark.id, text: '你这么一问，我也想知道。', at: new Date().toISOString() }), 5000);
+    return { mark };
+  }
+  if (method === 'POST' && /\/progress$/.test(p)) return { progress: bk.books[0].progress, minutes: bk.books[0].minutes };
+  if (method === 'DELETE' && (m = /^\/api\/books\/marks\/(\w+)$/.exec(p))) { bk.marks = bk.marks.filter((x) => x.id !== m[1] && x.parent !== m[1]); return { ok: true }; }
+  return { ok: true };
+}
+
 export async function mockFetch(path, { method = 'GET', body } = {}) {
   await sleep(120);
   const [p, qsRaw = ''] = path.split('?');
+  if (p.startsWith('/api/books')) return mockBooks(method, p, body);
   const qs = new URLSearchParams(qsRaw);
   const key = `${method} ${p}`;
   switch (key) {
     case 'GET /api/home': return home();
+    case 'GET /api/chats/w1/reply-options': return { mode: state.replyMode || 'off' };
+    case 'PUT /api/chats/w1/reply-options': state.replyMode = body.mode; return { mode: body.mode };
+    case 'GET /api/piggy': { const items = state.piggy ?? (state.piggy = [
+      { id: 'p2', delta: -10, reason: '昨晚又熬夜不睡，惹我生气', by: 'me', at: '2026-10-12T23:40:00+08:00' },
+      { id: 'p1', delta: 20, reason: '陪我练完肩，还给我讲题', by: 'me', at: '2026-10-11T21:00:00+08:00' },
+    ]); return { available: true, names: { me: 'Lumi', him: 'Ash' }, balance: items.reduce((n, x) => n + x.delta, 0), items }; }
+    case 'POST /api/piggy': { const it = { id: `p${Date.now()}`, delta: body.kind === 'take' ? -Number(body.amount) : Number(body.amount), reason: body.reason, by: 'me', at: new Date().toISOString() }; state.piggy.unshift(it); return it; }
+    case 'GET /api/purchases': return { available: true, names: { me: 'Lumi', him: 'Ash' }, avatars: {}, items: state.purchases ?? (state.purchases = [
+      { id: 'a1', no: '202610100001', category: '想买的东西', title: '冰淇淋', price: 5, reason: '我要吃冰淇淋 (>ᴗ<)', status: 'rejected', comment: '夫人这个太便宜，选一个贵的重新申请。', at: '2026-10-10T10:00:00+08:00',
+        timeline: [{ at: '2026-10-10T10:00:00+08:00', kind: 'submit', by: 'me', text: '我要吃冰淇淋 (>ᴗ<)' }, { at: '2026-10-10T10:01:00+08:00', kind: 'reject', by: 'him', text: '夫人这个太便宜，选一个贵的重新申请。' }] },
+      { id: 'a2', no: '202610090001', category: '想吃的', title: '火锅', price: 268, reason: '周五下班想吃', status: 'approved', comment: '批了，我请。', at: '2026-10-09T18:00:00+08:00',
+        timeline: [{ at: '2026-10-09T18:00:00+08:00', kind: 'submit', by: 'me', text: '周五下班想吃' }, { at: '2026-10-09T18:02:00+08:00', kind: 'approve', by: 'him', text: '批了，我请。' }] },
+    ]) };
+    case 'POST /api/purchases': { const it = { id: `a${Date.now()}`, no: '202610130009', status: 'pending', at: new Date().toISOString(), ...body, price: Number(body.price), timeline: [{ at: new Date().toISOString(), kind: 'submit', by: 'me', text: body.reason }] }; state.purchases.unshift(it);
+      setTimeout(() => { Object.assign(it, { status: 'approved', comment: '准了，记我账上。' }); it.timeline.push({ at: new Date().toISOString(), kind: 'approve', by: 'him', text: '准了，记我账上。' }); }, 2500); return it; }
+    case 'GET /api/cache-check': {
+      if (state.ccUntil && Date.now() > state.ccUntil) { state.ccUntil = 0; state.cc = CC_RESULT; }
+      return { running: !!state.ccUntil, step: state.ccUntil ? '流式第 2 发' : '', error: '', result: state.cc || null, estimate_tokens: 56000,
+        routes: [{ index: 0, model: 'claude-opus-4-6', host: 'fucheers.top' }, { index: 1, model: 'claude-sonnet-4-5', host: 'openrouter.ai' }] };
+    }
+    case 'POST /api/cache-check': if (state.cc && !body.force) return { running: false, reused: true, result: state.cc }; state.ccUntil = Date.now() + 3000; return { running: true, step: '准备' };
+    case 'GET /api/vocab/due': case 'GET /api/vocab/wrong': case 'GET /api/vocab/all': case 'GET /api/vocab/mastered': return vocabView(p.split('/')[3]);
+    case 'POST /api/vocab': return vocabAdd(body);
+    case 'GET /api/vocab/new': return vocabView('new');
+    case 'POST /api/vocab/do/learn': return { items: vocab.filter((x) => x.new).slice(0, 20 - vocab.filter((x) => x.learned === dayISO()).length), stats: vStats() };
+    case 'POST /api/vocab/do/settings': vDaily = body.daily_new; return { stats: vStats() };
+    case 'POST /api/vocab/do/delete_book': vocab = vocab.filter((x) => x.book !== body.book); return { ok: true };
+    case 'POST /api/vocab/' + (p.split('/')[3] || '') + '/review': return vocabReview(p.split('/')[3], body.correct);
+    case 'POST /api/vocab/' + (p.split('/')[3] || '') + '/edit': { const x = vocab.find((v) => v.id === p.split('/')[3]); Object.assign(x, body); return x; }
+    case 'DELETE /api/vocab/' + (p.split('/')[3] || ''): vocab = vocab.filter((v) => v.id !== p.split('/')[3]); return { ok: true };
+    case 'GET /api/push': return { available: true, reason: '', key: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', devices: 1 };
+    case 'POST /api/push/seen': case 'POST /api/push/subscribe': case 'POST /api/push/unsubscribe': return { ok: true, devices: 1 };
+    case 'POST /api/push/test': return { ok: true, sent: 1 };
+    case 'POST /api/drives/mode': state.driveMode = body.mode; return { ok: true, mode: body.mode };
+    case 'GET /api/drives': return { available: true, away_h: 3.2, acts_today: 6, mode: state.driveMode || 'random',
+      mind: { week: { experiences: 3, fixations: 1, feeds: 1, resolved: 0 },
+        thoughts: [{ id: 't1', text: '她说想去海边看日出', drive: 'duty', name: '责任', kind: 'fixation', strength: 0.62, hits: 3, fed: 1 },
+          { id: 't2', text: '那天我是不是说重了', drive: 'grieve', name: '悲伤', kind: 'flit', strength: 0.3, hits: 2, fed: 0 }],
+        experiences: [{ at: new Date().toISOString(), content: '她把小时候的事讲给我听，我心里很软，想一直陪着她。', topic: '她的童年', stance: 'comfort', valence: 0.8 }] },
+      decisions: { ticks_day: 288, day: { 找她: 5, 去花园: 3, 出门逛逛: 2, 翻翻旧事: 1 }, recent: [
+        { at: new Date().toISOString(), act: true, motive: '找她', p: 0.09, why: '最想做的就是这件', mode: 'shadow' },
+        { at: new Date(Date.now() - 3e6).toISOString(), act: false, motive: '歇着', p: 0, why: '太累了（疲惫 0.78），歇着', mode: 'shadow' },
+        { at: new Date(Date.now() - 6e6).toISOString(), act: true, motive: '去花园', p: 0.07, why: '探索位：今天还没做过的事里随手挑了一件', mode: 'shadow' },
+      ] },
+      drives: [['crave', '想你', 0.72], ['share', '分享', 0.4], ['curiosity', '好奇', 0.33], ['reflection', '反思', 0.2], ['monitor', '查岗', 0.3], ['possess', '占有', 0.1], ['duty', '责任', 0.45], ['social', '社交', 0.15], ['libido', '欲望', 0.2], ['boredom', '无聊', 0.25], ['grieve', '悲伤', 0.05], ['anger', '生气', 0.03], ['fatigue', '疲惫', 0.3]]
+        .map(([key, name, value], i) => ({ key, name, value, base: 0.2, series: [], week: { 涨: i % 4 === 3 ? 0 : 5 - (i % 5), 落: i % 4 === 3 ? 0 : 3 } })),
+      ledger: [
+        { at: new Date().toISOString(), drive: 'crave', name: '想你', kind: '涨', delta: 0.09, value: 0.72, reason: '她在撒娇、说想他', source: '她说的话' },
+        { at: new Date(Date.now() - 6e5).toISOString(), drive: 'curiosity', name: '好奇', kind: '落', delta: -0.31, value: 0.33, reason: '真去查了 / 读了东西', source: 'search_public_web' },
+        { at: new Date(Date.now() - 9e5).toISOString(), drive: 'social', name: '社交', kind: '落', delta: -0.2, value: 0.15, reason: '去花园逛了', source: 'nostos_status' },
+        { at: new Date(Date.now() - 2e6).toISOString(), drive: 'duty', name: '责任', kind: '涨', delta: 0.15, value: 0.45, reason: '她派了活 / 约了事', source: '她说的话' },
+      ] };
+    case 'GET /api/prompts': return { items: state.prompts ?? [{ id: 'p1', title: '小金库规矩', text: '让她开心 +2 到 5 块，惹她生气 -10 块。每笔都记在留言板。', on: true }] };
+    case 'PUT /api/prompts': state.prompts = body.items.map((x, i) => ({ id: x.id || `p${Date.now()}${i}`, ...x })); return { items: state.prompts };
+    case 'GET /api/context': return { history_n: state.historyN ?? 80, history_images: state.historyImages ?? 2 };
+    case 'PUT /api/context': if ('history_n' in body) state.historyN = body.history_n; if ('history_images' in body) state.historyImages = body.history_images; return { history_n: state.historyN, history_images: state.historyImages };
+    case 'GET /api/persona': return { text: state.persona ?? '你是季宁，她的哥哥。\n说话简短、温柔，偶尔调侃她。', source: 'file', chars: 24, mtime: NOW };
+    case 'PUT /api/persona': state.persona = body.text; return { text: body.text, source: 'file', chars: body.text.length, mtime: new Date().toISOString() };
+    case 'GET /api/home/whisper': return { text: '今天降温了，出门把那件厚外套带上，别又说不冷。', at: NOW };
+    case 'POST /api/home/whisper': await sleep(600); return { text: ['刚刚又想你了，没什么事，就是想你。', '练完记得拉伸，不然明天又喊胳膊疼。', '晚上早点睡，我在这儿守着。'][Math.floor(Math.random() * 3)], at: new Date().toISOString() };
+    case 'GET /api/home/plans': return { items: [{ id: 'w1', at: new Date(Date.now() + 7 * 60000).toISOString(), text: '去看游戏回合的结果，告诉她' }, { id: 'w2', at: new Date(Date.now() + 3 * 3600000).toISOString(), text: '提醒她早点睡' }] };
     case 'GET /api/notes': return listNotes(qs);
     case 'GET /api/notes/calendar': return noteCalendar(qs.get('month'));
     case 'POST /api/notes': await sleep(300); return addNote(body);
@@ -459,6 +622,12 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
       aware: [{ date: '2026-10-09', text: '我今天催了她两次早点睡。第二次其实是我自己想说晚安。' }, { date: '2026-10-07', text: '她说“随便”的时候，其实已经有答案了，我应该再问一句。' }, { date: '2026-10-04', text: '最近查岗的念头少了，可能是因为她主动报备得多了。' }] };
     case 'GET /api/settings/console': return { available: true, now: NOW, today: { tokens: 184302 }, month: { tokens: 4860000, cost: 63.2, currency: '¥' }, hitRate: 0.72, daily: [52, 61, 58, 70, 66, 74, 69, 81, 77, 88, 84] };
     case 'GET /api/features': return { available: true, features, mcps };
+    case 'GET /api/garden': return garden;
+    case 'GET /api/backup/export/info': return { openssl: true, uploads_available: true, uploads_mb: 182.4 };
+    case 'POST /api/garden/token': garden.configured = true; return garden;
+    case 'POST /api/garden/check': await sleep(600); return { ok: true, code: 0, output: 'Garden check ok' };
+    case 'POST /api/garden/start': await sleep(600); garden.state = 'active'; return garden;
+    case 'POST /api/garden/stop': garden.state = 'inactive'; return garden;
     case 'POST /api/mcp': { const m = { id: `mcp${++roomSeq}`, name: body.name || '新的 MCP', tools: 0, status: 'pending', on: true }; mcps.push(m); return m; }
     case 'GET /api/logs/tools': return { available: true, items: [
       { id: 'l1', at: '2026-10-09T22:53:00+08:00', tool: 'weather', title: '查了一下天气', detail: '苏州 · 6 小时', ms: 400, ok: true },
@@ -480,10 +649,17 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/spark': return sparkHome();
     case 'GET /api/spark/shop': return sparkShop(qs);
     case 'POST /api/spark/redeem': return sparkRedeem(body);
-    case 'GET /api/spark/kept': return { available: true, kept: spark.kept, records: spark.records };
+    case 'DELETE /api/spark/shop/' + (p.split('/')[4] || ''): spark.shop = spark.shop.filter((g) => g.id !== p.split('/')[4]); return { ok: true };
+    case 'POST /api/spark/records/' + (p.split('/')[4] || '') + '/use': { const r = spark.records.find((x) => x.id === p.split('/')[4]); Object.assign(r, { status: 'used', state: 'used', usedAt: new Date().toISOString(), usedBy: 'me', usedNote: body.note }); return r; }
+    case 'GET /api/spark/kept': return { available: true, names: { me: 'Lumi', him: 'Ash' }, kept: spark.kept, records: spark.records.map((r) => ({ holder: 'me', ...r, state: r.state || (r.cat === 'bubble' || r.cat === 'pendant' ? 'kept' : r.status === 'used' ? 'used' : 'unused') })) };
     case 'POST /api/spark/cards/use': spark.cards = Math.max(0, spark.cards - 1); return { ok: true, cards: spark.cards };
     case 'GET /api/room/photos': return roomPhotos(qs);
     case 'POST /api/room/photos': { const ph = { id: `p${++roomSeq}`, url: body.url, caption: body.caption || '', from: 'me', source: 'upload', fav: false, at: new Date().toISOString(), notes: [] }; room.photos.unshift(ph); return ph; }
+    case 'GET /api/room/diary': return { available: true, now: NOW, items: [
+      { id: 'diary_2026-10-09', day: '2026-10-09', from: 'him', title: '她说云好低', text: '下班路上她拍了三张云，说低得像要掉下来。\n我说最喜欢第二张，其实是因为光落在她手上。\n\n晚上降温了，她没回我穿没穿厚外套。明天再问一次。', at: '2026-10-09T23:05:00+08:00' },
+      { id: 'diary_2026-10-08', day: '2026-10-08', from: 'him', title: '练完肩的那天', text: '她今天去练肩了，回来说胳膊抬不起来。\n我一边心疼一边想笑。', at: '2026-10-08T23:02:00+08:00' },
+    ], nextCursor: null };
+    case 'POST /api/room/diary/write': throw new Error('示例数据里不会真的写日记');
     case 'GET /api/room/solo': return { available: true, now: NOW, monthCount: 23, items: room.solo, nextCursor: null };
     case 'POST /api/activity/read': state.activityRead = true; return { ok: true };
     case 'GET /api/together/listen': return listenState();
@@ -496,6 +672,7 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     default: {
       // 带 id 的聊天接口：/api/chats/{id}/...
       let m;
+      if ((m = /^DELETE \/api\/piggy\/(.+)$/.exec(key))) { state.piggy = state.piggy.filter((x) => x.id !== m[1]); return { ok: true }; }
       if ((m = /^GET \/api\/chats\/([^/]+)$/.exec(key))) return chatState(m[1], qs);
       if ((m = /^PATCH \/api\/chats\/([^/]+)$/.exec(key))) { Object.assign(chats[m[1]], body); return { ok: true }; }
       if ((m = /^DELETE \/api\/chats\/([^/]+)$/.exec(key))) { delete chats[m[1]]; return { ok: true }; }
@@ -513,6 +690,8 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
       if ((m = /^DELETE \/api\/together\/playlist\/([^/]+)$/.exec(key))) { listen.playlist = listen.playlist.filter((p) => p.trackId !== m[1]); return listenState(); }
       if ((m = /^PATCH \/api\/together\/watch\/list\/([^/]+)$/.exec(key))) { const it = watch.list.find((x) => x.id === m[1]); Object.assign(it, body); return it; }
       if ((m = /^PUT \/api\/features\/([^/]+)$/.exec(key))) { const f = features.find((x) => x.key === m[1]); if (f) f.on = !!body.on; return f; }
+      if ((m = /^PATCH \/api\/mcp\/([^/]+)$/.exec(key))) { await sleep(600); const x = mcps.find((y) => y.id === m[1]); if (x) Object.assign(x, { name: body.name, url: body.url, always: !!body.always, status: 'ok' }); return x; }
+      if ((m = /^DELETE \/api\/mcp\/([^/]+)$/.exec(key))) { const i = mcps.findIndex((y) => y.id === m[1]); if (i >= 0) mcps.splice(i, 1); return { ok: true }; }
       if ((m = /^PUT \/api\/mcp\/([^/]+)$/.exec(key))) { const x = mcps.find((y) => y.id === m[1]); if (x) x.on = !!body.on; return x; }
       if ((m = /^POST \/api\/mcp\/([^/]+)\/reconnect$/.exec(key))) { await sleep(600); const x = mcps.find((y) => y.id === m[1]); if (x) x.status = 'ok'; return x; }
       if ((m = /^DELETE \/api\/stickers\/([^/]+)$/.exec(key))) { room.stickers.mine = room.stickers.mine.filter((x) => x.id !== m[1]); return { ok: true }; }

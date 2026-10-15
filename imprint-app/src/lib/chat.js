@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, MOCK, streamUrl, adaptStreamEvent } from './api.js';
-import { upsertMessage, settleSentMessage } from './chatItems.js';
+import { upsertMessage, settleSentMessage, mergeResync, mergeFull } from './chatItems.js';
 
 /** 他那边的状态：回复中 → 超过 30 秒没新动静「仍在等待」→ 超过 2 分钟「卡住了」 */
 export const WAIT_MS = 30000;
@@ -30,8 +30,13 @@ export function useChat(chatId, demo) {
   const tick = useRef(null);
   const temporarySequence = useRef(0);
 
+  // 先拿最近的聊天马上显示，再在后台把更早的记录补进来（给搜索用），不让她干等
   const load = useCallback(() => api(`${base}${demo ? `?demo=${demo}` : ''}`)
-    .then(setData)
+    .then((recent) => {
+      setData(recent);
+      if (MOCK || demo || recent?.available === false) return;
+      api(`${base}?full=1`, { timeout: 120000 }).then((full) => setData((prev) => mergeFull(prev, full))).catch(() => {});
+    })
     .catch((e) => setData({ available: false, reason: e.message })), [base, demo]);
 
   useEffect(() => { load(); }, [load]);
@@ -39,13 +44,25 @@ export function useChat(chatId, demo) {
   // 每 5 秒刷新一次「现在」，让「仍在等待」「卡住了」能自己变
   useEffect(() => { tick.current = setInterval(() => setNow(Date.now()), 5000); return () => clearInterval(tick.current); }, []);
 
+  /** 重新拉一次整段聊天，用来补上推送漏掉的消息；拉到他新的回复就不再显示「在回」 */
+  const resync = () => api(base).then((fresh) => setData((prev) => mergeResync(prev, fresh))).catch(() => {});
+
+  // 他可能顺手给她的消息贴了表情：他的新消息一到，就重新读一次表情回应
+  const refreshReactions = () => api(`${base}/reactions`).then((r) => {
+    const byId = new Map((r.items || []).map((x) => [String(x.messageId), x.stickerId]));
+    setData((d) => (d?.items ? { ...d, items: d.items.map((m) => (byId.has(String(m.id)) && byId.get(String(m.id)) !== m.reaction ? { ...m, reaction: byId.get(String(m.id)) } : m)) } : d));
+  }).catch(() => {});
+
   useEffect(() => {
     const on = (ev) => {
       if (ev.chatId && ev.chatId !== chatId) return;
       setNow(Date.now());
       setData((d) => {
         if (!d || d.available === false) return d;
-        if (ev.type === 'message') return { ...d, items: upsertMessage(d.items, ev.message) };
+        if (ev.type === 'message') {
+          if (ev.message.from !== 'me' && !MOCK) refreshReactions();
+          return { ...d, items: upsertMessage(d.items, ev.message) };
+        }
         if (ev.type === 'status') {
           const items = ev.read ? d.items.map((m) => (m.status === 'queued' ? { ...m, status: 'sent' } : m)) : d.items;
           return { ...d, items, replying: ev.replying };
@@ -61,15 +78,51 @@ export function useChat(chatId, demo) {
       });
       return () => { cancelled = true; unsubscribe?.(); };
     }
-    const es = new EventSource(streamUrl());
-    es.onmessage = (e) => {
-      try {
-        const adapted = adaptStreamEvent(JSON.parse(e.data), chatId);
-        if (adapted) on(adapted);
-      } catch { /* 忽略坏数据 */ }
+    // 手机切到后台再回来，iOS 常常悄悄断掉推送：断了就重连，回到前台就重连并补拉一次
+    let es = null;
+    let retry = null;
+    let closed = false;
+    const connect = () => {
+      clearTimeout(retry);
+      es?.close();
+      es = new EventSource(streamUrl());
+      es.onmessage = (e) => {
+        try {
+          const adapted = adaptStreamEvent(JSON.parse(e.data), chatId);
+          if (adapted) on(adapted);
+        } catch { /* 忽略坏数据 */ }
+      };
+      es.onerror = () => {
+        es?.close();
+        if (!closed) retry = setTimeout(connect, 3000);
+      };
     };
-    return () => es.close();
+    const wake = () => {
+      if (document.visibilityState !== 'visible') return;
+      connect();
+      resync();
+    };
+    connect();
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', wake);
+    window.addEventListener('pageshow', wake);
+    return () => {
+      closed = true;
+      clearTimeout(retry);
+      es?.close();
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('online', wake);
+      window.removeEventListener('pageshow', wake);
+    };
   }, [base, chatId]);
+
+  // 他在回的时候，推送万一漏了，每 15 秒补拉一次，回复到了就停
+  const waiting = Boolean(data?.replying);
+  useEffect(() => {
+    if (!waiting || MOCK) return undefined;
+    const timer = setInterval(resync, 15000);
+    return () => clearInterval(timer);
+  }, [waiting, base]);
 
   const patch = (fn) => setData((d) => (d && d.available !== false ? fn(d) : d));
 

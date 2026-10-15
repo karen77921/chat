@@ -10,12 +10,15 @@ import Icon from '../design/icons.jsx';
 import { Cyanotype } from '../design/paper.jsx';
 import Sheet from '../design/Sheet.jsx';
 import { api, MOCK } from '../lib/api.js';
+import { useLoad } from '../lib/useLoad.js';
 import { useChat, replyState, hm, dayLabel, nameOf, memberOf } from '../lib/chat.js';
 import { useBeauty } from '../theme/theme.js';
 import Message from '../components/chat/Message.jsx';
 import InputBar from '../components/chat/InputBar.jsx';
 import MessageMenu from '../components/chat/MessageMenu.jsx';
+import { ledgerFrom } from '../lib/ledger.js';
 import '../components/chat/chat.css';
+import AuthImg from '../design/AuthImg.jsx';
 
 export default function Chat({ query }) {
   const chatId = query.id || 'w1';
@@ -26,6 +29,7 @@ export default function Chat({ query }) {
     if (data?.beauty && Object.keys(data.beauty).length) setBeauty(data.beauty);
   }, [data?.beauty]);
   const [menu, setMenu] = useState(null); // { m, rect }
+  const [ledger, setLedger] = useState(null); // 账本里正在看的那条消息
   const [quote, setQuote] = useState(null);
   const [editing, setEditing] = useState(null); // { id, text, then? }
   const [viewer, setViewer] = useState(null); // { images, i }
@@ -45,6 +49,11 @@ export default function Chat({ query }) {
   const queued = items.filter((m) => m.from === 'me' && m.status === 'queued').length;
   const st = ok ? replyState(data.replying, now) : null;
   const lastMine = useMemo(() => [...items].reverse().find((m) => m.from === 'me'), [items]);
+  // 快捷回复只挂在最新一条上：他正在回、或者她已经接着说了，就不显示
+  const lastItem = items[items.length - 1];
+  const options = !st && !searching && lastItem?.from !== 'me' && lastItem?.replyOptions?.length ? lastItem.replyOptions : null;
+  const [draft, setDraft] = useState(null);
+  const pickOption = (text) => c.send({ type: 'text', text }).then(() => c.reply(), () => flash('没发出去，再点一次'));
 
   // 新消息进来滚到底
   // 停在最底下时，新消息、状态、字体晚加载导致内容变高，都自动贴底；往上翻看历史时不打扰
@@ -138,12 +147,22 @@ export default function Chat({ query }) {
             </div>
           );
         })}
+        {options && (
+          <div className="ch-opts" role="group" aria-label="快捷回复">
+            {options.map((o) => (
+              <div key={o} className="ch-opt glass">
+                <button type="button" className="ch-opt-send" onClick={() => pickOption(o)}>{o}</button>
+                <button type="button" className="ch-opt-edit" aria-label="先改一改再发" onClick={() => setDraft({ text: o, n: Date.now() })}><Icon name="pen" size={13} stroke={1.5} /></button>
+              </div>
+            ))}
+          </div>
+        )}
         {st && !searching && <StatusLine st={st} onPause={c.pause} onRetry={() => c.pause().then(c.reply)} />}
       </section>
 
       {!searching && (
         <InputBar toName={group ? data?.name : him?.name} nameOf={who} queued={queued} replying={!!st} quote={quote} editing={editing}
-          onCancelQuote={() => setQuote(null)} onCancelEdit={() => setEditing(null)}
+          onCancelQuote={() => setQuote(null)} onCancelEdit={() => setEditing(null)} draft={draft}
           onSend={send} onReply={doReply} onPause={c.pause} onUpload={c.upload} />
       )}
 
@@ -155,10 +174,12 @@ export default function Chat({ query }) {
           onRegenerate={c.regenerate}
           onEdit={(m) => setEditing({ id: m.id, text: m.text })}
           onDelete={c.remove}
-          onReact={c.react} />
+          onReact={c.react}
+          onLedger={setLedger} />
       )}
+      {ledger && <Ledger m={ledger} onClose={() => setLedger(null)} />}
       {viewer && <ImageViewer {...viewer} onClose={() => setViewer(null)} onGo={(i) => setViewer((v) => ({ ...v, i }))} />}
-      {detailsOpen && <ChatDetails data={data} upload={c.upload} onClose={() => setDetailsOpen(false)} onUpdated={c.reload} />}
+      {detailsOpen && <ChatDetails chatId={chatId} data={data} upload={c.upload} onClose={() => setDetailsOpen(false)} onUpdated={c.reload} />}
       {toast && <div className="ch-toast glass" role="status">{toast}</div>}
       {chooser && group && (
         <div className="ch-choose-layer">
@@ -178,9 +199,29 @@ export default function Chat({ query }) {
   );
 }
 
-function ChatDetails({ data, upload, onClose, onUpdated }) {
+function Ledger({ m, onClose }) {
+  const groups = ledgerFrom(m.api) || [];
+  return (
+    <Sheet open onClose={onClose} label="这一轮的账本" seed={57}>
+      <div className="kicker" style={{ letterSpacing: '.12em' }}>这一轮的账本</div>
+      <div className="ledger">
+        {groups.map((g) => (
+          <section key={g.title}>
+            <h3>{g.title}</h3>
+            <dl>{g.rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+          </section>
+        ))}
+      </div>
+    </Sheet>
+  );
+}
+
+const OPTION_MODES = [['off', '关'], ['mixed', '两句话 + 一个动作'], ['lines', '三句话'], ['actions', '三个动作']];
+
+function ChatDetails({ chatId, data, upload, onClose, onUpdated }) {
+  const { data: optMode, setData: setOptMode } = useLoad(`/api/chats/${encodeURIComponent(chatId)}/reply-options`);
   const [beauty, setBeauty] = useBeauty();
-  const [nickname, setNickname] = useState(data?.members?.[0]?.name || 'Ombre');
+  const [nickname, setNickname] = useState(data?.members?.[0]?.name || '');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const avatarInput = useRef(null);
@@ -247,6 +288,15 @@ function ChatDetails({ data, upload, onClose, onUpdated }) {
         <label className="ch-detail-field">气泡透明度 · {Math.round((beauty.alpha ?? 0.5) * 100)}%
           <input type="range" min="0.2" max="0.95" step="0.05" value={beauty.alpha ?? 0.5} disabled={busy} onChange={(e) => setBeauty({ ...beauty, alpha: Number(e.target.value) })} onPointerUp={() => saveBeauty(beauty)} />
         </label>
+        <div className="ch-detail-divider" />
+        <div className="ch-detail-label">快捷回复（亲密的时候用）</div>
+        <p className="ch-detail-hint">打开后，他每次说完会在下面给你三个可以一点就发的下一步。这些选项只给你看，不会留在聊天记录里，也不会被他再读到。只对这个聊天窗口生效。</p>
+        <div className="ch-detail-actions" role="radiogroup" aria-label="快捷回复">
+          {OPTION_MODES.map(([id, label]) => (
+            <button key={id} type="button" role="radio" aria-checked={(optMode?.mode || 'off') === id} className={`chip ${(optMode?.mode || 'off') === id ? 'on' : ''}`} disabled={busy || !optMode}
+              onClick={() => api(`/api/chats/${encodeURIComponent(chatId)}/reply-options`, { method: 'PUT', body: { mode: id } }).then(setOptMode, (e) => say(e?.message || '没保存上'))}>{label}</button>
+          ))}
+        </div>
         {notice && <p className="ch-detail-notice" role="status">{notice}</p>}
       </div>
     </Sheet>
@@ -255,7 +305,7 @@ function ChatDetails({ data, upload, onClose, onUpdated }) {
 
 /** 头像：后端给图就用图，没给就画一张小蓝晒；群里的成员用首字 */
 export function Avatar({ m, size = 42 }) {
-  if (m?.avatar) return <img src={m.avatar} alt="" width={size} height={size} style={{ objectFit: 'cover', display: 'block' }} />;
+  if (m?.avatar) return <AuthImg src={m.avatar} alt="" width={size} height={size} style={{ objectFit: 'cover', display: 'block' }} />;
   if (m?.color) return <span className="ch-letter serif" style={{ width: size, height: size, background: m.color, fontSize: size * 0.45 }}>{m.name?.[0]}</span>;
   return <Cyanotype w={size} h={size} seed={3} variant="sprig" develop={false} />;
 }
@@ -282,7 +332,7 @@ function StatusLine({ st, onPause, onRetry }) {
 function ChatBackground({ url }) {
   return (
     <div className="ch-bg" aria-hidden="true">
-      {url ? <img src={url} alt="" /> : (
+      {url ? <AuthImg src={url} alt="" /> : (
         <div className="ch-bg-art">
           <Cyanotype w={430} h={932} seed={7} develop={false} />
         </div>
@@ -297,7 +347,7 @@ function ImageViewer({ images, i, onClose, onGo }) {
   return (
     <div className="ch-viewer" role="dialog" aria-label="看图">
       <button type="button" className="ch-viewer-mask" aria-label="关闭" onClick={onClose} />
-      <div className="ch-viewer-img">{im?.url ? <img src={im.url} alt="" /> : <Cyanotype w={320} h={240} seed={20 + i} variant="sprig" develop={false} />}</div>
+      <div className="ch-viewer-img">{im?.url ? <AuthImg src={im.url} alt="" /> : <Cyanotype w={320} h={240} seed={20 + i} variant="sprig" develop={false} />}</div>
       {images.length > 1 && (
         <div className="ch-viewer-nav">
           <button type="button" className="gbtn" aria-label="上一张" disabled={i === 0} onClick={() => onGo(i - 1)}><Icon name="back" size={18} stroke={1.5} /></button>

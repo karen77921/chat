@@ -1,0 +1,205 @@
+/*
+ * 主题「奶油玻璃」：Modern Creamy Glassmorphism × Soft Minimalism × Airy Editorial。
+ * 只在 <html data-theme="cream"> 时生效，其余主题（蓝晒的撕边纸、印相）完全不受影响。
+ * 做法：撕边纸带全部退场，页面底是一片清晨的天空；内容放在乳白磨砂玻璃上，圆角、细白边、很淡的漫反射阴影。
+ */
+[data-theme='cream'] {
+  --paper: #f8f4ee;   /* Cream White */
+  --l1: #fffdf9;      /* Milky White */
+  --l2: #f3ece4;
+  --l3: #ebcdc9;      /* Soft Blush：选中的签 */
+  --l4: #e8ddd2;      /* Warm Beige */
+  --print-a: #ecd2cc; /* 主按钮：柔粉 → 玫瑰灰 */
+  --print-b: #d1a59e;
+  --print-c: #b98079; /* Muted Rose */
+  --accent: #b98079;
+  --dot: #c9877f;
+  --postmark: #9fa9a2;/* Sage Gray */
+  --ink: #514b49;     /* Soft Charcoal */
+  --muted: #786e68;   /* Warm Taupe */
+  --line: rgba(120, 110, 104, 0.16);
+  --card: rgba(255, 250, 245, 0.58);
+  --sheet: rgba(255, 252, 248, 0.72);
+  --sh-rgb: 120, 100, 90;
+  --glass: rgba(255, 250, 245, 0.58);
+  --glass-strong: rgba(255, 252, 248, 0.74);
+  --glass-edge: rgba(255, 255, 255, 0.62);
+  --glass-blur: blur(26px) saturate(1.08);
+  --glass-shadow: 0 14px 40px rgba(120, 100, 90, 0.10), 0 2px 8px rgba(120, 100, 90, 0.04);
+  --r-lg: 30px;
+  --r-md: 24px;
+}
+
+/* ---- 底：清晨的天空，雾蓝渐入奶油，几团柔云和一点暖阳 ---- */
+[data-theme='cream'] body { background: #eef1f3; }
+[data-theme='cream'] body::before {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60% 28% at 82% 6%, rgba(255, 244, 228, 0.95), rgba(255, 244, 228, 0) 70%),   /* 暖阳 */
+    radial-gradient(42% 16% at 18% 18%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 72%),  /* 云 */
+    radial-gradient(55% 18% at 70% 34%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 70%),
+    radial-gradient(48% 20% at 10% 58%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 70%),
+    radial-gradient(70% 30% at 100% 92%, rgba(235, 205, 201, 0.55), rgba(235, 205, 201, 0) 70%), /* 远处的花色 */
+    radial-gradient(50% 24% at 0% 100%, rgba(235, 205, 201, 0.4), rgba(235, 205, 201, 0) 70%),
+    linear-gradient(180deg, #c9dbe8 0%, #dbe6ee 26%, #ece9e4 58%, #f8f4ee 100%);
+}
+[data-theme='cream'] .grain { display: none; }  /* 不要颗粒、不要做旧 */
+
+/* ---- 撕边纸带退场：只留间距，内容浮在天空上 ---- */
+[data-theme='cream'] .band { margin-top: 0; padding: 26px 0 22px; }
+[data-theme='cream'] .band-bg { display: none; }
+
+/* ---- 核心材质：奶油雾面玻璃 ---- */
+[data-theme='cream'] .card,
+[data-theme='cream'] .glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--glass-edge), inset 0 1px 0 rgba(255, 255, 255, 0.7), var(--glass-shadow);
+}
+[data-theme='cream'] .sheet {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--glass-edge), var(--glass-shadow);
+}
+/* 撕边纸片（TornBox / Torn）变成圆角玻璃 */
+[data-theme='cream'] [style*='clip-path'] {
+  clip-path: none !important;
+  border-radius: var(--r-md);
+}
+[data-theme='cream'] .drop > [style*='clip-path'],
+[data-theme='cream'] .drop2 > [style*='clip-path'] {
+  background: var(--glass-strong) !important;
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: inset 0 0 0 1px var(--glass-edge);
+}
+[data-theme='cream'] .drop,
+[data-theme='cream'] .drop2,
+[data-theme='cream'] .stamp { filter: drop-shadow(0 12px 22px rgba(120, 100, 90, 0.08)); }
+[data-theme='cream'] .tape { display: none; }
+
+/* 印相图片：不再染成蓝晒，保留自然光的照片，只罩一层很淡的奶油色 */
+[data-theme='cream'] .cyano { border-radius: var(--r-md); }
+[data-theme='cream'] .cyano > img { filter: saturate(0.92) brightness(1.02); }
+[data-theme='cream'] .cyano-tint { background: linear-gradient(135deg, #fffaf4, #f1ddd6); mix-blend-mode: soft-light; opacity: 0.55; }
+
+/* ---- 控件 ---- */
+[data-theme='cream'] .pill,
+[data-theme='cream'] .rbtn,
+[data-theme='cream'] .chip {
+  background: rgba(255, 252, 248, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  box-shadow: 0 4px 14px rgba(120, 100, 90, 0.06);
+}
+[data-theme='cream'] .chip.on { background: rgba(235, 205, 201, 0.62); color: #6e4f4b; }
+[data-theme='cream'] .btn-main { box-shadow: 0 8px 20px rgba(185, 128, 121, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
+[data-theme='cream'] .switch { background: rgba(120, 110, 104, 0.18); }
+[data-theme='cream'] .rec > i { border-bottom-color: rgba(120, 110, 104, 0.3); }
+
+/* ---- 字：细衬线大标题 + 轻无衬线正文；英文小标不用手写体，改优雅的斜体衬线 ---- */
+[data-theme='cream'] .hand { font-family: var(--serif); font-style: italic; letter-spacing: 0.01em; }
+[data-theme='cream'] .sec-head .en { font-family: var(--serif); font-style: italic; font-size: 24px; color: var(--accent); }
+[data-theme='cream'] .sec-head .zh { color: var(--ink); }
+[data-theme='cream'] .kicker { color: var(--muted); }
+
+/* ---- 底部导航：奶油胶囊，选中项柔粉浮起 ---- */
+[data-theme='cream'] .tabbar {
+  background: rgba(255, 250, 245, 0.62);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 16px 40px rgba(120, 100, 90, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+/* 五个入口一样高，不再有凸起的圆钮；选中项是一块柔柔浮起的乳白小垫子 */
+[data-theme='cream'] .tabbar { height: 72px; border-radius: 36px; padding: 0 8px; }
+[data-theme='cream'] .tab { width: 62px; min-height: 58px; border-radius: 26px; gap: 4px; letter-spacing: 0.1em; transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease; }
+[data-theme='cream'] .tab.on {
+  color: #b0716a;
+  background: rgba(255, 253, 249, 0.86);
+  box-shadow: 0 6px 16px rgba(185, 128, 121, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+[data-theme='cream'] .tab.mid { transform: none; }
+[data-theme='cream'] .tab .mc { width: auto; height: auto; background: none; box-shadow: none; color: inherit; border-radius: 0; }
+[data-theme='cream'] .tab .mc svg { width: 22px; height: 22px; }
+
+/* ---- 底部弹出的纸 → 玻璃面板 ---- */
+[data-theme='cream'] .sheet-mask { background: rgba(120, 100, 90, 0.18); }
+[data-theme='cream'] .sheet-bg {
+  background: rgba(252, 249, 245, 0.95);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  filter: none; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 -10px 40px rgba(120, 100, 90, 0.10);
+}
+
+/* 交互：轻微上浮、透明度，不弹跳 */
+[data-theme='cream'] .card, [data-theme='cream'] .chip, [data-theme='cream'] .pill { transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease; }
+[data-theme='cream'] .reveal.in { animation-name: cream-rise; animation-duration: 0.55s; animation-timing-function: ease-out; }
+@keyframes cream-rise { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* 插画、唱片：雾蓝渐入柔粉，白色植物剪影；去掉颗粒 */
+[data-theme='cream'] {
+  --tint-a: #d3e1eb; --tint-b: #e4dce0; --tint-c: #e8c9c3;
+  --vinyl: #8c7d77; --vinyl-ring: #b8a9a2;
+}
+[data-theme='cream'] .cyano-noise { display: none; }
+/* 邮戳、火漆、回形针、邮票这些旧物件在这套里收起来，保持干净 */
+[data-theme='cream'] .deco { display: none; }
+/* 中文手写 → 现代宋体 */
+[data-theme='cream'] .hand-cn { font-family: 'Songti SC', 'STSong', 'Noto Serif SC', 'Source Han Serif SC', serif; font-weight: 400; letter-spacing: 0.04em; }
+
+/* ---- 各页标题：杂志式大衬线 + 小字中文（首页之外的页面都是 <h1><span.hand>英文</span><span>中文</span></h1>） ---- */
+[data-theme='cream'] h1:has(> .hand) { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+[data-theme='cream'] h1 > .hand {
+  font-family: var(--serif); font-style: normal; font-weight: 400; font-size: 46px; line-height: 0.95;
+  letter-spacing: -0.01em; color: #4e4442; text-transform: capitalize;
+}
+[data-theme='cream'] h1 > .hand + span { font-size: 12.5px; font-weight: 400; letter-spacing: 0.32em; color: var(--muted); }
+
+/* 聊天列表：行底下藏着滑动按钮，玻璃太透会透出来，这里把行做得更实一点 */
+[data-theme='cream'] .cl-row.card { background: #fdf9f5; }
+[data-theme='cream'] .cl-swipe, [data-theme='cream'] .cl-acts { border-radius: var(--r-md); }
+[data-theme='cream'] .cl-acts { top: 1px; bottom: 1px; right: 1px; }
+[data-theme='cream'] .cl-acts button { background: #d9aea8; }
+[data-theme='cream'] .cl-acts button:nth-child(2) { background: #c4918a; }
+[data-theme='cream'] .cl-acts .danger { background: #a9746d; }
+[data-theme='cream'] .switch:checked { background: #c4918a; }
+
+/* 弹出面板：背景画在面板本身上——之前画在一层绝对定位的底上，往下滚时内容会滚出背景 */
+[data-theme='cream'] .sheet-panel {
+  background: #fbf8f4;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 -10px 40px rgba(120, 100, 90, 0.10);
+  overscroll-behavior: contain;
+}
+[data-theme='cream'] .sheet-bg { display: none; }
+/* iOS 上可滚动的面板偶尔只画第一屏的底：内容本身也铺一层，滚到哪都有底 */
+[data-theme='cream'] .sheet-in { background: #fbf8f4; }
+
+/* ---- 流畅优先 ----
+ * 模糊（backdrop-filter）在 iPhone 上很吃性能：每张卡片、每个聊天气泡都要实时把后面糊一遍，一滚动就卡。
+ * 底是一片安静的渐变，糊不糊看不出差别，所以内容上的玻璃都换成更实一点的奶油色，
+ * 只给浮在最上面的几样（底部导航、聊天顶栏和输入框、弹出面板的遮罩）留着模糊。 */
+[data-theme='cream'] .card,
+[data-theme='cream'] .glass,
+[data-theme='cream'] .sheet,
+[data-theme='cream'] .pill,
+[data-theme='cream'] .rbtn,
+[data-theme='cream'] .chip,
+[data-theme='cream'] .gbtn,
+[data-theme='cream'] .cm-term-b,
+[data-theme='cream'] .drop > [style*='clip-path'],
+[data-theme='cream'] .drop2 > [style*='clip-path'] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+[data-theme='cream'] .card,
+[data-theme='cream'] .glass { background: rgba(255, 251, 247, 0.8); }
+[data-theme='cream'] .pill,
+[data-theme='cream'] .rbtn,
+[data-theme='cream'] .chip,
+[data-theme='cream'] .gbtn { background: rgba(255, 252, 248, 0.82); }
+[data-theme='cream'] .chip.on { background: rgba(240, 214, 209, 0.95); }
+[data-theme='cream'] .cl-row.card { background: #fdf9f5; }
+/* 叠很多层的页面里，屏幕外的卡片先不画 */
+[data-theme='cream'] .ch-list > div, [data-theme='cream'] .hm-list, [data-theme='cream'] .pg-list, [data-theme='cream'] .ap-list { content-visibility: auto; contain-intrinsic-size: auto 80px; }

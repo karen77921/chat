@@ -9,18 +9,21 @@ import Icon from '../design/icons.jsx';
 import { Band, TornBox, Cyanotype } from '../design/paper.jsx';
 import Sheet from '../design/Sheet.jsx';
 import { api, saveToken, savedToken } from '../lib/api.js';
+import { shrinkImage } from '../lib/image.js';
 import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
 import { THEMES, useTheme, useBeauty } from '../theme/theme.js';
 import { Avatar } from './Chat.jsx';
+import CacheCheck from '../components/settings/CacheCheck.jsx';
+import { pushStatus, enablePush, disablePush, testPush } from '../lib/push.js';
 import '../components/chat/chat.css';
 import '../components/chat/chatlist.css';
 import '../components/settings/settings.css';
 
 const PAGES = {
-  access: ['access', '接入'], features: ['features', '功能管理'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
+  access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], features: ['features', '功能管理'], cache: ['cache check', '缓存体检'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
-const upload = (file, kind) => { const f = new FormData(); f.append('file', file); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
+const upload = async (file, kind) => { const f = new FormData(); f.append('file', await shrinkImage(file)); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
 const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
 const hm = (iso) => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
@@ -38,7 +41,10 @@ export default function Settings({ query }) {
         </header>
         <Band tone="l1" seed={82 + Object.keys(PAGES).indexOf(p)} className="st-band">
           {p === 'access' && <Access />}
+          {p === 'persona' && <Persona />}
+          {p === 'prompts' && <Prompts />}
           {p === 'features' && <Features />}
+          {p === 'cache' && <CacheCheck />}
           {p === 'beauty' && <Beauty />}
           {p === 'usage' && <Usage />}
         </Band>
@@ -53,6 +59,8 @@ function Desk({ go }) {
   const { data: c } = useLoad('/api/settings/console');
   const { data: f } = useLoad('/api/features');
   const { data: conn } = useLoad('/api/connections');
+  const { data: persona } = useLoad('/api/persona');
+  const { data: prompts } = useLoad('/api/prompts');
   const ok = c && c.available !== false;
   const daily = c?.daily || [];
   const max = Math.max(1, ...daily);
@@ -60,7 +68,10 @@ function Desk({ go }) {
   const mcpDown = f?.mcps?.filter((m) => m.on && m.status !== 'ok').length || 0;
   const items = [
     ['access', 'link', '接入', conn?.items ? `${conn.items.filter((x) => x.kind === 'window').length} 个窗口 · ${conn.items.filter((x) => x.kind === 'member').length} 个群成员` : '…', false],
+    ['persona', 'feather', '他的人设', persona?.text != null ? `写给他的 prompt · ${persona.text.length} 字` : '…', false],
+    ['prompts', 'sparkle', '额外提示词', prompts?.items ? (prompts.items.length ? `${prompts.items.filter((x) => x.on).length} 条开着 · 共 ${prompts.items.length} 条` : '不改人设，另外给他加的话') : '…', false],
     ['features', 'plug', '功能管理', f?.features ? `${f.features.filter((x) => x.on).length} 个功能在跑 · MCP ${f.mcps.filter((m) => m.on && m.status === 'ok').length} 个连上${mcpDown ? ` · ${mcpDown} 个断开` : ''}` : '…', mcpDown > 0],
+    ['cache', 'sparkle', '缓存体检', '能不能缓存 · 工具多不多收 · 是不是正牌', false],
     ['beauty', 'brush', '美化', '主题 · 头像 · 聊天背景 · 气泡', false],
     ['usage', 'tool', '用量与日志', ok ? `${c.observed || 0} 次真实用量记录 · 工具调用` : '…', false],
   ];
@@ -98,6 +109,97 @@ function Desk({ go }) {
         ))}
       </Band>
     </main>
+  );
+}
+
+/* ---------- 他的人设：写给他的 prompt，每一轮都会读，所有聊天窗口共用 ---------- */
+function Persona() {
+  const { data, setData } = useLoad('/api/persona');
+  const [text, setText] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  useEffect(() => { if (data?.text != null && text == null) setText(data.text); }, [data, text]);
+  if (!data) return <div className="card st-pad">正在读…</div>;
+  if (data.available === false) return <div className="card st-pad">暂时连不上，过一会儿再来。</div>;
+  const value = text ?? '';
+  const dirty = value !== data.text;
+  const save = async () => {
+    setBusy(true); setNote('');
+    try {
+      const saved = await api('/api/persona', { method: 'PUT', body: { text: value } });
+      setData(saved); setText(saved.text); setNote('保存好了，他下一句话就按新的来。');
+    } catch (e) { setNote(e?.message || '没保存上，再试一次'); }
+    setBusy(false);
+  };
+  return (
+    <>
+      <p className="st-tip">这里写的是他的「人设」：他是谁、你们的关系、说话的方式、他要记住的规矩。他每说一句话之前都会先读一遍，所有聊天窗口共用这一份。</p>
+      <textarea className="card st-persona" value={value} onChange={(e) => { setText(e.target.value); setNote(''); }}
+        placeholder="比如：你是季宁，她的哥哥……" spellCheck={false} aria-label="他的人设" />
+      <div className="st-persona-f">
+        <span>{value.length} 字{dirty ? ' · 还没保存' : ''}</span>
+        <span className="st-gacts" style={{ margin: 0 }}>
+          {dirty && <button type="button" className="mini-btn" disabled={busy} onClick={() => { setText(data.text); setNote(''); }}>撤回改动</button>}
+          <button type="button" className="mini-btn" disabled={busy || !dirty || !value.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
+        </span>
+      </div>
+      {note && <p className="st-tip" role="status">{note}</p>}
+      <p className="st-tip">小提示：越长他每轮读得越多，回复会稍慢、也更费钱。时间、记忆、聊天记录这些系统会自动给他，不用写在这里。</p>
+    </>
+  );
+}
+
+/* ---------- 额外提示词：不动人设，另外一条条加给他，每条能单独开关 ---------- */
+function Prompts() {
+  const { data, setData } = useLoad('/api/prompts');
+  const [edit, setEdit] = useState(null); // { id?, title, text, on }
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  if (!data) return <div className="card st-pad">正在读…</div>;
+  if (data.available === false) return <div className="card st-pad">暂时连不上，过一会儿再来。</div>;
+  const items = data.items || [];
+  const push = async (next, done) => {
+    setBusy(true); setNote('');
+    try { setData(await api('/api/prompts', { method: 'PUT', body: { items: next } })); done?.(); }
+    catch (e) { setNote(e?.message || '没保存上，再试一次'); }
+    setBusy(false);
+  };
+  const save = () => {
+    const row = { ...edit, title: edit.title.trim(), text: edit.text.trim() };
+    const next = row.id ? items.map((x) => (x.id === row.id ? row : x)) : [...items, row];
+    push(next, () => setEdit(null));
+  };
+  const remove = () => push(items.filter((x) => x.id !== edit.id), () => setEdit(null));
+  const toggle = (row) => push(items.map((x) => (x.id === row.id ? { ...x, on: !x.on } : x)));
+  return (
+    <>
+      <p className="st-tip">不改人设，另外写给他的话：规矩、约定、最近要注意的事都可以放这里。每条能单独开关，开着的他每说一句话都会读到，和人设一样要遵守。</p>
+      {items.length === 0 && <div className="card st-pad">还没有。点下面「加一条」。</div>}
+      <div className="st-prompts">
+        {items.map((row) => (
+          <div key={row.id} className={`card st-prompt ${row.on ? '' : 'off'}`}>
+            <button type="button" className="st-prompt-t" onClick={() => setEdit({ ...row })}>
+              <b>{row.title || '没写标题'}</b><em>{row.text}</em>
+            </button>
+            <input type="checkbox" className="switch" checked={row.on} disabled={busy} onChange={() => toggle(row)} aria-label={`${row.title || '这一条'}：${row.on ? '开着' : '关着'}`} />
+          </div>
+        ))}
+      </div>
+      <button type="button" className="cl-link st-addmcp" onClick={() => setEdit({ title: '', text: '', on: true })} disabled={items.length >= 30}><Icon name="plus" size={16} stroke={1.5} />加一条</button>
+      {note && !edit && <p className="st-tip" role="status">{note}</p>}
+      {edit && (
+        <Sheet open onClose={() => setEdit(null)} label={edit.id ? '改这一条' : '加一条提示词'} seed={44}>
+          <div className="st-prompt-edit">
+            <label className="pill"><span className="sr">标题</span><input value={edit.title} maxLength={60} onChange={(e) => setEdit({ ...edit, title: e.target.value })} placeholder="标题，比如：小金库规矩" /></label>
+            <textarea className="card st-persona short" value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} placeholder="要他读到的内容…" aria-label="提示词内容" />
+            <div className="st-persona-f"><span>{edit.text.length} 字</span><span>{edit.on ? '开着' : '关着'}</span></div>
+            {note && <p className="st-tip" role="status">{note}</p>}
+            <button type="button" className="btn-main" disabled={busy || !edit.text.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
+            {edit.id && <button type="button" className="cl-link st-delmcp" disabled={busy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />删掉这一条</button>}
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }
 
@@ -206,6 +308,9 @@ function Features() {
   const [form, setForm] = useState({ name: '', url: '' });
   const [error, setError] = useState('');
   const [addingBusy, setAddingBusy] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
   if (!data) return <div className="card cl-empty">正在看…</div>;
   if (data.available === false) return <div className="card cl-empty">暂时连不上，过一会儿再来看看。</div>;
   const setF = async (key, on) => {
@@ -233,6 +338,24 @@ function Features() {
       setData((d) => ({ ...d, mcps: [...d.mcps, m] })); setAdding(false); setForm({ name: '', url: '' });
     } catch (e) { setError(e?.message || '连接失败'); setAddingBusy(false); }
   };
+  const openEdit = (x) => { setError(''); setConfirmDel(false); setEditing({ id: x.id, auth: x.auth || 'none', name: x.name, url: x.url || '', always: Boolean(x.always), tools: x.tools || 0 }); };
+  const saveEdit = async () => {
+    setError(''); setEditBusy(true);
+    try {
+      const m = await api(`/api/mcp/${encodeURIComponent(editing.id)}`, { method: 'PATCH', body: { name: editing.name.trim(), url: editing.url.trim(), always: editing.always }, timeout: 60000 });
+      setData((d) => ({ ...d, mcps: d.mcps.map((x) => (x.id === editing.id ? { ...x, ...m } : x)) })); setEditing(null);
+    } catch (e) { setError(e?.message || '保存失败'); }
+    setEditBusy(false);
+  };
+  const remove = async () => {
+    if (!confirmDel) { setConfirmDel(true); return; }
+    setError(''); setEditBusy(true);
+    try {
+      await api(`/api/mcp/${encodeURIComponent(editing.id)}`, { method: 'DELETE' });
+      setData((d) => ({ ...d, mcps: d.mcps.filter((x) => x.id !== editing.id) })); setEditing(null);
+    } catch (e) { setError(e?.message || '删除失败'); }
+    setEditBusy(false); setConfirmDel(false);
+  };
   const ST = { ok: '', down: '断开 · 点一下重连', pending: '连接中…' };
   return (
     <>
@@ -251,9 +374,10 @@ function Features() {
         {data.mcps.map((x) => (
           <div key={x.id} className="st-row">
             <i className={`st-mdot ${x.on ? x.status : 'off'}`} />
-            <span><b>{x.name}</b> <code>{x.id}</code>
+            <span><b>{x.name}</b> <code>{x.id}</code>{x.always && <span className="st-pin">常驻</span>}
               {x.on && x.status === 'down' ? <button type="button" className="st-retry" onClick={() => retry(x.id)}>{ST.down}</button> : <em>{x.on ? ST[x.status] || `${x.tools} 个工具` : '已关'}</em>}
             </span>
+            <button type="button" className="st-edit" onClick={() => openEdit(x)} aria-label={`编辑 MCP ${x.name}`}><Icon name="pen" size={15} stroke={1.5} /></button>
             <input type="checkbox" className="switch" checked={x.on} onChange={(e) => setM(x.id, e.target.checked)} aria-label={`MCP ${x.name}`} />
           </div>
         ))}
@@ -270,6 +394,207 @@ function Features() {
           <button type="button" className="btn-main nc-go" disabled={addingBusy || !form.name.trim() || !form.url.trim()} onClick={add}>{addingBusy ? '正在检查并连接…' : '加上'}</button>
         </Sheet>
       )}
+      {editing && (
+        <Sheet open onClose={() => setEditing(null)} label="编辑 MCP" seed={88}>
+          <div className="sec-head"><span className="en">edit mcp</span><h2 className="zh" style={{ margin: 0 }}>编辑 MCP</h2></div>
+          {error && <p className="ws-err" role="alert">{error}</p>}
+          <div className="nc-k">名字</div>
+          <label className="pill nc-in"><span className="sr">名字</span><input value={editing.name} disabled={editing.auth !== 'none'} onChange={(e) => setEditing((f) => ({ ...f, name: e.target.value }))} /></label>
+          <div className="nc-k">地址</div>
+          <label className="pill nc-in"><span className="sr">地址</span><input value={editing.url} disabled={editing.auth !== 'none'} onChange={(e) => setEditing((f) => ({ ...f, url: e.target.value }))} placeholder="MCP 服务的地址" inputMode="url" /></label>
+          <p className="st-tip">{editing.auth !== 'none' ? '这个 MCP 带授权，名字和地址改不了；想换的话删掉后重新加一次。' : '保存后会用新地址重新连接一次。'}</p>
+          <label className="st-row st-always">
+            <span><b>常驻</b><em>每一轮都把它的 {editing.tools} 个工具交给他，不用聊到它的名字；会多花一些 token</em></span>
+            <input type="checkbox" className="switch" checked={editing.always} onChange={(e) => setEditing((f) => ({ ...f, always: e.target.checked }))} aria-label="常驻" />
+          </label>
+          <button type="button" className="btn-main nc-go" disabled={editBusy || !editing.name.trim() || !editing.url.trim()} onClick={saveEdit}>{editBusy && !confirmDel ? '正在保存并重连…' : '保存'}</button>
+          <button type="button" className={`cl-link st-delmcp${confirmDel ? ' on' : ''}`} disabled={editBusy} onClick={remove}><Icon name="trash" size={15} stroke={1.5} />{confirmDel ? '再点一下，确定删除' : '删除这个 MCP'}</button>
+        </Sheet>
+      )}
+      <PushCard />
+      <ContextSize />
+      <GardenWake />
+      <BackupExport />
+    </>
+  );
+}
+
+/* ---------- Galatea 花园唤醒桥 ---------- */
+// 桥是「断了就停」的设计：不自动重连、不自动拉起。这里只有她亲手点的「检查」「启动」。
+const GARDEN_STATE = { active: ['ok', '在线 · 花园有事会叫醒他'], activating: ['pending', '正在连接…'], inactive: ['off', '没在运行'], failed: ['down', '已断开（出错停下了）'] };
+function GardenWake() {
+  const { data, setData, reload } = useLoad('/api/garden');
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  const [showLog, setShowLog] = useState(false);
+  if (!data || data.available === false) return null;
+  const run = async (what, fn) => {
+    setBusy(what); setNote('');
+    try { await fn(); } catch (e) { setNote(e?.message || '没成功'); }
+    setBusy('');
+  };
+  const saveToken = () => run('token', async () => { setData(await api('/api/garden/token', { method: 'POST', body: { token: token.trim() } })); setToken(''); setNote('令牌已保存在 VPS 上。'); });
+  const check = () => run('check', async () => { const r = await api('/api/garden/check', { method: 'POST', timeout: 45000 }); setNote(r.ok ? '握手成功，令牌和花园都没问题。' : `检查没通过：${r.output || r.code}`); });
+  const start = () => run('start', async () => { setData(await api('/api/garden/start', { method: 'POST', timeout: 45000 })); });
+  const stop = () => run('stop', async () => { setData(await api('/api/garden/stop', { method: 'POST', timeout: 45000 })); });
+  const [dot, label] = GARDEN_STATE[data.state] || ['off', '状态未知'];
+  const RESULT = { 'bridge-down': '唤醒桥断了，已经在聊天里告诉你', received: '收到', message: '他去处理了，还跟你说了话', silent: '他去处理了，没打扰你', error: '这次没处理成功', skipped: '跳过' };
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>garden</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>花园唤醒</h2><span className="go">Galatea Garden</span></div>
+      <div className="card st-list st-garden">
+        {!data.installed || !data.node ? (
+          <p className="st-tip">{!data.installed ? '服务器上还没装唤醒桥，先跑一次部署脚本。' : '服务器上没有 Node 20+，唤醒桥跑不起来。'}</p>
+        ) : (
+          <>
+            <div className="st-row">
+              <i className={`st-mdot ${dot}`} />
+              <span><b>{label}</b><em>{data.configured ? '机器令牌已设置' : '还没填机器令牌'}{data.node ? ` · Node ${data.node}` : ''}</em></span>
+              <button type="button" className="mini-btn st-gbtn" onClick={() => reload()}>刷新</button>
+            </div>
+            <label className="pill nc-in st-gtoken"><span className="sr">机器令牌</span><input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={data.configured ? '换一个新令牌（留空不改）' : '粘贴花园给这台机器的令牌'} autoComplete="off" /></label>
+            <div className="st-gacts">
+              <button type="button" className="mini-btn" disabled={!token.trim() || !!busy} onClick={saveToken}>{busy === 'token' ? '保存中…' : '保存令牌'}</button>
+              <button type="button" className="mini-btn" disabled={!data.configured || !!busy} onClick={check}>{busy === 'check' ? '检查中…' : '检查连接'}</button>
+              {data.state === 'active' || data.state === 'activating'
+                ? <button type="button" className="mini-btn" disabled={!!busy} onClick={stop}>{busy === 'stop' ? '停止中…' : '停止'}</button>
+                : <button type="button" className="mini-btn" disabled={!data.configured || !!busy} onClick={start}>{busy === 'start' ? '启动中…' : '启动'}</button>}
+            </div>
+            {note && <p className="st-tip st-gnote" role="status">{note}</p>}
+            <p className="st-tip">唤醒桥断开后不会自己重连，这是花园要求的。看到「已断开」时，先看下面的记录找原因，再点「检查连接」，没问题了再点「启动」。</p>
+            {data.wakes?.length > 0 && (
+              <div className="st-gwakes">
+                {data.wakes.map((w, i) => <div key={i}><time>{hm(w.at)}</time>{RESULT[w.result] || w.result}{w.result === 'received' ? `：${w.detail}` : ''}</div>)}
+              </div>
+            )}
+            {data.log?.length > 0 && (
+              <>
+                <button type="button" className="st-retry" onClick={() => setShowLog((v) => !v)}>{showLog ? '收起运行记录' : '看运行记录'}</button>
+                {showLog && <pre className="st-glog">{data.log.join('\n')}</pre>}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- 每轮带多少：中转不支持缓存时，这是最直接的省 token ---------- */
+const HISTORY_CHOICES = [[16, '16 条'], [24, '24 条（推荐）'], [40, '40 条'], [60, '60 条'], [80, '80 条']];
+const IMAGE_CHOICES = [[0, '不带'], [1, '最近 1 张'], [2, '最近 2 张']];
+/* ---------- 手机推送：他找你、你又没开着 App 时，弹一条通知 ---------- */
+function PushCard() {
+  const [st, setSt] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  const load = () => pushStatus().then(setSt).catch((e) => setSt({ state: 'server', text: e?.message || '看不到推送状态' }));
+  useEffect(() => { load(); }, []);
+  const run = async (label, fn, ok) => {
+    setBusy(label); setNote('');
+    try { const r = await fn(); setNote(typeof ok === 'function' ? ok(r) : ok); } catch (e) { setNote(e?.message || '没成功'); }
+    setBusy(''); load();
+  };
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>push</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>手机推送</h2><span className="go">{st?.state === 'on' ? '已开启' : ''}</span></div>
+      <div className="card st-list st-garden">
+        <p className="st-tip">他发消息给你、而你没开着 App 的时候，手机会像微信一样弹通知，点开直接进那个聊天。App 开着时不弹。不分白天晚上。</p>
+        <p className="st-tip" role="status">{st ? st.text : '正在看…'}</p>
+        <div className="st-gacts">
+          {st?.state === 'off' && <button type="button" className="mini-btn" disabled={!!busy} onClick={() => run('开启中…', enablePush, '开好了，发一条测试看看')}>{busy || '开启推送'}</button>}
+          {st?.state === 'on' && (
+            <>
+              <button type="button" className="mini-btn" disabled={!!busy} onClick={() => run('发送中…', testPush, (r) => (r?.ok ? '发出去了。先退到桌面，几秒内应该能收到' : '没发出去，再试一次'))}>{busy || '发一条测试'}</button>
+              <button type="button" className="mini-btn" disabled={!!busy} onClick={() => run('关闭中…', disablePush, '这台手机不再收推送了')}>关掉</button>
+            </>
+          )}
+        </div>
+        {note && <p className="st-tip st-gnote" role="status">{note}</p>}
+      </div>
+    </>
+  );
+}
+
+function ContextSize() {
+  const { data, setData } = useLoad('/api/context');
+  const [note, setNote] = useState('');
+  if (!data || data.available === false) return null;
+  const set = async (patch) => {
+    setNote('');
+    try { setData({ ...data, ...(await api('/api/context', { method: 'PUT', body: patch })) }); setNote('改好了，下一句就按这个来。'); }
+    catch (e) { setNote(e?.message || '没改成'); }
+  };
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>context</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>每轮带多少</h2><span className="go">省 token</span></div>
+      <div className="card st-list st-garden">
+        <p className="st-tip">他每说一句话，都要把人设、聊天记录、工具重新读一遍。中转不支持缓存时，带得越多越贵、越慢。更早的聊天会被压缩成摘要，他不会因为少带几条就忘了你们的事；真要找原话，他也能自己翻聊天记录。</p>
+        <div className="nc-k">聊天记录带最近几条（现在 {data.history_n} 条）</div>
+        <div className="st-gacts">{HISTORY_CHOICES.map(([n, label]) => <button key={n} type="button" className={`chip ${data.history_n === n ? 'on' : ''}`} onClick={() => set({ history_n: n })}>{label}</button>)}</div>
+        <div className="nc-k">聊天里的图片重新给他看几张（每张大约 1500 token）</div>
+        <div className="st-gacts">{IMAGE_CHOICES.map(([n, label]) => <button key={n} type="button" className={`chip ${data.history_images === n ? 'on' : ''}`} onClick={() => set({ history_images: n })}>{label}</button>)}</div>
+        {note && <p className="st-tip st-gnote" role="status">{note}</p>}
+      </div>
+    </>
+  );
+}
+
+/* ---------- 加密备份：存一份到自己手机/电脑上 ---------- */
+function BackupExport() {
+  const { data } = useLoad('/api/backup/export/info');
+  const [pass, setPass] = useState('');
+  const [again, setAgain] = useState('');
+  const [withUploads, setWithUploads] = useState(true);
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  if (!data || data.available === false) return null;
+  const ready = pass.length >= 8 && pass === again && !busy;
+  const run = async () => {
+    setNote('');
+    try {
+      setBusy('正在打包加密…');
+      const job = await api('/api/backup/export', { method: 'POST', body: { passphrase: pass, include_uploads: withUploads && data.uploads_available } });
+      const parts = [];
+      for (let i = 0; i < job.chunks; i += 1) {
+        setBusy(`正在下载 ${i + 1}/${job.chunks}…`);
+        const { data: b64 } = await api(`/api/backup/export/${job.id}/${i}`);
+        parts.push(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)));
+      }
+      api(`/api/backup/export/${job.id}`, { method: 'DELETE' }).catch(() => {});
+      const file = new File(parts, job.name, { type: 'application/octet-stream' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: job.name }).catch(() => {});
+      } else {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = url; a.download = job.name; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+      setPass(''); setAgain('');
+      setNote(`好了：${job.name}（${(job.size / 1024 / 1024).toFixed(1)} MB）。存到 iCloud、网盘或电脑上，密码一定要记住，忘了就打不开。`);
+    } catch (e) { setNote(e?.message || '这次没做成，过一会儿再试'); }
+    setBusy('');
+  };
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>backup</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>存一份到你身边</h2><span className="go">加密下载</span></div>
+      <div className="card st-list st-garden">
+        <p className="st-tip">把聊天、记忆、小屋、设置（包括 API 密钥）打包，用你设的密码加密，下载到手机或电脑。服务器坏了也能用它恢复。</p>
+        {!data.openssl ? <p className="st-tip">服务器上没有 openssl，暂时做不了。</p> : (
+          <>
+            <label className="pill nc-in st-gtoken"><span className="sr">备份密码</span><input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="设一个密码（至少 8 位）" autoComplete="new-password" /></label>
+            <label className="pill nc-in st-gtoken"><span className="sr">再输一次</span><input type="password" value={again} onChange={(e) => setAgain(e.target.value)} placeholder="再输一次" autoComplete="new-password" /></label>
+            {data.uploads_available && (
+              <label className="st-tip st-bk-check"><input type="checkbox" checked={withUploads} onChange={(e) => setWithUploads(e.target.checked)} /> 连照片和文件一起（约 {data.uploads_mb} MB）</label>
+            )}
+            {again && pass !== again && <p className="st-tip">两次密码不一样</p>}
+            <div className="st-gacts"><button type="button" className="mini-btn" disabled={!ready} onClick={run}>{busy || '做一份加密备份'}</button></div>
+            {note && <p className="st-tip st-gnote" role="status">{note}</p>}
+          </>
+        )}
+      </div>
     </>
   );
 }
@@ -314,14 +639,14 @@ function Beauty() {
   const STYLES = [['glass', '磨砂玻璃'], ['paper', '纸片'], ['cyan', '蓝晒信纸']];
   return (
     <>
-      <div className="nc-k" style={{ marginTop: 0 }}>主题色</div>
+      {THEMES.length > 1 && <><div className="nc-k" style={{ marginTop: 0 }}>主题色</div>
       <div className="st-themes" role="radiogroup" aria-label="主题色">
         {THEMES.map((t) => (
           <button key={t.id} type="button" role="radio" aria-checked={theme === t.id} className={`st-theme ${theme === t.id ? 'on' : ''}`} data-preview={t.id} onClick={() => setTheme(t.id)}>
             <i style={{ background: t.swatch }} /><span>{t.name}{theme === t.id ? ' ✓' : ''}</span>
           </button>
         ))}
-      </div>
+      </div></>}
       <div className="card st-avs">
         <span className="st-avs-k">头像</span>
         <button type="button" onClick={() => { who.current = 'him'; avIn.current.click(); }} aria-label="换他的头像"><span className="st-av"><Avatar m={{ id: 'him' }} size={40} /></span>他</button>

@@ -6,12 +6,16 @@ import { useEffect, useRef, useState } from 'react';
 import Icon from '../../design/icons.jsx';
 import { useLoad } from '../../lib/useLoad.js';
 import { BUILTIN, Sticker } from './stickers.jsx';
+import { api } from '../../lib/api.js';
+import { shrinkImage, mapLimited } from '../../lib/image.js';
 
 const MAX_IMAGES = 9;
 
-export default function InputBar({ queued, replying, quote, onCancelQuote, editing, onCancelEdit, onSend, onReply, onPause, onUpload, toName, nameOf }) {
+export default function InputBar({ queued, replying, quote, onCancelQuote, editing, onCancelEdit, draft, onSend, onReply, onPause, onUpload, toName, nameOf }) {
   const [text, setText] = useState('');
-  const [panel, setPanel] = useState(null); // null | 'plus' | 'sticker'
+  const [panel, setPanel] = useState(null); // null | 'plus' | 'sticker' | 'gifts'
+  const [picked, setPicked] = useState(null); // 券：先点选中，再点「用掉」才发
+  const [giftTip, setGiftTip] = useState('');
   const [tab, setTab] = useState('builtin');
   const [busy, setBusy] = useState('');
   const [rec, setRec] = useState(null); // 录音中：{ start }
@@ -21,9 +25,23 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
   const sendingText = useRef(false);
   const sendingAttachment = useRef(false);
   const { data: mineStk } = useLoad(panel === 'sticker' ? '/api/stickers' : null);
+  const { data: gifts, setData: setGifts } = useLoad(panel === 'gifts' ? '/api/spark/kept' : null);
+  const myGifts = (gifts?.records || []).filter((r) => r.state === 'unused' && r.holder === 'me');
+  // 用掉一张：先在礼物铺记成用过，再发一条消息给他
+  const useGift = async (r) => {
+    setGiftTip('');
+    try {
+      await api(`/api/spark/records/${r.id}/use`, { method: 'POST', body: { note: '在聊天里拿出来用了' } });
+      setGifts((d) => ({ ...d, records: d.records.map((x) => (x.id === r.id ? { ...x, state: 'used' } : x)) }));
+      onSend({ type: 'text', text: `🎟️ 我用掉了一张「${r.name}」${r.note ? `（${r.note}）` : ''}` });
+      setPicked(null); setPanel(null);
+    } catch (e) { setGiftTip(e?.message || '没用成，再试一次'); }
+  };
 
   useEffect(() => { if (editing) { setText(editing.text || ''); ta.current?.focus(); } }, [editing]);
   useEffect(() => { if (quote) ta.current?.focus(); }, [quote]);
+  // 快捷回复「先改两个字」：把那一条放进输入框
+  useEffect(() => { if (draft) { setText(draft.text); ta.current?.focus(); } }, [draft]);
   // 输入框跟着字数长高
   useEffect(() => { const el = ta.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 120)}px`; }, [text]);
   useEffect(() => { if (!text) sendingText.current = false; }, [text]);
@@ -45,7 +63,8 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
     sendingAttachment.current = true;
     setBusy(`正在传 ${list.length} 张图…`); setPanel(null);
     try {
-      const ups = await Promise.all(list.map((f) => onUpload(f, 'image')));
+      const ups = await mapLimited(list, 2, async (f) => onUpload(await shrinkImage(f), 'image'),
+        (n) => setBusy(n < list.length ? `正在传图 ${n}/${list.length}…` : '马上就好…'));
       await onSend({ type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) });
     } finally { sendingAttachment.current = false; setBusy(''); }
   };
@@ -135,6 +154,7 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
             <button type="button" onClick={() => camIn.current.click()}><span className="gbtn"><Icon name="camera" size={22} /></span>拍照</button>
             <button type="button" onClick={() => fileIn.current.click()}><span className="gbtn"><Icon name="file" size={22} /></span>文件</button>
             <button type="button" onClick={() => setPanel('sticker')}><span className="gbtn"><Icon name="smile" size={22} /></span>表情</button>
+            <button type="button" onClick={() => setPanel('gifts')}><span className="gbtn"><Icon name="gift" size={22} /></span>券和礼物</button>
           </div>
           <p className="cin-tip">图片一次最多 {MAX_IMAGES} 张</p>
         </div>
@@ -155,6 +175,23 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
             ))}
             {!stickers.length && <p className="cin-tip">{tab === 'mine' ? '还没有自己的表情' : '他还没画'}</p>}
           </div>
+        </div>
+      )}
+
+      {panel === 'gifts' && (
+        <div className="cin-panel">
+          <div className="cin-tabs"><button type="button" className="on">在你手里的</button><a href="#/spark?tab=kept" className="cin-manage">全部</a></div>
+          {!gifts && <p className="cin-tip">正在翻…</p>}
+          <div className="cin-gifts">
+            {myGifts.map((r) => (
+              <button key={r.id} type="button" className={`cin-gift ${picked === r.id ? 'on' : ''}`} onClick={() => (picked === r.id ? useGift(r) : setPicked(r.id))}>
+                <b>{r.name}</b>
+                <em>{picked === r.id ? '再点一下：用掉并发给他' : r.note || (r.by === 'him' ? '他换给你的' : '你换的')}</em>
+              </button>
+            ))}
+          </div>
+          {gifts && !myGifts.length && <p className="cin-tip">手里没有没用的券。去「续火花 → 礼物铺」换一张吧</p>}
+          {giftTip && <p className="cin-tip" role="alert">{giftTip}</p>}
         </div>
       )}
 

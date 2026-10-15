@@ -4,6 +4,7 @@
  * exposes `/relay/app/*` and `/relay/app/loop/*`. This file translates the
  * important chat/session/config/MCP operations without changing the design.
  */
+import { rememberStickers, stickerToken } from './stickerUrls.js';
 import { normalizeTideMemories } from './tideMemory.js';
 import { collectHistory } from './chatHistory.js';
 
@@ -33,6 +34,48 @@ export function savedToken() { return token(); }
 function withToken(url) {
   const value = token();
   return value ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(value)}` : url;
+}
+
+// 上传的图片在中继里要带登录凭证才能读。<img> 带不了请求头，所以先用 fetch 带上凭证取回来，
+// 再交给 <img> 一个本地地址。同一张图只取一次。
+const blobUrls = new Map();
+export function isRelayUpload(url) {
+  return /\/uploads\//.test(String(url || '')) && !String(url).startsWith('blob:');
+}
+export function authedImageUrl(url) {
+  const clean = String(url || '').replace(/([?&])token=[^&]*&?/, '$1').replace(/[?&]$/, '');
+  if (!blobUrls.has(clean)) {
+    const headers = {};
+    const value = token();
+    if (value) headers.Authorization = `Bearer ${value}`;
+    // 中继里的图有两种写法（/relay/uploads/… 和 /uploads/…）；头像这种不挂在聊天消息上的图，中转可能根本不给手机取，
+    // 最后就请后端用自己的钥匙取回来。每一路取回来都先真的当图片打开一次，打不开就换下一路——
+    // 免得把一张网页、一段报错当成图片，显示成问号。
+    const other = clean.includes('/relay/uploads/') ? clean.replace('/relay/uploads/', '/uploads/') : clean.replace('/uploads/', '/relay/uploads/');
+    const name = clean.split('?')[0].split('/').pop();
+    const direct = (target) => () => fetch(target, { headers }).then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.blob();
+    });
+    const viaBackend = () => loop(`media/${encodeURIComponent(name)}`).then(({ type, data }) => {
+      const bytes = Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
+      return new Blob([bytes], { type });
+    });
+    const opens = (blob) => new Promise((ok, fail) => {
+      const objectUrl = URL.createObjectURL(blob);
+      if (typeof Image === 'undefined') { ok(objectUrl); return; }
+      const img = new Image();
+      img.onload = () => ok(objectUrl);
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); fail(new Error('not an image')); };
+      img.src = objectUrl;
+    });
+    // 他画的涂鸦是 SVG：中转可能按普通文件发回来，浏览器就不认；按文件名补上图片类型
+    const asSvg = (blob) => (/\.svg$/i.test(name) && blob.type !== 'image/svg+xml' ? new Blob([blob], { type: 'image/svg+xml' }) : blob);
+    const attempts = [direct(clean), direct(other), viaBackend];
+    const run = (i) => attempts[i]().then(asSvg).then(opens).catch((err) => (i + 1 < attempts.length ? run(i + 1) : Promise.reject(err)));
+    blobUrls.set(clean, run(0).catch((err) => { blobUrls.delete(clean); throw err; }));
+  }
+  return blobUrls.get(clean);
 }
 
 export function streamUrl() { return withToken(`${RELAY}/app/stream`); }
@@ -85,14 +128,25 @@ export function relayMessage(raw) {
   const mine = raw.from === 'human';
   const q = quoteParts(raw.text);
   const atts = raw?.meta?.attachments || raw.attachments || [];
-  const images = atts.filter((a) => String(a.mime || '').startsWith('image/'));
-  const file = atts.find((a) => !String(a.mime || '').startsWith('image/'));
+  // 中转偶尔把他画的 SVG 记成普通文件：按文件名也认一下
+  const isImg = (a) => String(a.mime || '').startsWith('image/') || /\.(svg|png|jpe?g|gif|webp)$/i.test(String(a.name || a.url || ''));
+  const images = atts.filter(isImg);
+  const file = atts.find((a) => !isImg(a));
   const out = {
     id: raw.id, from: mine ? 'me' : 'him', type: 'text', text: q.text, at: raw.ts || new Date().toISOString(), quote: q.quote,
     status: raw?.meta?.api?.error ? 'failed' : (mine && raw?.meta?.deferred && !raw?.meta?.reply_requested ? 'queued' : 'sent'),
     thinking: raw?.meta?.thinking || '', edited: Boolean(raw?.meta?.edited_at),
   };
-  if (images.length) {
+  if (!mine && (raw?.meta?.api?.usage || raw?.meta?.api?.timing)) out.api = raw.meta.api; // 长按能看这一轮的账本
+  // 快捷回复：只给她点，不进聊天记录；他这条被改过就不再给
+  const opts = raw?.meta?.api?.reply_options;
+  if (!mine && Array.isArray(opts) && opts.length >= 2 && !raw?.meta?.edited_at) out.replyOptions = opts.map(String).slice(0, 3);
+  if (raw.kind === 'thinking') {
+    // 思考过程只显示成一个可以折叠的「想了一下」，不当成一条正式回复
+    out.type = 'thinking'; out.thinking = String(raw.text || '').trim(); out.text = ''; out.quote = undefined;
+  } else if (!q.quote && stickerToken(q.text)) {
+    out.type = 'sticker'; out.sticker = { id: stickerToken(q.text) };
+  } else if (images.length) {
     out.type = 'images';
     out.images = images.map((a) => ({ url: attachmentUrl(a), thumb: attachmentUrl(a), w: a.w, h: a.h }));
   } else if (file) {
@@ -103,30 +157,45 @@ export function relayMessage(raw) {
   return out;
 }
 
-function chatList(sessions) {
+function chatList(sessions, himName = '他') {
   const rows = [...(sessions || [])].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-  const convert = (s) => ({ id: s.id, kind: 'window', name: s.title || '新对话', provider: '私人后端', members: [{ id: 'him', name: 'Ombre' }], pinned: Boolean(s.pinned), preview: '', lastAt: s.updated_at || s.created_at, unread: 0, replying: false });
+  const convert = (s) => ({ id: s.id, kind: 'window', name: s.title || '新对话', provider: '私人后端', members: [{ id: 'him', name: himName }], pinned: Boolean(s.pinned), preview: '', lastAt: s.updated_at || s.created_at, unread: 0, replying: false });
   return { available: true, windows: rows.filter((x) => !x.archived).map(convert), groups: [], archived: rows.filter((x) => x.archived).map(convert) };
 }
 
-async function loadChat(id) {
+function fullHistory(id) {
+  return collectHistory(({ since, limit }) => request(
+    `${RELAY}/app/history?session_id=${encodeURIComponent(id)}&since=${since}&limit=${limit}`,
+  )).then((messages) => ({ messages }));
+}
+
+/**
+ * full=false：只取最近 200 条（一次请求），打开聊天马上能看；full=true：从第一条翻到最后一条。
+ * 旧后端没有「最近」接口时自动退回整段读取。
+ */
+async function loadChat(id, full = false) {
+  // 窗口编号放在路径里：中继转发时不一定带上问号后面的参数
+  const recent = () => loop(`imprint/chat/recent/${encodeURIComponent(id)}`)
+    .then((data) => (data.messages || []).every((m) => String(m?.meta?.api_session || '') === id) ? data : fullHistory(id))
+    .catch(() => fullHistory(id));
   const [ss, hist, settings, reactions] = await Promise.all([
     request(`${RELAY}/app/sessions`),
-    collectHistory(({ since, limit }) => request(
-      `${RELAY}/app/history?session_id=${encodeURIComponent(id)}&since=${since}&limit=${limit}`,
-    )).then((messages) => ({ messages })),
+    full ? fullHistory(id) : recent(),
     loop('imprint/settings').catch(() => ({ avatars: {} })),
     loop('imprint/chat/reactions').catch(() => ({ items: [] })),
+    loop('imprint/stickers').then((x) => rememberStickers(
+      (x.mine || []).map((s) => ({ ...s, url: attachmentUrl(s) })), (x.his || []).map((s) => ({ ...s, url: attachmentUrl(s) })),
+    )).catch(() => null),
   ]);
   const s = (ss.sessions || []).find((x) => x.id === id) || { id, title: '新对话' };
   const reactionById = new Map((reactions.items || []).map((item) => [String(item.messageId), item.stickerId]));
   return {
     available: true, id, kind: 'window', name: s.title,
     me: { id: 'me', name: '我', avatar: attachmentUrl({ url: settings.avatars?.me }) },
-    members: [{ id: 'him', name: settings.contact?.himName || 'Ombre', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
+    members: [{ id: 'him', name: settings.contact?.himName || '他', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
     presence: { online: true }, replying: null, beauty: settings.beauty || {},
     wallpaper: settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
-    items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && m.kind !== 'thinking')
+    items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && (m.kind !== 'thinking' || String(m.text || '').trim()))
       .map((message) => ({ ...relayMessage(message), reaction: reactionById.get(String(message.id)) || null })),
   };
 }
@@ -142,19 +211,35 @@ async function sendMessage(id, body) {
   return relayMessage({ id: result.id, from: 'human', kind: 'user', text, ts: new Date().toISOString(), meta: result.meta || { api_session: id, deferred: true, reply_requested: false, attachments } });
 }
 
+const mcpRow = (x) => ({ id: x.name, name: x.name, url: x.url || '', auth: x.auth || 'none', always: Boolean(x.always), tools: x.tools?.length || 0, status: x.status === 'online' ? 'ok' : x.status === 'connecting' ? 'pending' : 'down', on: x.enabled !== false });
+
+const WAKE_MODE_NAMES = { normal: '正常', 'low-frequency': '低频', silent: '静默', custom: '自定义' };
+
 async function liveFeatures() {
   const [cfg, mcp] = await Promise.all([loop('config'), loop('mcp')]);
   return {
     available: true,
     features: [
-      { key: 'reach', name: '主动找你', desc: `Wake 2.0 · ${cfg.wake?.control?.mode || '低频'}`, last: cfg.wake?.state?.last_opportunity_at || '', on: cfg.wake?.control?.enabled !== false },
+      { key: 'reach', name: '主动找你', desc: `Wake 2.0 · ${WAKE_MODE_NAMES[cfg.wake?.control?.mode] || cfg.wake?.control?.mode || '低频'}`, last: cfg.wake?.state?.last_opportunity_at || '', on: cfg.wake?.control?.enabled !== false },
       { key: 'memory', name: '心潮记忆整理', desc: '上下文压缩后沉入心潮记忆', last: '', on: cfg.context_compaction !== false },
       { key: 'recall', name: '心潮自动回想', desc: '每轮按当前话题读取心潮记忆', last: '', on: cfg.ombre_auto_recall !== false },
       { key: 'time', name: '现实时间感知', desc: cfg.context_timezone || 'Asia/Shanghai', last: '', on: cfg.context_time !== false },
       { key: 'backup', name: '自动备份', desc: `每 ${cfg.backup_interval_hours || 24} 小时`, last: '', on: cfg.backup_enabled !== false },
     ],
-    mcps: (mcp.servers || []).map((x) => ({ id: x.name, name: x.name, tools: x.tools?.length || 0, status: x.status === 'online' ? 'ok' : x.status === 'connecting' ? 'pending' : 'down', on: x.enabled !== false })),
+    mcps: (mcp.servers || []).map(mcpRow),
   };
+}
+
+/** 导书慢的时候后端转到后台做：每 3 秒问一次，最多等 5 分钟 */
+async function bookJob(r) {
+  if (!r?.running) return r;
+  for (let i = 0; i < 100; i += 1) {
+    await new Promise((ok) => setTimeout(ok, 3000));
+    const s = await loop(`books/job/${r.job}`).catch(() => ({ state: 'running' }));
+    if (s.state === 'done') return s;
+    if (s.state === 'error') throw new ApiError(400, s.detail || '没放上去');
+  }
+  throw new ApiError(408, '还在整理，过一会儿刷新书架看看');
 }
 
 async function compat(path, opts) {
@@ -162,13 +247,17 @@ async function compat(path, opts) {
   const [p] = path.split('?');
   const query = path.slice(p.length);
   let m;
-  if (method === 'GET' && p === '/api/chats') return request(`${RELAY}/app/sessions`).then((x) => chatList(x.sessions));
+  if (method === 'GET' && p === '/api/chats') {
+    // 他的名字只是锦上添花：后端慢的时候最多等 3 秒，聊天列表不能被它拖住
+    const [x, settings] = await Promise.all([request(`${RELAY}/app/sessions`), Promise.race([loop('imprint/settings', { timeout: 3000 }).catch(() => ({})), new Promise((ok) => setTimeout(() => ok({}), 3000))])]);
+    return chatList(x.sessions, settings.contact?.himName || '他');
+  }
   if (method === 'POST' && p === '/api/chats') {
     const x = await request(`${RELAY}/app/sessions`, { method: 'POST', body: { title: opts.body?.name || '新对话', activate: true } });
     return { id: x.created?.id || x.active_session };
   }
   if (method === 'GET' && p === '/api/connections') return { available: true, items: [{ id: 'main', name: '私人后端', kind: 'window', provider: 'Imprint API loop', note: '现有主窗口', status: 'ok', statusText: '在线', mode: 'OpenAI 兼容 API', workdir: 'VPS 私有目录', sandbox: '只访问已配置目录' }] };
-  if (method === 'GET' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return loadChat(decodeURIComponent(m[1]));
+  if (method === 'GET' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) return loadChat(decodeURIComponent(m[1]), /[?&]full=1/.test(query));
   if (method === 'PATCH' && (m = /^\/api\/chats\/([^/]+)$/.exec(p))) {
     const body = {};
     if (opts.body?.name !== undefined) body.title = opts.body.name;
@@ -184,6 +273,7 @@ async function compat(path, opts) {
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)\/regenerate$/.exec(p))) return loop('regenerate', { method: 'POST', body: { session_id: decodeURIComponent(m[1]), reply_message_id: Number(m[2]) } });
   if (method === 'PUT' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)$/.exec(p))) return loop(`messages/${m[2]}`, { method: 'PATCH', body: { text: opts.body?.text } });
   if (method === 'DELETE' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)$/.exec(p))) return loop(`messages/${m[2]}/delete`, { method: 'POST', body: { session_id: decodeURIComponent(m[1]) } });
+  if (method === 'GET' && /^\/api\/chats\/[^/]+\/reactions$/.test(p)) return loop('imprint/chat/reactions');
   if (method === 'POST' && (m = /^\/api\/chats\/([^/]+)\/messages\/([^/]+)\/react$/.exec(p))) {
     return loop(`imprint/chat/messages/${m[2]}/reaction`, { method: 'POST', body: { stickerId: opts.body?.stickerId } });
   }
@@ -194,7 +284,9 @@ async function compat(path, opts) {
   }
   if (method === 'GET' && p === '/api/stickers') {
     const data = await loop('imprint/stickers');
-    return { ...data, mine: data.mine.map((s) => ({ ...s, url: attachmentUrl(s) })), his: data.his.map((s) => ({ ...s, url: attachmentUrl(s) })) };
+    const out = { ...data, mine: data.mine.map((s) => ({ ...s, url: attachmentUrl(s) })), his: data.his.map((s) => ({ ...s, url: attachmentUrl(s) })) };
+    rememberStickers(out.mine, out.his);
+    return out;
   }
   if (method === 'POST' && p === '/api/stickers') {
     const sticker = await loop('imprint/stickers', opts);
@@ -204,7 +296,8 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/features') return liveFeatures();
   if (method === 'PUT' && (m = /^\/api\/features\/([^/]+)$/.exec(p))) {
     const key = m[1], on = Boolean(opts.body?.on);
-    if (key === 'reach') return loop('wake/config', { method: 'POST', body: { enabled: on, mode: 'low-frequency', make_default: true } });
+    // 只开关，不动他现在的频率模式（正常 / 低频 / 自定义）
+    if (key === 'reach') return loop('wake/config', { method: 'POST', body: { enabled: on, make_default: false } });
     const fields = { memory: 'context_compaction', recall: 'ombre_auto_recall', time: 'context_time', backup: 'backup_enabled' };
     return loop('config', { method: 'POST', body: { [fields[key]]: on } });
   }
@@ -222,12 +315,34 @@ async function compat(path, opts) {
   }
   if (method === 'POST' && p === '/api/mcp/oauth/complete') return loop('mcp/oauth/complete', { ...opts, timeout: 60000 });
   if (method === 'POST' && (m = /^\/api\/mcp\/([^/]+)\/reconnect$/.exec(p))) return loop(`mcp/${m[1]}/reconnect`, { method: 'POST' }).then((x) => ({ id: m[1], status: x.ok ? 'ok' : 'down', on: true }));
+  if (method === 'PATCH' && (m = /^\/api\/mcp\/([^/]+)$/.exec(p))) {
+    const current = await loop('mcp');
+    const server = (current.servers || []).find((row) => row.name === decodeURIComponent(m[1]));
+    if (!server) throw new ApiError(404, '找不到这个 MCP');
+    const name = String(opts.body?.name || '').trim(), url = String(opts.body?.url || '').trim();
+    try { new URL(url); } catch { throw new ApiError(400, '请输入完整的 MCP 地址'); }
+    const renamed = name !== server.name, moved = url.replace(/\/$/, '') !== String(server.url || '').replace(/\/$/, '');
+    // 授权（OAuth / 请求头里的密钥）跟着名字和地址走，改了就得重新授权，所以这类只能删掉重加
+    if (server.auth !== 'none' && (renamed || moved)) throw new ApiError(400, '这个 MCP 带授权，改名字或地址请删掉后重新加');
+    if (renamed && (current.servers || []).some((row) => row.name === name)) throw new ApiError(400, '已经有一个同名的 MCP 了');
+    const saved = await loop('mcp', { method: 'POST', body: { ...server, name, url, always: Boolean(opts.body?.always) }, timeout: 60000 });
+    if (renamed && saved.server?.name && saved.server.name !== server.name) await loop(`mcp/${encodeURIComponent(server.name)}`, { method: 'DELETE' });
+    return mcpRow(saved.server || {});
+  }
+  if (method === 'DELETE' && (m = /^\/api\/mcp\/([^/]+)$/.exec(p))) return loop(`mcp/${m[1]}`, { method: 'DELETE' });
   if (method === 'PUT' && (m = /^\/api\/mcp\/([^/]+)$/.exec(p))) {
     const current = await loop('mcp');
     const server = (current.servers || []).find((row) => row.name === decodeURIComponent(m[1]));
     if (!server) throw new ApiError(404, '找不到这个 MCP');
     return loop('mcp', { method: 'POST', body: { ...server, enabled: Boolean(opts.body?.on) } });
   }
+  if (method === 'GET' && p === '/api/garden') return loop('garden/status');
+  if (method === 'GET' && p === '/api/backup/export/info') return loop('backup/export/info');
+  if (method === 'POST' && p === '/api/backup/export') return loop('backup/export', { ...opts, timeout: 10 * 60 * 1000 });
+  if ((method === 'GET' || method === 'DELETE') && (m = /^\/api\/backup\/export\/([0-9a-f]{16})(?:\/(\d+))?$/.exec(p))) {
+    return loop(`backup/export/${m[1]}${m[2] ? `/${m[2]}` : ''}`, { ...opts, timeout: 120000 });
+  }
+  if (method === 'POST' && (m = /^\/api\/garden\/(token|check|start|stop)$/.exec(p))) return loop(`garden/${m[1]}`, { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/settings/console') return loop('imprint/usage');
   if (method === 'GET' && p === '/api/logs/cache') return loop(`imprint/usage/cache${query}`);
   if (method === 'GET' && p === '/api/logs/tools') return loop('imprint/logs/tools');
@@ -238,18 +353,75 @@ async function compat(path, opts) {
   if (method === 'PUT' && p === '/api/settings/avatar') return loop('imprint/settings/avatar', { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/home') {
     const [notes, activity, settings, tide, listen, watch] = await Promise.all([
-      loop('imprint/notes'), loop('imprint/activity'), loop('imprint/settings'), loop('tide/pulse').catch(() => null),
+      loop('imprint/notes'), loop('imprint/activity'), loop('imprint/settings'),
+      // 他的心情要去问记忆系统，有时候很慢：最多等 2.5 秒，等不到首页先出来
+      Promise.race([loop('tide/pulse').catch(() => null), new Promise((ok) => setTimeout(() => ok(null), 2500))]),
       loop('imprint/together/listen').catch(() => null), loop('imprint/together/watch').catch(() => null),
     ]);
     const track = listen?.track;
     const nextWatch = watch?.list?.find((item) => item.status === 'scheduled' && (item.at || item.scheduledAt));
     return { available: true, now: new Date().toISOString(),
-      names: { me: '我', him: settings.contact?.himName || 'Ombre' }, together: { since: '2026-09-18' }, greeting: '',
+      names: { me: settings.contact?.meName || '我', him: settings.contact?.himName || '他' }, together: { since: '2026-09-18' }, greeting: '',
+      avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) },
       state: tide?.available === false ? null : tide?.state,
       listen: track ? { ...track, positionS: listen.positionS || 0, playing: listen.playing } : null,
       watch: nextWatch ? { title: nextWatch.title, order: 1, at: nextWatch.at || nextWatch.scheduledAt || nextWatch.createdAt, ticketNo: String(nextWatch.id || '').slice(0, 6) } : null,
       note: notes.items[0] ? { ...notes.items[0], total: notes.total } : null, activity: activity.items || [] };
   }
+  if ((method === 'GET' || method === 'PUT') && (m = /^\/api\/chats\/([^/]+)\/reply-options$/.exec(p))) {
+    return loop(`reply-options/${m[1]}`, method === 'PUT' ? { ...opts, method: 'POST' } : undefined);
+  }
+  if (method === 'GET' && (m = /^\/api\/vocab\/(due|wrong|all|mastered|new)$/.exec(p))) return loop(`imprint/vocab/list/${m[1]}`);
+  if (method === 'POST' && p === '/api/vocab') return loop('imprint/vocab', { ...opts, timeout: 60000 });
+  if (method === 'POST' && (m = /^\/api\/vocab\/do\/(learn|settings|delete_book)$/.exec(p))) return loop(`imprint/vocab/do/${m[1]}`, opts);
+  if (method === 'POST' && (m = /^\/api\/vocab\/([0-9a-f]+)\/(review|edit)$/.exec(p))) return loop(`imprint/vocab/${m[1]}/${m[2]}`, opts);
+  if (method === 'DELETE' && (m = /^\/api\/vocab\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/vocab/${m[1]}`, { method: 'DELETE' });
+  // 书房（共读）
+  if (method === 'GET' && p === '/api/books') return loop('imprint/books');
+  if (method === 'GET' && (m = /^\/api\/books\/([0-9a-f]+)\/ch\/(-?\d+)$/.exec(p))) return loop(`imprint/books/${m[1]}/ch/${m[2]}`);
+  if (method === 'POST' && (m = /^\/api\/books\/([0-9a-f]+)\/(progress|mark|update)$/.exec(p))) return loop(`imprint/books/${m[1]}/${m[2]}`, opts);
+  if (method === 'DELETE' && (m = /^\/api\/books\/marks\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/books/marks/${m[1]}`, { method: 'DELETE' });
+  if (method === 'DELETE' && (m = /^\/api\/books\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/books/${m[1]}`, { method: 'DELETE' });
+  if (method === 'POST' && (m = /^\/api\/books\/gutenberg\/(\d+)$/.exec(p))) return bookJob(await loop(`books/gutenberg/${m[1]}`, { method: 'POST', body: {}, timeout: 60000 }));
+  if (method === 'POST' && p === '/api/books/import') {
+    // 先走聊天的上传通道把文件传上去，再让后端按 url 取回来拆章节
+    const file = opts.body?.file;
+    const up = await request(`${RELAY}/app/upload?name=${encodeURIComponent(file?.name || 'book.txt')}`, { method: 'POST', raw: file, timeout: 180000 });
+    return bookJob(await loop('books/import', { method: 'POST', body: { url: up.url, name: file?.name || 'book.txt', read_now: !!opts.body?.readNow }, timeout: 60000 }));
+  }
+  if (method === 'POST' && p === '/api/books/ask') {
+    // 书里点「问他」：发到正在用的聊天窗口，再叫他回
+    const ss = await request(`${RELAY}/app/sessions`);
+    const sid = ss.active_session || ss.sessions?.[0]?.id;
+    if (!sid) throw new ApiError(400, '还没有聊天窗口');
+    await sendMessage(sid, { type: 'text', text: opts.body?.text || '' });
+    await request(`${RELAY}/app/trigger`, { method: 'POST', body: { api_session: sid } });
+    return { ok: true, session: sid };
+  }
+  if (method === 'GET' && p === '/api/piggy') return loop('imprint/piggy');
+  if (method === 'POST' && p === '/api/piggy') return loop('imprint/piggy', opts);
+  if (method === 'DELETE' && (m = /^\/api\/piggy\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/piggy/${m[1]}`, { method: 'DELETE' });
+  if (method === 'GET' && p === '/api/purchases') {
+    const [list, settings] = await Promise.all([loop('imprint/purchases'), loop('imprint/settings').catch(() => ({}))]);
+    return { ...list, avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) } };
+  }
+  if (method === 'POST' && p === '/api/purchases') return loop('purchases', opts);
+  if (method === 'POST' && (m = /^\/api\/purchases\/([0-9a-f]+)\/(withdraw|review)$/.exec(p))) {
+    return m[2] === 'withdraw' ? loop(`imprint/purchases/${m[1]}/withdraw`, { method: 'POST' }) : loop(`purchases/${m[1]}/review`, { method: 'POST', timeout: 150000 });
+  }
+  if (method === 'GET' && p === '/api/push') return loop('push');
+  if (method === 'POST' && (m = /^\/api\/push\/(subscribe|unsubscribe|seen|test)$/.exec(p))) return loop(`push/${m[1]}`, { ...opts, timeout: 30000 });
+  if (method === 'GET' && p === '/api/cache-check') return loop('cache-check');
+  if (method === 'POST' && p === '/api/cache-check') return loop('cache-check', opts);
+  if (method === 'GET' && p === '/api/prompts') return loop('prompts');
+  if (method === 'PUT' && p === '/api/prompts') return loop('prompts', { ...opts, method: 'POST' });
+  if (method === 'GET' && p === '/api/context') return loop('config');
+  if (method === 'PUT' && p === '/api/context') return loop('config', { ...opts, method: 'POST' });
+  if (method === 'GET' && p === '/api/persona') return loop('persona');
+  if (method === 'PUT' && p === '/api/persona') return loop('persona', { ...opts, method: 'POST' });
+  if (method === 'GET' && p === '/api/home/whisper') return loop('home/whisper', { timeout: 120000 });
+  if (method === 'POST' && p === '/api/home/whisper') return loop('home/whisper', { method: 'POST', timeout: 120000 });
+  if (method === 'GET' && p === '/api/home/plans') return loop('home/plans');
   if (method === 'POST' && p === '/api/activity/read') return loop('imprint/activity/read', { method: 'POST' });
   if (method === 'GET' && p === '/api/notes') return loop(`imprint/notes${query}`);
   if (method === 'GET' && p === '/api/notes/calendar') return loop(`imprint/notes/calendar${query}`);
@@ -267,12 +439,19 @@ async function compat(path, opts) {
     return loop(`imprint/room/photos/${m[1]}${m[2] ? `/${m[2]}` : ''}`, opts);
   }
   if (method === 'GET' && p === '/api/room/solo') return loop('imprint/room/solo');
-  if (method === 'GET' && p === '/api/spark') return loop('imprint/spark');
+  if (method === 'GET' && p === '/api/room/diary') return loop('imprint/room/diary');
+  if (method === 'POST' && p === '/api/room/diary/write') return loop('diary/write/today', { ...opts, timeout: 5 * 60 * 1000 });
+  if (method === 'GET' && (p === '/api/spark' || p === '/api/spark/shop' || p === '/api/spark/kept')) {
+    // 火花页也要用真头像：跟买买申请一样，顺手把设置里的头像带上
+    const path = p === '/api/spark' ? 'imprint/spark' : p === '/api/spark/shop' ? `imprint/spark/shop${query}` : 'imprint/spark/kept';
+    const [data, settings] = await Promise.all([loop(path), loop('imprint/settings').catch(() => ({}))]);
+    return { ...data, avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) } };
+  }
+  if (method === 'DELETE' && (m = /^\/api\/spark\/shop\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/spark/shop/${m[1]}`, { method: 'DELETE' });
+  if (method === 'POST' && (m = /^\/api\/spark\/records\/([0-9a-f]+)\/use$/.exec(p))) return loop(`imprint/spark/records/${m[1]}/use`, opts);
   if (method === 'POST' && p === '/api/spark/cards/use') return loop('imprint/spark/cards/use', opts);
-  if (method === 'GET' && p === '/api/spark/shop') return loop(`imprint/spark/shop${query}`);
   if (method === 'POST' && p === '/api/spark/shop') return loop('imprint/spark/shop', opts);
   if (method === 'POST' && p === '/api/spark/redeem') return loop('imprint/spark/redeem', opts);
-  if (method === 'GET' && p === '/api/spark/kept') return loop('imprint/spark/kept');
   if (method === 'POST' && (m = /^\/api\/spark\/kept\/([^/]+)\/active$/.exec(p))) return loop(`imprint/spark/kept/${m[1]}/active`, opts);
   if (method === 'GET' && p === '/api/together/watch') return loop('imprint/together/watch');
   if (method === 'POST' && p === '/api/together/watch/list') return loop('imprint/together/watch/list', opts);
@@ -284,6 +463,8 @@ async function compat(path, opts) {
   if (method === 'PUT' && p === '/api/together/playlist') return loop('imprint/together/playlist', opts).then(listenPayload);
   if (method === 'DELETE' && (m = /^\/api\/together\/playlist\/([^/]+)$/.exec(p))) return loop(`imprint/together/playlist/${m[1]}`, opts).then(listenPayload);
   if (method === 'GET' && p === '/api/tide') return loop('tide/pulse');
+  if (method === 'GET' && p === '/api/drives') return loop('drives');
+  if (method === 'POST' && p === '/api/drives/mode') return loop('drives/mode', opts);
   if (method === 'GET' && p === '/api/tide/dreams') return loop('imprint/tide/dreams');
   if (method === 'GET' && p === '/api/tide/memory') {
     const query = new URL(path, window.location.origin).searchParams.get('q') || '';
@@ -323,6 +504,9 @@ export function adaptStreamEvent(raw, chatId) {
     const iso = new Date().toISOString();
     return { type: 'status', chatId, replying: raw.done ? null : { startedAt: iso, lastEventAt: iso } };
   }
-  if (raw.id != null) return { type: 'message', chatId, message: relayMessage(raw) };
+  if (raw.id != null) {
+    const message = relayMessage(raw);
+    return message.type === 'thinking' && !message.thinking ? null : { type: 'message', chatId, message };
+  }
   return null;
 }

@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Probe whether the first model route really supports Claude prompt caching.
+
+Sends the same ~6k-token prompt twice in several styles (incl. Claude Code style fixed session id) and prints the usage the
+gateway reports. Costs a few cents. Reads the route from the server config and
+never prints the API key.
+
+Usage on the VPS:
+  curl -fsSL $B/diagnose-cache-probe.py | sudo python3 - [route_number] [model_name | models]
+"""
+import json
+import sys
+import uuid
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+CONFIG = "/root/companion-loop/api_loop.config.json"
+index = int(sys.argv[1]) - 1 if len(sys.argv) > 1 else 0
+route = [r for r in json.load(open(CONFIG, encoding="utf-8")).get("main_chain") or [] if r.get("url") and r.get("key")][index]
+base, key, model = route["url"].rstrip("/"), route["key"], route["model"]
+if len(sys.argv) > 2 and sys.argv[2] == "models":
+    # 列出这条线路上有哪些 Claude 模型名，方便挑一个换着测
+    req = urllib.request.Request(base + "/models", headers={"Authorization": "Bearer " + key, "User-Agent": "imprint-cache-probe/1"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        names = sorted({m.get("id", "") for m in json.loads(resp.read().decode()).get("data", []) if "claude" in str(m.get("id", "")).lower()})
+    print("这条线路上的 Claude 模型：\n  " + "\n  ".join(names))
+    sys.exit(0)
+if len(sys.argv) > 2:
+    model = sys.argv[2]  # 换一个模型名测：同一个站，不同模型名的缓存经常不一样
+print("route %d: %s  model=%s" % (index + 1, urllib.parse.urlparse(base).hostname, model.encode("ascii", "replace").decode()))
+
+# A long, stable block well above every Claude model's minimum cacheable length.
+filler = "".join("Line %d: the quick brown fox jumps over the lazy dog near the quiet river bank. " % i for i in range(400))
+marker = str(int(time.time()))  # fresh prefix per run so the first call must write
+
+
+def post(url, body, headers):
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "imprint-cache-probe/1", **headers})
+    start = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode())
+        return time.time() - start, data, None
+    except urllib.error.HTTPError as exc:
+        return time.time() - start, None, "HTTP %s %s" % (exc.code, exc.read().decode("utf-8", "replace")[:200])
+    except OSError as exc:
+        return time.time() - start, None, str(exc)[:200]
+
+
+def openai_style():
+    body = {"model": model, "max_tokens": 5, "messages": [
+        {"role": "system", "content": [{"type": "text", "text": marker + filler, "cache_control": {"type": "ephemeral"}}]},
+        {"role": "user", "content": "Reply with OK."}]}
+    return post(base + "/chat/completions", body, {"Authorization": "Bearer " + key})
+
+
+def native_style():
+    root = base[:-3] if base.endswith("/v1") else base
+    body = {"model": model, "max_tokens": 5,
+            "system": [{"type": "text", "text": marker + filler, "cache_control": {"type": "ephemeral"}}],
+            "messages": [{"role": "user", "content": "Reply with OK."}]}
+    return post(root + "/v1/messages", body, {"x-api-key": key, "Authorization": "Bearer " + key,
+                                               "anthropic-version": "2023-06-01"})
+
+
+# Claude Code 形态的中转：同一个 session id 才算同一个缓存范围，每次新 id 就只写不读
+CC_SESSION = str(uuid.uuid5(uuid.NAMESPACE_URL, "imprint:cache-probe:" + marker))
+CC_USER = "user_%s_account__session_%s" % (uuid.uuid5(uuid.NAMESPACE_URL, "imprint:probe-user").hex * 2, CC_SESSION)
+CC_HEADERS = {"X-Claude-Code-Session-Id": CC_SESSION, "anthropic-beta": "claude-code-20250219,prompt-caching-2024-07-31",
+              "x-app": "cli"}
+
+
+def native_cc_style():
+    root = base[:-3] if base.endswith("/v1") else base
+    body = {"model": model, "max_tokens": 5, "metadata": {"user_id": CC_USER},
+            "system": [{"type": "text", "text": marker + filler, "cache_control": {"type": "ephemeral"}}],
+            "messages": [{"role": "user", "content": "Reply with OK."}]}
+    return post(root + "/v1/messages", body, {"x-api-key": key, "Authorization": "Bearer " + key,
+                                               "anthropic-version": "2023-06-01", **CC_HEADERS})
+
+
+def openai_cc_style():
+    body = {"model": model, "max_tokens": 5, "metadata": {"user_id": CC_USER}, "user": CC_SESSION, "messages": [
+        {"role": "system", "content": [{"type": "text", "text": marker + filler, "cache_control": {"type": "ephemeral"}}]},
+        {"role": "user", "content": "Reply with OK."}]}
+    return post(base + "/chat/completions", body, {"Authorization": "Bearer " + key, **CC_HEADERS})
+
+
+def openai_stream_style():
+    """Same request, but streamed like real chat turns. Some relays only cache one of the two paths."""
+    body = {"model": model, "max_tokens": 5, "stream": True, "stream_options": {"include_usage": True},
+            "user": "imprint-cache-probe", "messages": [
+                {"role": "system", "content": [{"type": "text", "text": marker + filler, "cache_control": {"type": "ephemeral"}}]},
+                {"role": "user", "content": "Reply with OK."}]}
+    req = urllib.request.Request(base + "/chat/completions", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "imprint-cache-probe/1",
+                                          "Authorization": "Bearer " + key})
+    start = time.time()
+    try:
+        usage = {}
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8", "replace").strip()
+                if line.startswith("data:") and line[5:].strip() not in {"", "[DONE]"}:
+                    try:
+                        event = json.loads(line[5:])
+                    except ValueError:
+                        continue
+                    if isinstance(event.get("usage"), dict):
+                        usage = event["usage"]
+        return time.time() - start, {"usage": usage}, None
+    except urllib.error.HTTPError as exc:
+        return time.time() - start, None, "HTTP %s %s" % (exc.code, exc.read().decode("utf-8", "replace")[:200])
+    except OSError as exc:
+        return time.time() - start, None, str(exc)[:200]
+
+
+for name, call in (("A  OpenAI-compatible /chat/completions", openai_style),
+                   ("A2 same, streamed (how real chat turns go)", openai_stream_style),
+                   ("B  Claude native /v1/messages", native_style),
+                   ("C  /v1/messages + fixed Claude Code session id", native_cc_style),
+                   ("D  /chat/completions + fixed Claude Code session id", openai_cc_style)):
+    print("\n" + name)
+    for attempt in (1, 2):
+        took, data, error = call()
+        if error:
+            print("  call %d: %.1fs  failed: %s" % (attempt, took, error.encode("ascii", "replace").decode()))
+            break
+        usage = data.get("usage") or {}
+        details = usage.get("prompt_tokens_details") or {}
+        read = usage.get("cache_read_input_tokens") or details.get("cached_tokens") or 0
+        write = usage.get("cache_creation_input_tokens") or details.get("cache_write_tokens") or 0
+        print("  call %d: %.1fs  cache_write=%s  cache_read=%s  raw_usage=%s" % (
+            attempt, took, write, read, json.dumps(usage)[:300]))

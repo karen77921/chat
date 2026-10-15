@@ -6,18 +6,24 @@ import { useRoute } from './lib/router.js';
 import Home from './pages/Home.jsx';
 import ComingSoon from './pages/ComingSoon.jsx';
 import TabBar, { TAB_PATHS } from './components/TabBar.jsx';
-import Notes from './pages/Notes.jsx';
-import Chat from './pages/Chat.jsx';
-import Room from './pages/Room.jsx';
-import ChatList from './pages/ChatList.jsx';
-import Spark from './pages/Spark.jsx';
-import Together from './pages/Together.jsx';
 import MiniPlayer from './components/together/MiniPlayer.jsx';
-import Tide from './pages/Tide.jsx';
-import Settings from './pages/Settings.jsx';
 import { Grain } from './design/paper.jsx';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { api, MOCK, saveToken, savedToken } from './lib/api.js';
+
+// 首页之外的页面点进去才下载，打开 App 时少解析一大块代码
+const Notes = lazy(() => import('./pages/Notes.jsx'));
+const Chat = lazy(() => import('./pages/Chat.jsx'));
+const Room = lazy(() => import('./pages/Room.jsx'));
+const ChatList = lazy(() => import('./pages/ChatList.jsx'));
+const Spark = lazy(() => import('./pages/Spark.jsx'));
+const Approvals = lazy(() => import('./pages/Approvals.jsx'));
+const Piggy = lazy(() => import('./pages/Piggy.jsx'));
+const Vocab = lazy(() => import('./pages/Vocab.jsx'));
+const Study = lazy(() => import('./pages/Study.jsx'));
+const Together = lazy(() => import('./pages/Together.jsx'));
+const Tide = lazy(() => import('./pages/Tide.jsx'));
+const Settings = lazy(() => import('./pages/Settings.jsx'));
 
 const ROUTES = {
   '/': Home,
@@ -26,6 +32,11 @@ const ROUTES = {
   '/chat/t': Chat,
   '/room': Room,
   '/spark': Spark,
+  '/approvals': Approvals,
+  '/piggy': Piggy,
+  '/words': Vocab,
+  '/study': Study,
+  '/study/read': Study,
   '/together': Together,
   '/tide': Tide,
   '/settings': Settings,
@@ -71,10 +82,12 @@ export default function App() {
   return (
     <>
       <div key={path} className="m-turn">
-        {Page ? <Page query={query} /> : <ComingSoon title={TITLES[path] || ['还没做好', 'soon']} />}
+        <Suspense fallback={<div className="page-wait" aria-label="加载中" />}>
+          {Page ? <Page query={query} /> : <ComingSoon title={TITLES[path] || ['还没做好', 'soon']} />}
+        </Suspense>
       </div>
       {TAB_PATHS.includes(path) && <TabBar path={path} />}
-      <MiniPlayer path={path} tabbar={TAB_PATHS.includes(path)} />
+      {path !== '/study/read' && <MiniPlayer path={path} tabbar={TAB_PATHS.includes(path)} />}
       <Grain />
       {oauthNote && <button type="button" onClick={() => setOauthNote('')} style={{ position: 'fixed', left: 16, right: 16, bottom: 92, zIndex: 90, maxWidth: 430, margin: 'auto', padding: '12px 16px', borderRadius: 14, border: '1px solid rgba(93,112,134,.25)', background: 'rgba(250,248,242,.96)', color: '#42536a', boxShadow: '0 8px 28px rgba(43,55,70,.14)', textAlign: 'left' }}>{oauthNote}</button>}
       {needsAuth && <AccessGate onConnected={() => setNeedsAuth(false)} />}

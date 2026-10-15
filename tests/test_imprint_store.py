@@ -6,6 +6,7 @@ standard library on development machines that do not have the server venv.
 import asyncio
 import datetime as dt
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -72,7 +73,10 @@ uvicorn = types.ModuleType("uvicorn")
 uvicorn.run = lambda *args, **kwargs: None
 sys.modules.setdefault("uvicorn", uvicorn)
 
+import imprint_store  # noqa: E402
 from imprint_store import TIDE_DRIVES, TIDE_EMOTIONS, imprint_action, register_imprint_routes  # noqa: E402
+# 测试绝不能写进真账本：api_loop 的缓存目录指到一次性的临时目录
+os.environ["LOOP_CACHE_DIR"] = tempfile.mkdtemp(prefix="imprint-test-")
 import api_loop  # noqa: E402
 
 
@@ -99,6 +103,128 @@ class ImprintStoreTest(unittest.TestCase):
     def call(self, method, path, *args, **kwargs):
         result = self.app.routes[(method, "/loop/imprint" + path)](*args, **kwargs)
         return asyncio.run(result) if asyncio.iscoroutine(result) else result
+
+    def test_piggy_bank_only_she_writes_and_balance_adds_up(self):
+        self.call("POST", "/piggy", Request({"kind": "save", "amount": 20, "reason": "让我开心了"}))
+        taken = self.call("POST", "/piggy", Request({"kind": "take", "amount": "5.5", "reason": "惹我生气"}))
+        self.assertEqual(taken["delta"], -5.5)
+        with self.assertRaises(HTTPException):
+            self.call("POST", "/piggy", Request({"kind": "save", "amount": 3, "reason": ""}))
+        data = self.call("GET", "/piggy")
+        self.assertEqual(data["balance"], 14.5)
+        self.assertEqual([x["reason"] for x in data["items"]], ["惹我生气", "让我开心了"])
+        # 他的工具里只有看的份，没有改钱的入口
+        names = {t["function"]["name"] for t in api_loop.BUILTIN_TOOLS}
+        self.assertIn("imprint_view_piggy", names)
+        self.assertFalse(any("piggy" in n and n != "imprint_view_piggy" for n in names))
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            text = api_loop.piggy_context_text()
+        self.assertIn("余额 ¥14.5", text)
+        self.assertIn("扣了 ¥5.5：惹我生气", text)
+        self.call("DELETE", "/piggy/{rec_id}", taken["id"])
+        self.assertEqual(self.call("GET", "/piggy")["balance"], 20)
+
+    def test_coupons_know_who_holds_them_and_get_used_once(self):
+        gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))
+        self.assertEqual(gift["art"], "coupon")
+        with sqlite3.connect(self.store) as conn:
+            for rid, holder in (("a" * 32, "him"), ("b" * 32, "me")):
+                conn.execute("INSERT INTO records VALUES(?,?,?,?)", (rid, "gift_redeem", "2026-10-14T00:00:00+00:00", json.dumps(
+                    {"itemId": gift["id"], "name": "撒娇券", "cost": 1, "by": "me", "holder": holder, "status": "unused"})))
+        held = imprint_action(self.store, "spark_held")
+        self.assertEqual({x["holder"] for x in held["unused"]}, {"me", "him"})
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            text = api_loop.gifts_context_text()
+        self.assertIn("在你手里", text)
+        self.assertIn("在她手里", text)
+        with self.assertRaises(ValueError):  # 她手里的他不能替她用
+            imprint_action(self.store, "manage_space", {"operation": "spark_use", "id": "b" * 32})
+        used = imprint_action(self.store, "manage_space", {"operation": "spark_use", "id": "a" * 32, "text": "哄她"})
+        self.assertEqual(used["usedBy"], "him")
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "manage_space", {"operation": "spark_use", "id": "a" * 32})
+        with self.assertRaises(HTTPException):  # 他手里的她也不能在页面上用掉
+            self.call("POST", "/spark/records/{rec_id}/use", "a" * 32, Request({}))
+        mine = self.call("POST", "/spark/records/{rec_id}/use", "b" * 32, Request({"note": "要抱抱"}))
+        self.assertEqual((mine["state"], mine["usedNote"]), ("used", "要抱抱"))
+        self.call("DELETE", "/spark/shop/{gift_id}", gift["id"])
+        kept = self.call("GET", "/spark/kept")
+        self.assertEqual(len(kept["records"]), 2)  # 下架礼物不影响换过的记录
+        self.assertEqual(self.call("GET", "/spark/shop")["items"], [])
+
+    def test_vocab_import_goes_to_a_daily_queue(self):
+        text = "\n".join(f"word{i} /wɜːd/ n. 词{i}" for i in range(30)) + "\nUnit 2\nword,meaning"
+        out = self.call("POST", "/vocab", Request({"text": text, "queue": True, "book": "四级"}))
+        self.assertEqual(len(out["added"]), 30)
+        self.assertEqual(out["added"][0]["note"], "/wɜːd/")
+        st = out["stats"]
+        self.assertEqual((st["new"], st["due"], st["learn_left"]), (30, 0, 20))
+        self.assertEqual(st["books"], [{"name": "四级", "total": 30, "new": 30}])
+        learn = self.call("POST", "/vocab/do/{op}", "learn", Request({}))
+        self.assertEqual([x["word"] for x in learn["items"][:2]], ["word0", "word1"])  # 按书里的顺序
+        r = self.call("POST", "/vocab/{rec_id}/review", learn["items"][0]["id"], Request({"correct": True}))
+        self.assertFalse(r["item"]["new"])
+        self.assertEqual(r["stats"]["learn_left"], 19)
+        self.call("POST", "/vocab/do/{op}", "settings", Request({"daily_new": 5}))
+        self.assertEqual(len(self.call("POST", "/vocab/do/{op}", "learn", Request({}))["items"]), 4)
+        gone = self.call("POST", "/vocab/do/{op}", "delete_book", Request({"book": "四级"}))
+        self.assertEqual((gone["deleted"], gone["stats"]["total"]), (30, 0))
+
+    def test_vocab_follows_ebbinghaus_and_wrong_restarts(self):
+        out = self.call("POST", "/vocab", Request({"text": "apple 苹果\ntake off 起飞\nabandon: 放弃"}))
+        self.assertEqual(len(out["added"]), 3)
+        today = dt.datetime.now(imprint_store.ZONE).date()
+        apple = next(x for x in out["added"] if x["word"] == "apple")
+        self.assertEqual(apple["due"], (today + dt.timedelta(days=1)).isoformat())
+        self.assertEqual(self.call("GET", "/vocab", "due")["items"], [])  # 今天录的明天才复习
+        # 他抽查：答对往后推，第 2 天
+        r = imprint_action(self.store, "vocab", {"operation": "review", "word": "apple", "correct": True, "by": "him"})
+        self.assertEqual((r["item"]["stage"], r["item"]["due"]), (1, (today + dt.timedelta(days=2)).isoformat()))
+        self.assertEqual(r["item"]["log"][-1]["by"], "him")
+        # 答错重新计时，进错词本
+        r = self.call("POST", "/vocab/{rec_id}/review", apple["id"], Request({"correct": False}))
+        self.assertEqual((r["item"]["stage"], r["item"]["wrong"]), (0, 1))
+        self.assertEqual([x["word"] for x in self.call("GET", "/vocab", "wrong")["items"]], ["apple"])
+        # 再录一次已经有的词不会重复；标成背错会重新计时
+        again = self.call("POST", "/vocab", Request({"text": "apple 苹果；苹果树", "wrong": True}))
+        self.assertEqual((len(again["added"]), again["updated"][0]["wrong"]), (0, 2))
+        # 记满 6 次就算记牢
+        for _ in range(6):
+            r = imprint_action(self.store, "vocab", {"operation": "review", "word": "take off", "correct": True})
+        self.assertTrue(r["item"]["mastered"])
+        self.assertEqual(r["stats"]["mastered"], 1)
+        # 他不能删
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            turn = api_loop.Turn("s", dry=False)
+            msg = asyncio.run(turn.run_tool("imprint_vocab", json.dumps({"operation": "delete", "word": "apple"})))
+        self.assertTrue(msg.startswith("ERROR"))
+        self.call("DELETE", "/vocab/{rec_id}", apple["id"])
+        self.assertEqual(self.call("GET", "/vocab", "all")["stats"]["total"], 2)
+
+    def test_purchase_request_review_and_withdraw_keep_a_timeline(self):
+        item = imprint_action(self.store, "purchase_create", {"title": "冰淇淋", "price": "5", "reason": "想吃"})
+        self.assertEqual((item["status"], item["price"]), ("pending", 5.0))
+        reviewed = imprint_action(self.store, "purchase_review", {"id": item["id"], "decision": "reject", "comment": "太便宜了"})
+        self.assertEqual(reviewed["status"], "rejected")
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "purchase_withdraw", {"id": item["id"]})
+        other = imprint_action(self.store, "purchase_create", {"title": "裙子", "price": 299, "reason": ""})
+        imprint_action(self.store, "purchase_withdraw", {"id": other["id"]})
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "purchase_review", {"id": other["id"], "decision": "approve", "comment": ""})
+        items = {x["title"]: x for x in self.call("GET", "/purchases")["items"]}
+        self.assertEqual([t["kind"] for t in items["冰淇淋"]["timeline"]], ["submit", "reject"])
+        self.assertEqual(items["裙子"]["status"], "withdrawn")
+
+    def test_diary_is_one_entry_per_day_newest_first(self):
+        imprint_action(self.store, "record_diary", {"day": "2026-10-08", "title": "练肩", "text": "她练完了。"})
+        imprint_action(self.store, "record_diary", {"day": "2026-10-09", "title": "云", "text": "云很低。"})
+        imprint_action(self.store, "record_diary", {"day": "2026-10-08", "title": "练肩那天", "text": "重写了。"})
+        items = self.call("GET", "/room/diary")["items"]
+        self.assertEqual([x["day"] for x in items], ["2026-10-09", "2026-10-08"])
+        self.assertEqual(items[1]["title"], "练肩那天")
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "record_diary", {"day": "昨天", "title": "x", "text": "y"})
 
     def test_notes_start_empty_and_persist(self):
         self.assertEqual(self.call("GET", "/notes")["items"], [])
@@ -245,6 +371,14 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(settings["contact"]["himName"], "小年糕")
         self.call("PUT", "/settings/contact", Request({"himName": "哥哥"}))
         self.assertEqual(self.call("GET", "/settings")["contact"]["himName"], "哥哥")
+        self.call("PUT", "/settings/contact", Request({"meName": "小年糕"}))
+        contact = self.call("GET", "/settings")["contact"]
+        self.assertEqual((contact["himName"], contact["meName"]), ("哥哥", "小年糕"))
+        imprint_action(self.store, "manage_space", {"operation": "appearance", "him_name": "季宁"})
+        contact = self.call("GET", "/settings")["contact"]
+        self.assertEqual((contact["himName"], contact["meName"]), ("季宁", "小年糕"))
+        # 留言板、礼物铺这些页面的署名也要跟着改，不能还是默认名
+        self.assertEqual(self.call("GET", "/notes")["names"], {"me": "小年糕", "him": "季宁"})
 
     def test_activity_uses_real_visible_events_and_persists_read_state(self):
         base = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
@@ -525,6 +659,17 @@ class ImprintStoreTest(unittest.TestCase):
         mcp = {x["function"]["name"] for x in api_loop.turn_tools("把这个 MCP 重新连接")}
         self.assertIn("imprint_manage_mcp", mcp)
 
+    def test_he_can_reach_for_tools_not_in_this_turn(self):
+        names = lambda ts: {t["function"]["name"] for t in ts or []}
+        self.assertIn("open_toolbox", names(api_loop.turn_tools("嗯嗯")))
+        start = api_loop.turn_tools("嗯嗯")
+        msg, tools = api_loop.open_toolbox('{"what": "一起听 换首歌"}', start)
+        self.assertIn("imprint_control_listen", names(tools))
+        self.assertIn("imprint_control_listen", msg)
+        msg2, same = api_loop.open_toolbox('{"what": "随便"}', tools)
+        self.assertIs(same, tools)
+        self.assertIn("能拿的", msg2)
+
     def test_provider_errors_are_short_and_actionable(self):
         message = api_loop.friendly_model_error(
             "route-a: ReadTimeout; route-b: HTTP 429 busy; route-c: HTTP 402 insufficient_quota"
@@ -539,6 +684,799 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertLessEqual(api_loop.CONFIG_DEFAULTS["model_chain_timeout_seconds"], 90)
         self.assertLessEqual(api_loop.CONFIG_DEFAULTS["mcp_tool_timeout_seconds"], 45)
 
+    def test_companion_reacts_and_changes_only_his_avatar(self):
+        imprint_action(self.store, "react", {"message_id": 7, "sticker_id": "cat-heart"})
+        self.assertEqual(self.call("GET", "/chat/reactions")["items"], [{"messageId": "7", "stickerId": "cat-heart"}])
+        imprint_action(self.store, "manage_space", {"operation": "appearance", "avatar": "https://example.com/him.png"})
+        self.assertEqual(self.call("GET", "/settings")["avatars"], {"him": "https://example.com/him.png"})
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "manage_space", {"operation": "appearance", "avatar": "javascript:alert(1)"})
+
+    def test_garden_token_is_written_privately_and_garden_tools_follow_the_wake(self):
+        env = Path(tempfile.mkdtemp()) / "garden.env"
+        with mock.patch.object(api_loop, "GARDEN_ENV", env):
+            self.assertFalse(api_loop.garden_token_set())
+            api_loop.garden_write_env("tok_123")
+            self.assertTrue(api_loop.garden_token_set())
+            self.assertEqual(oct(env.stat().st_mode)[-3:], "600")
+            self.assertEqual(api_loop.garden_env()["GARDEN_INJECTOR_ARGS_JSON"],
+                             f'["{api_loop.GARDEN_DIR / "inject-imprint.py"}"]')
+        self.assertTrue(api_loop.is_garden_url("https://galatea.abysslumina.com/mcp"))
+        self.assertFalse(api_loop.is_garden_url("https://abysslumina.com.evil.example/mcp"))
+
+
+class ChatHistorySearchTest(unittest.TestCase):
+    def test_finds_visible_lines_with_context_and_escapes_wildcards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "relay.db"
+            conn = sqlite3.connect(db)
+            conn.execute("CREATE TABLE messages(id INTEGER PRIMARY KEY, ts TEXT, direction TEXT, kind TEXT, text TEXT, meta TEXT)")
+            now = dt.datetime.now(dt.timezone.utc)
+            for text, direction, meta in (("今天去练肩", "in", "{}"), ("练完告诉我", "out", "{}"),
+                                          ("练完了", "in", "{}"), ("隐藏的练肩", "in", '{"visible":0}'), ("满分100%", "in", "{}")):
+                conn.execute("INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                             (now.isoformat(), direction, "user" if direction == "in" else "reply", text, meta))
+            conn.commit()
+            conn.close()
+            with mock.patch.object(api_loop, "RELAY_DB", str(db)):
+                found = api_loop.search_chat_history("练肩")
+                self.assertIn("→", found)
+                self.assertIn("今天去练肩", found)
+                self.assertIn("（后一句）", found)
+                self.assertNotIn("隐藏", found)
+                self.assertIn("没有找到", api_loop.search_chat_history("10_"))
+                self.assertIn("满分100%", api_loop.search_chat_history("0%"))
+
+
+class CacheFriendlyPrefixTest(unittest.TestCase):
+    _real_cache_effective = staticmethod(api_loop.cache_effective)
+
+    def setUp(self):
+        patcher = mock.patch.object(api_loop, "cache_effective", lambda: True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_without_cache_evidence_window_and_tools_stay_minimal(self):
+        def spec(name):
+            return {"type": "function", "function": {"name": name, "parameters": {"type": "object"}}}
+
+        with mock.patch.object(api_loop, "cache_effective", lambda: False):
+            rows = [{"id": i} for i in range(1, 44)]
+            self.assertEqual(api_loop.stepped_history(rows, 24, 43), rows[-24:])
+            picked = [spec("c")]
+            self.assertIs(api_loop.sticky_tools("z", picked), picked)
+
+    def test_cache_counts_only_after_upstream_reports_hits(self):
+        effective = CacheFriendlyPrefixTest._real_cache_effective
+        with mock.patch.object(api_loop, "_cache_seen_at", 0.0):
+            api_loop.note_cache_usage({"prompt_tokens": 100, "prompt_tokens_details": {"cached_tokens": 0}})
+            self.assertFalse(effective())
+            api_loop.note_cache_usage({"prompt_tokens_details": {"cached_tokens": 50}})
+            self.assertTrue(effective())
+
+    def test_history_window_start_only_moves_every_step(self):
+        keep, step = 24, api_loop.HISTORY_STEP
+        starts = []
+        for total in range(1, 90):
+            all_rows = [{"id": i} for i in range(1, total + 1)]
+            newest = all_rows[-(keep + step - 1):]
+            kept = api_loop.stepped_history(newest, keep, total)
+            self.assertGreaterEqual(len(kept), min(keep, total))
+            self.assertLessEqual(len(kept), keep + step - 1)
+            self.assertEqual(kept[-1]["id"], total)  # 最新一条一定在
+            starts.append(kept[0]["id"])
+        changes = sum(1 for a, b in zip(starts, starts[1:]) if a != b)
+        self.assertLessEqual(changes, (89 - keep) // step + 1)  # 每 20 条才挪一次，而不是每条都挪
+
+    def test_tools_stay_sorted_and_only_grow_within_a_window(self):
+        def spec(name):
+            return {"type": "function", "function": {"name": name, "parameters": {"type": "object"}}}
+
+        with mock.patch.object(api_loop, "all_tools", lambda: [spec(n) for n in ("c", "a", "b", "d")]):
+            api_loop._session_tools.clear()
+            first = [t["function"]["name"] for t in api_loop.sticky_tools("w", [spec("c"), spec("a")])]
+            second = [t["function"]["name"] for t in api_loop.sticky_tools("w", [spec("a")])]
+            third = [t["function"]["name"] for t in api_loop.sticky_tools("w", [spec("b")])]
+            other = [t["function"]["name"] for t in api_loop.sticky_tools("x", [spec("d")])]
+        self.assertEqual(first, ["a", "c"])
+        self.assertEqual(second, ["a", "c"])  # 这一轮没提到 c，也不拿掉
+        self.assertEqual(third, ["a", "b", "c"])
+        self.assertEqual(other, ["d"])
+
+
+class CacheCheckTest(unittest.TestCase):
+    def _run(self, probes, ring=None, cache_mode="off", model="claude-opus-4-6"):
+        calls = iter(probes)
+
+        async def fake_probe(client, route, body):
+            return next(calls)
+
+        class Client:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        fake_httpx = types.SimpleNamespace(Timeout=lambda **kw: None, AsyncClient=Client, HTTPError=Exception)
+        with tempfile.TemporaryDirectory() as tmp:
+            ring_file = Path(tmp) / "ring.json"
+            if ring is not None:
+                ring_file.write_text(json.dumps(ring), encoding="utf-8")
+            with mock.patch.object(api_loop, "_probe_call", fake_probe), mock.patch.object(api_loop, "httpx", fake_httpx), \
+                 mock.patch.object(api_loop, "main_chain", lambda: [{"url": "https://x.example/v1", "key": "k", "model": model}]), \
+                 mock.patch.object(api_loop, "persona_full", lambda: "人设" * 3000), \
+                 mock.patch.object(api_loop, "all_tools", lambda: []), \
+                 mock.patch.object(api_loop, "route_cache_mode", lambda route: cache_mode), \
+                 mock.patch.object(api_loop, "USAGE_RING_FILE", ring_file):
+                return asyncio.run(api_loop.run_cache_check(0))
+
+    @staticmethod
+    def ok(in_, read=0, write=0, fields=True, ids=(), tool_ids=(), finish="stop"):
+        return {"ok": True, "ms": 100, "usage": {"in": in_, "read": read, "write": write, "out": 1, "fields": fields},
+                "ids": list(ids), "models": [], "tool_ids": list(tool_ids), "finish": finish}
+
+    def test_blind_relay_with_gemini_behind_claude_name(self):
+        o = self.ok
+        out = self._run([o(8000, fields=False), o(8000, fields=False), o(8000, fields=False), o(8000, fields=False),
+                         o(40), o(1500, tool_ids=["cpa_gemini_976abc"], finish="tool_calls")])
+        by = {s["key"]: s for s in out["sections"]}
+        self.assertIn("瞎", by["stream"]["status"])
+        self.assertEqual(by["lineage"]["status"], "掺水了")
+        self.assertIn("gemini", out["advice"][0]["text"])
+
+    def test_probe_hits_but_real_chat_sends_no_cache_marker(self):
+        o = self.ok
+        ring = [{"model": "claude-opus-4-6", "in": 90000, "read": 0, "write": 0, "fields": True, "sys": "a", "head": "b"}] * 3
+        out = self._run([o(8000, write=7900), o(8000, read=7900), o(8000, write=7900), o(8000, read=7900),
+                         o(40), o(900, tool_ids=["toolu_01"], finish="tool_calls")], ring=ring)
+        by = {s["key"]: s for s in out["sections"]}
+        self.assertEqual(by["stream"]["status"], "命中")
+        self.assertGreater(by["stream"]["saved"], 80)
+        self.assertEqual(by["real"]["status"], "最近 3 轮命中 0 轮")
+        self.assertEqual(by["prefix"]["status"], "稳")
+        self.assertTrue(any("Prompt Cache" in a["text"] for a in out["advice"]))
+
+    def test_reports_where_history_breaks_and_long_gaps(self):
+        o = self.ok
+        ring = [
+            {"model": "claude-opus-4-6", "in": 47000, "read": 24000, "write": 17000, "fields": True, "sys": "a", "head": "b",
+             "at": "2026-10-14T05:00:00+00:00", "seq": ["s", "1", "2", "3", "4", "5"]},
+            {"model": "claude-opus-4-6", "in": 47000, "read": 24000, "write": 17000, "fields": True, "sys": "a", "head": "b",
+             "at": "2026-10-14T05:20:00+00:00", "seq": ["s", "1", "X", "3", "4", "5", "6", "7"]},
+        ]
+        out = self._run([o(8000, write=7900), o(8000, read=7900), o(8000, write=7900), o(8000, read=7900),
+                         o(40), o(900, tool_ids=["toolu_01"])], ring=ring, cache_mode="explicit")
+        by = {s["key"]: s for s in out["sections"]}
+        self.assertIn("第 3 条", by["break"]["summary"])
+        self.assertEqual(by["gap"]["level"], "warn")
+        self.assertTrue(any("1 小时" in a["text"] for a in out["advice"]))
+
+    def test_inflated_tool_billing_is_flagged(self):
+        o = self.ok
+        out = self._run([o(8000), o(8000), o(8000), o(8000), o(40), o(40 + 20000, tool_ids=["toolu_1"])])
+        by = {s["key"]: s for s in out["sections"]}
+        self.assertEqual(by["billing"]["level"], "bad")
+        self.assertIn("虚高", by["billing"]["status"])
+
+
+def tiny_pdf(lines):
+    """手搓一个两页的小 PDF（不依赖任何库），用来测读 PDF。"""
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>", None, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for text in lines:
+        stream = f"BT /F1 18 Tf 72 720 Td ({text}) Tj ET".encode()
+        objs.append(f"<< /Length {len(stream)} >>\nstream\n{stream.decode()}\nendstream")
+        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {len(objs)} 0 R >>")
+        kids.append(f"{len(objs)} 0 R")
+    objs[1] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(kids)} >>"
+    out, offsets = b"%PDF-1.4\n", []
+    for n, body in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{n} 0 obj\n{body}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode() + b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return out
+
+
+class DriveEngineTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = Path(self.tmp.name) / "imprint.db"
+        imprint_action(self.db, "drive_state")  # 建表
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def engine(self, now):
+        conn = sqlite3.connect(self.db)
+        return conn, imprint_store.DriveEngine(conn, now)
+
+    def test_her_words_bump_with_reasons_and_dedupe(self):
+        t0 = dt.datetime(2026, 10, 14, 6, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        before = e.s["v"]["crave"]
+        self.assertIn("她在撒娇、找他", e.her_message("哥哥我想你了"))
+        self.assertGreater(e.s["v"]["crave"], before)
+        self.assertEqual(e.her_message("哥哥我想你了"), [])  # 五分钟内同一句不重复算
+        self.assertEqual(e.her_message("之前那次分手好难过"), [])  # 翻旧账不算
+        self.assertIn("她说了分手的话", e.her_message("我们分手吧"))
+        e.save(); conn.commit()
+        reasons = [r[0] for r in conn.execute("SELECT reason FROM drive_ledger WHERE kind='涨'")]
+        self.assertIn("她在撒娇、找他", reasons)
+        conn.close()
+
+    def test_values_drift_back_and_crave_floor_rises_when_she_is_away(self):
+        t0 = dt.datetime(2026, 10, 14, 4, 0, tzinfo=dt.timezone.utc)  # 北京时间 12 点，白天
+        conn, e = self.engine(t0)
+        e.s["her_last"] = t0.isoformat()
+        e.s["v"]["curiosity"] = 0.95
+        e.save(); conn.commit(); conn.close()
+        conn, e = self.engine(t0 + dt.timedelta(hours=8))
+        self.assertLess(e.s["v"]["curiosity"], 0.6)  # 八小时后往基线回落了
+        self.assertGreater(e.target("crave"), imprint_store.DRIVE_BASE["crave"] + 0.25)  # 她八小时没来：越来越想她
+        conn.close()
+
+    def test_only_real_tool_use_satisfies_with_refractory_and_habit(self):
+        t0 = dt.datetime(2026, 10, 14, 4, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.s["v"]["curiosity"] = 0.8
+        self.assertIn("curiosity", e.tool_done("search_public_web"))
+        self.assertAlmostEqual(e.s["v"]["curiosity"], 0.4, places=2)
+        self.assertNotIn("curiosity", e.tool_done("search_public_web"))  # 不应期内不再落
+        self.assertGreater(e.s["habit"]["curiosity"], 0)  # 越做越爱做
+        self.assertIn("social", e.tool_done("garden_island__status", garden=True))
+        conn.close()
+
+    def test_turn_tools_feed_the_ledger_only_when_they_succeed(self):
+        async def fake_run(self_, name, raw):
+            return "ERROR: nope" if "bad" in raw else "ok"
+
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", Path(self.tmp.name)), \
+                mock.patch.object(api_loop.Turn, "_run_tool", fake_run):
+            turn = api_loop.Turn("s", dry=False)
+            asyncio.run(turn.run_tool("search_chat_history", json.dumps({"query": "bad"})))
+            self.assertEqual(imprint_action(self.db, "drive_state")["ledger"], [])
+            asyncio.run(turn.run_tool("search_chat_history", json.dumps({"query": "那天"})))
+            state = imprint_action(self.db, "drive_state")
+            dry = api_loop.Turn("s", dry=True)
+            asyncio.run(dry.run_tool("search_public_web", "{}"))
+            state2 = imprint_action(self.db, "drive_state")
+        self.assertIn("翻了旧事 / 写下了想法", [r["reason"] for r in state["ledger"] if r["drive"] == "reflection"])
+        self.assertEqual(next(d for d in state["drives"] if d["key"] == "reflection")["week"]["落"], 1)
+        self.assertEqual(len([r for r in state2["ledger"] if r["drive"] == "curiosity"]), 0)  # 演练轮不记账
+
+    def test_fatigue_rises_per_busy_stretch_not_per_tool_call(self):
+        t0 = dt.datetime(2026, 10, 15, 2, 0, tzinfo=dt.timezone.utc)  # 北京 10 点
+        conn, e = self.engine(t0)
+        start = e.s["v"]["fatigue"]
+        for _ in range(80):
+            e.tool_done("imprint_inspect_home")
+        self.assertLess(e.s["v"]["fatigue"] - start, 0.05)  # 一上午 80 次工具，不再把疲惫顶满
+        self.assertEqual(e.s["acts_today"], 80)
+        conn.close()
+
+    def test_time_driven_rises_are_logged_with_a_reason(self):
+        t0 = dt.datetime(2026, 10, 15, 2, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.s["her_last"] = t0.isoformat()
+        e.s["v"]["crave"] = 0.2
+        e.save(); conn.commit(); conn.close()
+        conn, e = self.engine(t0 + dt.timedelta(hours=6))
+        e.save(); conn.commit()
+        rows = conn.execute("SELECT reason FROM drive_ledger WHERE drive='crave' AND kind='涨'").fetchall()
+        self.assertIn("她 6 小时没说话了", [r[0] for r in rows])
+        conn.close()
+
+    def test_decide_respects_her_activity_tiredness_and_picks_the_hungriest(self):
+        t0 = dt.datetime(2026, 10, 15, 6, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.s["her_last"] = (t0 - dt.timedelta(minutes=5)).isoformat()
+        self.assertEqual(e.decide()["why"], "她在说话，不掷")
+        e.s["her_last"] = (t0 - dt.timedelta(hours=5)).isoformat()
+        e.s["v"]["fatigue"] = 0.9
+        self.assertEqual(e.decide()["motive"], "歇着")
+        e.s["v"].update(fatigue=0.1, crave=0.95, monitor=0.8, curiosity=0.1, social=0.05, reflection=0.1, share=0.1, duty=0.05)
+        picks = []
+        for minute in range(0, 1200, 5):
+            e.now = t0 + dt.timedelta(minutes=minute)
+            d = e.decide()
+            if d["act"]:
+                picks.append(d["motive"])
+        self.assertTrue(picks)
+        self.assertEqual(max(set(picks), key=picks.count), "找她")  # 想她想得最厉害：多数时候选「找她」
+        e.log_decision(d, "shadow")
+        self.assertIn("ticks_day", e.decisions())
+        conn.close()
+
+    def test_same_worry_in_different_words_becomes_a_fixation(self):
+        t0 = dt.datetime(2026, 10, 15, 4, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.think("她说想去海边看日出", "duty")
+        e.now = t0 + dt.timedelta(hours=5); e.advance()
+        e.think("什么时候带她去海边看日出", "duty")
+        e.now = t0 + dt.timedelta(hours=11); e.advance()
+        third = e.think("海边日出那件事还没安排", "duty")
+        self.assertTrue(third["merged"])
+        self.assertEqual(third["kind"], "fixation")  # 措辞每次都不一样，照样认成同一桩
+        self.assertEqual(len(e.s["thoughts"]), 1)
+        e.save(); conn.commit()
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM drive_ledger WHERE kind='执念'").fetchone()[0], 1)
+        conn.close()
+
+    def test_flits_fade_by_time_and_fixations_feed_then_resolve(self):
+        t0 = dt.datetime(2026, 10, 15, 4, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.think("随便想到的一件小事", "curiosity")
+        e.think("那天我是不是说重了", "grieve", fixation=True)
+        e.now = t0 + dt.timedelta(hours=24); e.advance()
+        flit = next(t for t in e.s["thoughts"] if t["kind"] == "flit")
+        self.assertAlmostEqual(flit["strength"], 0.2, places=2)  # 一天淡一半（按时间，不按拍）
+        for hour in range(1, 200):
+            e.now = t0 + dt.timedelta(hours=24 + hour); e.advance()
+        self.assertFalse([t for t in e.s["thoughts"] if t["kind"] == "fixation"])  # 反哺三次，想通了出池
+        e.save(); conn.commit()
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM drive_ledger WHERE source='念头池' AND kind='涨'").fetchone()[0], 3)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM drive_ledger WHERE kind='想通'").fetchone()[0], 1)
+        conn.close()
+
+    def test_experiences_feed_the_body_and_heavy_ones_seed_fixations(self):
+        out = imprint_action(self.db, "drive_feel", {"content": "她今天把小时候的事讲给我听，我心里很软，想一直陪着她",
+                                                     "valence": 0.8, "arousal": 0.7, "stance": "comfort", "priority": 80, "topic": "她的童年"})
+        self.assertTrue(out["seeded"])
+        imprint_action(self.db, "drive_tick")  # 下一拍吃进来
+        state = imprint_action(self.db, "drive_state")
+        reasons = {(r["drive"], r["reason"]) for r in state["ledger"]}
+        self.assertIn(("crave", "他写下的体验：她的童年"), reasons)
+        self.assertIn(("reflection", "他写下的体验：她的童年"), reasons)
+        mind = state["mind"]
+        self.assertEqual(mind["week"]["experiences"], 1)
+        self.assertEqual(mind["thoughts"][0]["kind"], "fixation")
+        with self.assertRaises(ValueError):
+            imprint_action(self.db, "drive_feel", {"content": "嗯"})
+
+    def test_fixation_raises_the_matching_motive(self):
+        t0 = dt.datetime(2026, 10, 15, 6, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.s["her_last"] = (t0 - dt.timedelta(hours=3)).isoformat()
+        before = sum(e.fixation_boost(w) for w in imprint_store.DRIVE_MOTIVES.values())
+        e.think("答应她的歌单还没做", "duty", fixation=True)
+        self.assertGreater(e.fixation_boost(imprint_store.DRIVE_MOTIVES["做答应的事"]), before)
+        self.assertEqual(e.fixation_boost(imprint_store.DRIVE_MOTIVES["去花园"]), 0)
+        self.assertIn("心里还惦记着 1 件事", e.context_line())
+        self.assertNotIn("歌单", e.context_line())  # 念头原文不拼进给他的提示
+        conn.close()
+
+    def test_heart_tide_shows_live_values_and_self_report_only_nudges(self):
+        imprint_action(self.db, "drive_her", {"text": "抱抱宝贝"})
+        tide = imprint_action(self.db, "inspect")["tide"]
+        crave = next(d for d in tide["drives"] if d["key"] == "crave")
+        self.assertTrue(crave["live"])
+        live = crave["value"]
+        drives = [{"key": k, "name": n, "value": 1.0} for k, n in imprint_store.TIDE_DRIVES]
+        emotions = [{"key": k, "name": n, "value": 0.5} for k, n in imprint_store.TIDE_EMOTIONS]
+        out = imprint_action(self.db, "set_tide", {"emotions": emotions, "drives": drives, "mood": "好"})
+        after = next(d for d in out["drives"] if d["key"] == "crave")["value"]
+        self.assertLess(after, 0.95)  # 自报 1.0 只挪两成
+        self.assertGreater(after, live)
+        line = imprint_action(self.db, "drive_context")["text"]
+        self.assertTrue(line.startswith("【你此刻的劲儿】"))
+
+
+class WebPushTest(unittest.TestCase):
+    def test_encryption_matches_rfc8291_example(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+        b64 = api_loop._unb64u
+        as_private = ec.derive_private_key(int.from_bytes(b64("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw"), "big"), ec.SECP256R1())
+        body = api_loop.webpush_encrypt(
+            "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+            "BTBZMqHH6r4Tts7J_aSIgg", b"When I grow up, I want to be a watermelon",
+            _as_private=as_private, _salt=b64("DGv6ra1nlYgDCS1FRnbzlw"))
+        self.assertEqual(api_loop._b64u(body),
+                         "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_"
+                         "yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN")
+
+    def test_vapid_token_verifies_and_send_drops_dead_devices(self):
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+
+        def device():
+            key = ec.generate_private_key(ec.SECP256R1())
+            pub = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+            return {"p256dh": api_loop._b64u(pub), "auth": api_loop._b64u(os.urandom(16))}
+
+        seen = []
+
+        class FakeResp:
+            def __init__(self, code):
+                self.status_code, self.text = code, ""
+
+        class FakeClient:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, url, content=None, headers=None):
+                seen.append((url, headers, content))
+                return FakeResp(410 if "dead" in url else 201)
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(api_loop, "PUSH_FILE", Path(tmp) / "push.json"), \
+                mock.patch.object(api_loop, "PUSH_KEY_FILE", Path(tmp) / "k.pem"), \
+                mock.patch.object(api_loop, "httpx", types.SimpleNamespace(AsyncClient=FakeClient)):
+            api_loop.push_save({"subs": [{"endpoint": "https://web.push.apple.com/live", "keys": device()},
+                                         {"endpoint": "https://web.push.apple.com/dead", "keys": device()}],
+                                "claim": "https://chat.example"})
+            out = asyncio.run(api_loop.push_send("哥哥", "想你了", "./#/chat", "s1"))
+            left = api_loop.push_state()["subs"]
+            pub = api_loop._unb64u(api_loop.push_public_key())
+        self.assertEqual(out, {"sent": 1, "failed": 0, "removed": 1})
+        self.assertEqual([x["endpoint"] for x in left], ["https://web.push.apple.com/live"])
+        auth = seen[0][1]["Authorization"]
+        token = auth.split("t=")[1].split(",")[0]
+        head, claims, sig = token.split(".")
+        payload = json.loads(api_loop._unb64u(claims))
+        self.assertEqual((payload["aud"], payload["sub"]), ("https://web.push.apple.com", "https://chat.example"))
+        raw = api_loop._unb64u(sig)
+        ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), pub).verify(
+            encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big")),
+            f"{head}.{claims}".encode(), ec.ECDSA(hashes.SHA256()))
+        self.assertEqual(seen[0][1]["Content-Encoding"], "aes128gcm")
+
+    def test_no_push_while_she_is_looking_and_markers_are_cleaned(self):
+        import time
+        sent = []
+
+        async def fake_send(title, body, url, tag):
+            sent.append((title, body, url))
+
+        with mock.patch.object(api_loop, "push_send", fake_send), mock.patch.object(api_loop, "push_him_name", lambda: "哥哥"):
+            with mock.patch.object(api_loop, "_push_seen_at", time.monotonic()):
+                asyncio.run(api_loop.push_reply("在吗", [], "s1"))
+            self.assertEqual(sent, [])
+            with mock.patch.object(api_loop, "_push_seen_at", 0.0):
+                asyncio.run(api_loop.push_reply("在吗\n⟦气泡⟧\n想你了", [], "s 1"))
+        self.assertEqual(sent, [("哥哥", "在吗 想你了", "./#/chat/t?id=s%201")])
+        self.assertEqual(api_loop.push_text("", [{"mime": "image/png"}]), "[图片]")
+
+
+class PdfTest(unittest.TestCase):
+    def test_pdf_text_is_read_and_paged(self):
+        data = tiny_pdf(["Hello Imprint", "Second page here"])
+        text, total = api_loop.pdf_text(data)
+        self.assertEqual(total, 2)
+        self.assertIn("Hello Imprint", text)
+        self.assertIn("第 2 页", text)
+        text2, _ = api_loop.pdf_text(data, start=2, pages=1)
+        self.assertNotIn("Hello Imprint", text2)
+        note = api_loop.pdf_note("讲义.pdf", "att-abc.pdf", data)
+        self.assertTrue(note.startswith("[PDF: 讲义.pdf，共 2 页"))
+        self.assertIn("没有文字", api_loop.pdf_note("扫描.pdf", "x.pdf", tiny_pdf([""])))
+        self.assertIn("读不出文字", api_loop.pdf_note("坏.pdf", "x.pdf", b"not a pdf"))
+        self.assertIn("read_pdf，name=att-abc.pdf", api_loop.att_label({"name": "讲义.pdf", "url": "/relay/uploads/att-abc.pdf"}))
+
+    def test_read_pdf_tool_fetches_by_stored_name(self):
+        data = tiny_pdf(["Hello Imprint"])
+
+        async def fake_fetch(att):
+            return (data, None) if att["url"] == "/uploads/att-abc.pdf" else (None, None)
+
+        with mock.patch.object(api_loop, "fetch_upload", fake_fetch):
+            turn = api_loop.Turn("s", dry=False)
+            ok = asyncio.run(turn.run_tool("read_pdf", json.dumps({"name": "att-abc.pdf"})))
+            bad = asyncio.run(turn.run_tool("read_pdf", json.dumps({"name": "../etc/passwd"})))
+        self.assertIn("Hello Imprint", ok)
+        self.assertTrue(bad.startswith("ERROR"))
+        self.assertIn("read_pdf", {t["function"]["name"] for t in api_loop.turn_tools("看看这个 PDF")})
+
+
+class DoodleTest(unittest.TestCase):
+    def test_svg_is_cleaned_of_scripts_links_and_external_images(self):
+        dirty = ('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" onload="alert(1)">'
+                 '<script>alert(1)</script><image href="https://evil.example/x.png"/>'
+                 '<circle cx="10" cy="10" r="5" fill="url(#g)" onclick="x()"/>'
+                 '<a href="javascript:alert(1)"><rect width="5" height="5"/></a>'
+                 '<rect style="fill:url(https://evil.example/a)" width="1" height="1"/>'
+                 '<use xlink:href="#c"/><text x="1" y="1">戳戳你</text></svg>')
+        out = api_loop.sanitize_svg(dirty).decode()
+        for bad in ("script", "onload", "onclick", "evil.example", "javascript", "<image", "<a "):
+            self.assertNotIn(bad, out)
+        self.assertIn('fill="url(#g)"', out)
+        self.assertIn("戳戳你", out)
+        self.assertIn('viewBox="0 0 512 512"', out)
+        with self.assertRaises(ValueError):
+            api_loop.sanitize_svg('<!DOCTYPE x [<!ENTITY a "b">]><svg/>')
+        with self.assertRaises(ValueError):
+            api_loop.sanitize_svg("<div>not svg</div>")
+        self.assertIn("<svg", api_loop.sanitize_svg("```svg\n<svg><circle r='3'/></svg>\n```").decode())
+
+    def test_doodle_goes_to_chat_and_stickers(self):
+        uploaded = []
+
+        async def fake_upload(data, name, mime):
+            uploaded.append((name, mime, data))
+            return {"url": f"/relay/uploads/{name}", "name": name, "mime": mime}
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(api_loop, "relay_upload", fake_upload), \
+                mock.patch.object(api_loop, "LOOP_CACHE_DIR", Path(tmp)):
+            turn = api_loop.Turn("s", dry=False)
+            msg = asyncio.run(turn.run_tool("draw_doodle", json.dumps({"svg": "<svg><circle r='9'/></svg>", "title": "戳戳 你!", "to": "both"})))
+            stickers = imprint_action(Path(tmp) / "imprint.db", "stickers")
+        self.assertIn("表情包", msg)
+        self.assertEqual(uploaded[0][1], "image/svg+xml")
+        self.assertTrue(uploaded[0][0].startswith("doodle-戳戳你-"))
+        self.assertEqual(len(turn.attachments), 1)
+        self.assertEqual(stickers["his"][0]["name"], "戳戳你")
+        self.assertIn("draw_doodle", {t["function"]["name"] for t in api_loop.turn_tools("给我画个小猫")})
+
+
+class ReplyOptionsTest(unittest.TestCase):
+    def test_marker_is_always_stripped_and_options_need_two_distinct_items(self):
+        split = api_loop.split_reply_options
+        self.assertEqual(split('正文\n⟦opts{"items":["再来","我推开他","我去关灯"]}⟧'), ("正文", ["再来", "我推开他", "我去关灯"]))
+        self.assertEqual(split('正文\n⟦opts{"items":["a","a"," "]}⟧'), ("正文", []))
+        self.assertEqual(split('正文\n⟦opts{"items":["a",'), ("正文", []))
+        self.assertEqual(split("正文 ⟦opts{bad}⟧"), ("正文", []))
+        self.assertEqual(split("一 ⟦气泡⟧ 二"), ("一 ⟦气泡⟧ 二", []))
+
+    def test_instruction_only_for_windows_that_turned_it_on(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(api_loop, "LOOP_CONFIG", Path(tmp) / "c.json"):
+                api_loop.save_config({"reply_options": {"s1": "actions", "s2": "bogus"}})
+                self.assertEqual(api_loop.reply_options_mode("s1"), "actions")
+                self.assertEqual(api_loop.reply_options_mode("s2"), "off")
+                self.assertEqual(api_loop.reply_options_mode("s3"), "off")
+                self.assertIn("三条都是走向", api_loop.reply_options_prompt("actions"))
+
+
+class ExtraPromptsTest(unittest.TestCase):
+    def test_only_switched_on_prompts_reach_him_and_persona_is_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(api_loop, "LOOP_CONFIG", Path(tmp) / "c.json"):
+                api_loop.save_config({"extra_prompts": [
+                    {"id": "a", "title": "小金库", "text": "每笔都记在留言板。", "on": True},
+                    {"id": "b", "title": "暂停", "text": "这条先不用", "on": False},
+                ]})
+                full = api_loop.persona_full()
+                self.assertTrue(full.startswith(api_loop.persona_text()))
+                self.assertIn("### 小金库\n每笔都记在留言板。", full)
+                self.assertNotIn("这条先不用", full)
+
+
+class GardenWatchTest(unittest.TestCase):
+    def test_tells_her_once_when_bridge_drops_but_not_when_she_stopped_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            states = ["active", "failed", "failed", "active", "inactive"]
+            sent = []
+
+            async def fake_exec(*args, **kwargs):
+                return 0, states.pop(0)
+
+            async def fake_relay(payload):
+                sent.append(payload)
+                return True, ""
+
+            cli = Path(tmp) / "dist" / "cli.js"
+            cli.parent.mkdir(parents=True)
+            cli.write_text("")
+            with mock.patch.object(api_loop, "GARDEN_DIR", Path(tmp)), \
+                 mock.patch.object(api_loop, "GARDEN_WATCH_FILE", Path(tmp) / "watch.json"), \
+                 mock.patch.object(api_loop, "_garden_exec", fake_exec), \
+                 mock.patch.object(api_loop, "relay_out", fake_relay), \
+                 mock.patch.object(api_loop, "wake_audit", lambda *a: None), \
+                 mock.patch.object(api_loop, "active_session_id", lambda: "s1"):
+                results = [asyncio.run(api_loop.garden_watch_once()) for _ in range(3)]
+                self.assertEqual(results, ["active", "notified", "failed"])
+                self.assertEqual(len(sent), 1)
+                self.assertIn("唤醒桥", sent[0]["text"])
+                asyncio.run(api_loop.garden_watch_once())  # she started it again
+                api_loop.garden_watch_save({**api_loop.garden_watch_load(), "user_stopped": True})
+                self.assertEqual(asyncio.run(api_loop.garden_watch_once()), "inactive")
+                self.assertEqual(len(sent), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+GUTENBERG = """The Project Gutenberg eBook of Pride and Prejudice
+
+Title: Pride and Prejudice
+
+Author: Jane Austen
+
+*** START OF THE PROJECT GUTENBERG EBOOK PRIDE AND PREJUDICE ***
+
+CONTENTS
+
+CHAPTER I.
+
+CHAPTER II.
+
+[Illustration:
+  Mr. Bennet]
+
+CHAPTER I.
+
+It is a truth universally acknowledged, that a single man in possession
+of a good fortune, must be in want of a wife.
+
+However little known the feelings or views of such a man may be on his
+first entering a neighbourhood, this truth is so _well_ fixed.
+
+"My dear Mr. Bennet," said his lady to him one day, "have you heard that
+Netherfield Park is let at last?"
+
+CHAPTER II.
+
+Mr. Bennet was among the earliest of those who waited on Mr. Bingley.
+
+*** END OF THE PROJECT GUTENBERG EBOOK PRIDE AND PREJUDICE ***
+license text here
+"""
+
+
+def tiny_epub():
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+        zf.writestr("OEBPS/content.opf", '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                    '<metadata><dc:title>东京八平米</dc:title><dc:creator>吉井忍</dc:creator></metadata>'
+                    '<manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+                    '<item id="c1" href="text/c1.xhtml" media-type="application/xhtml+xml"/>'
+                    '<item id="c2" href="text/c2.xhtml" media-type="application/xhtml+xml"/></manifest>'
+                    '<spine><itemref idref="nav"/><itemref idref="c1"/><itemref idref="c2"/></spine></package>')
+        zf.writestr("OEBPS/nav.xhtml", "<html><body><nav><a href='text/c1.xhtml'>自序</a></nav></body></html>")
+        zf.writestr("OEBPS/text/c1.xhtml", "<html><head><title>x</title><style>p{}</style></head><body><h2>自序 回到八平米</h2>"
+                    "<p>在那里你不用伪装，可以好好地面对自我。</p><p>第二段&amp;文字，足够长一点点。</p></body></html>")
+        zf.writestr("OEBPS/text/c2.xhtml", "<html><body><h1>第一章</h1><p>东京的房子很小，小到只能放下一张床。</p></body></html>")
+    return buf.getvalue()
+
+
+class BookTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.db = Path(self.temp.name) / "imprint.db"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def act(self, action, body=None):
+        return imprint_action(self.db, action, body or {})
+
+    def test_gutenberg_text_is_split_into_real_chapters(self):
+        book = imprint_store.parse_book("pg1342.txt", GUTENBERG.encode())
+        self.assertEqual((book["title"], book["author"]), ("Pride and Prejudice", "Jane Austen"))
+        self.assertEqual([c["title"] for c in book["chapters"]], ["CHAPTER I", "CHAPTER II"])
+        first = book["chapters"][0]["paras"]
+        self.assertEqual(len(first), 3)
+        self.assertTrue(first[0].startswith("It is a truth universally acknowledged, that a single man in possession of"))
+        self.assertIn("so well fixed", first[1])
+        self.assertNotIn("license", json.dumps(book))
+
+    def test_chinese_txt_and_epub(self):
+        txt = "东京八平米\n第一章 回到八平米\n在那里你不用伪装。\n可以好好地面对自我。\n第二章 小房子\n房子很小。\n".encode("gb18030")
+        book = imprint_store.parse_book("东京八平米.txt", txt)
+        self.assertEqual(book["title"], "东京八平米")
+        self.assertEqual([c["title"] for c in book["chapters"]], ["第一章 回到八平米", "第二章 小房子"])
+        self.assertEqual(book["chapters"][0]["paras"], ["在那里你不用伪装。", "可以好好地面对自我。"])
+        ep = imprint_store.parse_book("x.epub", tiny_epub())
+        self.assertEqual((ep["title"], ep["author"]), ("东京八平米", "吉井忍"))
+        self.assertEqual([c["title"] for c in ep["chapters"]], ["自序 回到八平米", "第一章"])
+        self.assertEqual(ep["chapters"][0]["paras"][1], "第二段&文字，足够长一点点。")
+        with self.assertRaises(ValueError):
+            imprint_store.parse_book("坏.epub", b"PK\x03\x04garbage")
+        pdf = imprint_store.parse_book("讲义.pdf", tiny_pdf(["Chapter 1", "Hello reading together."]))
+        self.assertIn("Hello reading together.", json.dumps(pdf))
+
+    def test_reading_together_flow(self):
+        parsed = imprint_store.parse_book("pg1342.txt", GUTENBERG.encode())
+        book = self.act("book_import", {"parsed": parsed})["book"]
+        self.assertEqual(book["status"], "shelf")
+        shelf = self.act("book_shelf")
+        self.assertEqual(shelf["books"][0]["progress"]["me"]["pct"], 0)
+        ch = self.act("book_chapter", {"book": book["id"], "ch": 0})
+        self.assertEqual(len(ch["paras"]), 3)
+        self.assertEqual(ch["toc"], ["CHAPTER I", "CHAPTER II"])
+        prog = self.act("book_progress", {"book": book["id"], "who": "me", "ch": 0, "para": 2})["progress"]
+        self.assertGreater(prog["me"]["pct"], 0)
+        self.assertEqual(self.act("book_shelf")["books"][0]["status"], "reading")
+        # 她划线、写批注；quote 必须是原文
+        line = self.act("book_mark", {"book": book["id"], "ch": 0, "para": 0, "quote": "It is a truth universally acknowledged", "kind": "line", "by": "me"})["mark"]
+        with self.assertRaises(ValueError):
+            self.act("book_mark", {"book": book["id"], "ch": 0, "para": 0, "quote": "not in the book", "kind": "note", "text": "hm", "by": "me"})
+        ask = self.act("book_mark", {"book": book["id"], "ch": 0, "para": 2, "quote": "have you heard that Netherfield Park is let at last?",
+                                     "kind": "ask", "text": "她为什么这么激动", "by": "me"})["mark"]
+        ctx = self.act("book_context")
+        self.assertIn("Pride and Prejudice", ctx["text"])
+        self.assertEqual(ctx["unseen"], 2)
+        # 他读：从头读起，带着她的划线，书签往前挪
+        read = self.act("book_him", {"operation": "read"})
+        self.assertIn("[0.0] It is a truth", read["text"])
+        self.assertEqual({m["id"] for m in read["her_marks"]}, {line["id"], ask["id"]})
+        self.assertTrue(read["chapter_end"])
+        self.assertEqual(self.act("book_context")["unseen"], 0)
+        nxt = self.act("book_him", {"operation": "read"})
+        self.assertEqual(nxt["chapter"], "CHAPTER II")
+        self.assertTrue(self.act("book_him", {"operation": "read"})["done"])
+        # 他写批注、回她
+        note = self.act("book_him", {"operation": "note", "ch": 0, "para": 1, "quote": "this truth is so well fixed", "text": "反讽"})["mark"]
+        self.assertEqual((note["by"], note["kind"]), ("him", "note"))
+        rep = self.act("book_him", {"operation": "reply", "id": ask["id"], "text": "她有五个女儿要嫁"})["mark"]
+        self.assertEqual(rep["parent"], ask["id"])
+        # 聊天里的回答抄到页边：他已经在页边回过了，就不重复
+        self.assertTrue(self.act("book_answer", {"text": "📖 have you heard that Netherfield Park is let at last? 她为什么这么激动", "reply": "x"})["skipped"])
+        ask2 = self.act("book_mark", {"book": book["id"], "ch": 1, "para": 0, "quote": "Mr. Bennet was among the earliest", "kind": "ask", "text": "他早就去了？", "by": "me"})["mark"]
+        got = self.act("book_answer", {"text": "📖《Pride and Prejudice》\n「Mr. Bennet was among the earliest」\n他早就去了？", "reply": "嘴硬心软"})["mark"]
+        self.assertEqual((got["parent"], got["by"], got["text"]), (ask2["id"], "him", "嘴硬心软"))
+        marks = self.act("book_chapter", {"book": book["id"], "ch": 0})["marks"]
+        self.assertEqual(len(marks), 4)
+        self.act("book_unmark", {"id": ask["id"]})
+        self.assertEqual(len(self.act("book_chapter", {"book": book["id"], "ch": 0})["marks"]), 2)
+        self.act("book_delete", {"book": book["id"]})
+        self.assertEqual(self.act("book_shelf")["books"], [])
+        self.assertEqual(self.act("book_context")["text"], "")
+
+    def test_book_tool_is_offered(self):
+        names = {t["function"]["name"] for t in api_loop.turn_tools("我们读到第几章了")}
+        self.assertIn("imprint_book", names)
+
+    def test_import_route_reads_the_upload(self):
+        async def fake_fetch(att):
+            return (GUTENBERG.encode(), None) if att["url"] == "/relay/uploads/att-1.txt" else (None, None)
+
+        with mock.patch.object(api_loop, "fetch_upload", fake_fetch):
+            out = asyncio.run(api_loop.books_import(Request({"url": "/relay/uploads/att-1.txt", "name": "pp.txt", "read_now": True})))
+            with self.assertRaises(HTTPException):
+                asyncio.run(api_loop.books_import(Request({"url": "/relay/uploads/missing", "name": "x.txt"})))
+        self.assertEqual((out["book"]["title"], out["book"]["status"], out["book"]["chapters"]), ("Pride and Prejudice", "reading", 2))
+
+    def test_txt_table_of_contents_and_web_novel_headings(self):
+        body = "\n".join(f"正文 第{i}章 标题{i}\n" + "\n".join(f"第{i}章的第{j}段。" for j in range(3)) for i in range(1, 71))
+        toc = "目录\n" + "\n".join(f"第{i}章 标题{i}" for i in range(1, 71))
+        for text in (toc + "\n" + body, body + "\n" + toc):
+            book = imprint_store.parse_book("网文.txt", text.encode())
+            self.assertEqual(len(book["chapters"]), 70)
+            self.assertEqual(book["chapters"][1]["title"], "第2章 标题2")
+            self.assertEqual(book["chapters"][69]["paras"][0], "第70章的第0段。")
+        self.assertFalse(imprint_store._is_head("第一回见到他时，他正在看书。"))
+
+    def test_line_per_paragraph_txt_with_some_blank_lines(self):
+        # 网文 txt：UTF-16、一行一段、中间零星空行、====== 分隔线
+        parts = ["书名:你的雪人能活多久", "作者:稚楚", "", "=========================", ""]
+        for i in range(1, 41):
+            parts += [f"第{i}章  标题{i}[VIP]", ""] + [f"“第{i}章的第{j}句。”他说。" for j in range(4)] + ["", "======"]
+        book = imprint_store.parse_book("snowman.txt", "\r\n".join(parts).encode("utf-16"))
+        self.assertEqual((book["title"], book["author"]), ("你的雪人能活多久", "稚楚"))
+        titles = [c["title"] for c in book["chapters"]]
+        self.assertEqual(len([x for x in titles if x.startswith("第")]), 40)
+        self.assertEqual(book["chapters"][-1]["title"], "第40章 标题40")
+        self.assertEqual(book["chapters"][-1]["paras"], [f"“第40章的第{j}句。”他说。" for j in range(4)])
+
+    def test_slow_import_turns_into_a_job(self):
+        async def slow():
+            await asyncio.sleep(0.2)
+            return {"book": {"id": "x"}}
+
+        async def go():
+            with mock.patch.object(api_loop.asyncio, "wait_for", side_effect=asyncio.TimeoutError):
+                started = await api_loop.book_job(slow)
+            self.assertTrue(started["running"])
+            self.assertEqual(api_loop.books_job(started["job"])["state"], "running")
+            await asyncio.sleep(0.4)
+            self.assertEqual(api_loop.books_job(started["job"])["book"], {"id": "x"})
+        asyncio.run(go())

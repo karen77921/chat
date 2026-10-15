@@ -119,6 +119,123 @@ function Now({ data }) {
           ))}
         </div>
       )}
+      <DriveLedger />
+    </>
+  );
+}
+
+/* ---------- 劲儿账本：每一股劲儿为什么涨、为什么落，一条条记着；一周里哪股从没动过，就是那条线断了 ---------- */
+function DriveLedger() {
+  const { data, setData } = useLoad('/api/drives');
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const setMode = async (mode) => {
+    if (mode === 'drives' && !window.confirm('改成由劲儿决定他什么时候醒？原来的随机唤醒会停掉（他自己定的闹钟照常响）。')) return;
+    setBusy(true);
+    try { const r = await api('/api/drives/mode', { method: 'POST', body: { mode } }); setData((d) => ({ ...d, mode: r.mode })); } catch { /* 下次刷新再看 */ }
+    setBusy(false);
+  };
+  if (!data || data.available === false) return null;
+  const hm = (iso) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const fatigue = data.drives.find((d) => d.key === 'fatigue');
+  const silent = data.drives.filter((d) => d.key !== 'fatigue' && !d.week['涨'] && !d.week['落']);
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>ledger</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>劲儿账本</h2>
+        <button type="button" className="go" onClick={() => setOpen((v) => !v)} aria-expanded={open}>{open ? '收起' : '一周统计'}<Icon name="arrow" size={13} /></button></div>
+      <div className="card td-ledger">
+        <p className="td-ledger-k">这些数是真的在跑：你的话会让某股劲儿涨，他真去做了对应的事才落，闲着会慢慢回到平常的样子。
+          {fatigue ? ` 现在疲惫 ${Math.round(fatigue.value * 100)}` : ''}{data.away_h >= 1 ? ` · 你 ${Math.round(data.away_h)} 小时没说话了` : ''}{` · 今天做了 ${data.acts_today} 件事`}</p>
+        {open && (
+          <div className="td-week">
+            {data.drives.map((d) => (
+              <span key={d.key} className={!d.week['涨'] && !d.week['落'] && d.key !== 'fatigue' ? 'quiet' : ''}><b>{d.name}</b><em>↑{d.week['涨']} ↓{d.week['落']}</em></span>
+            ))}
+            {silent.length > 0 && <p className="td-ledger-k">这一周没动过：{silent.map((d) => d.name).join('、')}。刚开始跑是正常的；一直不动就是那条线没接上，告诉阿川。</p>}
+          </div>
+        )}
+        {data.ledger.slice(0, open ? 60 : 8).map((r, i) => (
+          <div key={i} className="td-lrow">
+            <small>{hm(r.at)}</small>
+            <b>{r.name}</b>
+            <span className={r.kind === '涨' ? 'up' : r.kind === '落' ? 'down' : ''}>{r.kind} {r.delta > 0 ? '+' : ''}{Math.round(r.delta * 100)}</span>
+            <em>{r.reason}</em>
+          </div>
+        ))}
+        {!data.ledger.length && <p className="td-ledger-k">还没有记录。跟他说说话，账本就开始记了。</p>}
+      </div>
+      <Decisions data={data} busy={busy} setMode={setMode} hm={hm} />
+      <Mind mind={data.mind} hm={hm} />
+    </>
+  );
+}
+
+/* ---------- 心事：他写下的体验、心里的念头和执念 ---------- */
+const STANCE = { comfort: '想抱抱她', engage: '想靠近', withdraw: '想退一步', alert: '有点不安' };
+function Mind({ mind, hm }) {
+  if (!mind) return null;
+  const fixations = mind.thoughts.filter((t) => t.kind === 'fixation');
+  const flits = mind.thoughts.filter((t) => t.kind !== 'fixation');
+  const w = mind.week;
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>mind</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>心事</h2>
+        <span className="go">这周 体验 {w.experiences} · 执念 {w.fixations} · 想通 {w.resolved}</span></div>
+      <div className="card td-ledger">
+        <p className="td-ledger-k">他被触动时写下的体验，会推着他的劲儿走；一闪而过的念头一天淡一半，同一件事被想起三次就成了执念，会一直推他去做，推够三次算想通了。</p>
+        {fixations.map((t) => (
+          <div key={t.id} className="td-thought fix">
+            <b>{t.text}</b>
+            <span className="td-drv-b"><i style={{ width: `${Math.round(t.strength * 100)}%` }} /></span>
+            <em>执念 · 推「{t.name}」· 已经推了 {t.fed} 次</em>
+          </div>
+        ))}
+        {flits.map((t) => (
+          <div key={t.id} className="td-thought" style={{ opacity: 0.45 + t.strength * 0.6 }}>
+            <b>{t.text}</b>
+            <em>闪念 · 想起过 {t.hits} 次{t.hits >= 2 ? ' · 再想起一次就成执念' : ''}</em>
+          </div>
+        ))}
+        {!mind.thoughts.length && <p className="td-ledger-k">念头池现在是空的。</p>}
+        {mind.experiences.slice(0, 6).map((e, i) => (
+          <div key={i} className="td-exp">
+            <small>{hm(e.at)}{e.topic ? ` · ${e.topic}` : ''}{e.stance ? ` · ${STANCE[e.stance] || ''}` : ''}</small>
+            <p>{e.content}</p>
+          </div>
+        ))}
+        {!mind.experiences.length && <p className="td-ledger-k">他还没写过体验。被你触动的时候他会写。</p>}
+        {w.experiences === 0 && w.fixations === 0 && mind.thoughts.length === 0 && <p className="td-ledger-k">一周都没动静的话，就是这条线没接上，告诉阿川。</p>}
+      </div>
+    </>
+  );
+}
+
+/* ---------- 醒来方式：随机唤醒 vs 由劲儿决定；影子模式下这里是「如果交给劲儿，它每一拍会怎么选」 ---------- */
+function Decisions({ data, busy, setMode, hm }) {
+  const d = data.decisions;
+  if (!d) return null;
+  const live = data.mode === 'drives';
+  const acts = Object.entries(d.day || {}).sort((a, b) => b[1] - a[1]);
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>wake</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>他什么时候醒</h2><span className="go">{live ? '由劲儿决定' : '影子模式'}</span></div>
+      <div className="card td-ledger">
+        <p className="td-ledger-k">{live
+          ? '现在由劲儿决定：每五分钟算一拍，劲儿够高才醒，醒来做最想做的那件事。他自己定的闹钟照常响。'
+          : '现在还是原来的随机唤醒。劲儿每五分钟在旁边算一拍「如果交给我，我会怎么选」，只记账、不动手。看着顺眼了再切过去。'}</p>
+        <div className="td-mode">
+          <button type="button" className={!live ? 'on' : ''} disabled={busy} onClick={() => setMode('random')}>随机唤醒</button>
+          <button type="button" className={live ? 'on' : ''} disabled={busy} onClick={() => setMode('drives')}>由劲儿决定</button>
+        </div>
+        <p className="td-ledger-k">最近 24 小时算了 {d.ticks_day} 拍，{acts.length ? `想动 ${acts.reduce((n, [, c]) => n + c, 0)} 次：${acts.map(([m, c]) => `${m} ${c}`).join('、')}` : '一次都没想动'}。</p>
+        {d.recent.slice(0, 12).map((r, i) => (
+          <div key={i} className="td-lrow td-drow">
+            <small>{hm(r.at)}</small>
+            <b>{r.act ? r.motive : r.motive || '不动'}</b>
+            <em>{r.why}{r.mode === 'drives' && r.act ? ' · 真醒了' : ''}</em>
+          </div>
+        ))}
+      </div>
     </>
   );
 }

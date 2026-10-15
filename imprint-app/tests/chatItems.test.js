@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { upsertMessage, settleSentMessage } from '../src/lib/chatItems.js';
+import { upsertMessage, settleSentMessage, mergeResync, mergeFull } from '../src/lib/chatItems.js';
 
 test('SSE arriving before send acknowledgement leaves one saved message', () => {
   const temp = { id: 'tmp-1', text: '把这个导入记忆库', status: 'sending' };
@@ -18,4 +18,32 @@ test('send acknowledgement before SSE also leaves one saved message', () => {
   const items = upsertMessage(settleSentMessage([temp], temp.id, acknowledged), pushed);
   assert.equal(items.length, 1);
   assert.equal(items[0].status, 'sent');
+});
+
+test('resync picks up a reply the stream missed and stops the waiting state', () => {
+  const prev = { available: true, replying: { startedAt: 'x' }, items: [
+    { id: 1, from: 'me', at: '2026-10-12T10:49:00Z' }, { id: 'tmp-1', from: 'me', at: '2026-10-12T10:50:00Z' }] };
+  const fresh = { available: true, replying: null, items: [
+    { id: 1, from: 'me', at: '2026-10-12T10:49:00Z' }, { id: 2, from: 'him', at: '2026-10-12T10:51:00Z' }] };
+  const merged = mergeResync(prev, fresh);
+  assert.deepEqual(merged.items.map((m) => m.id), [1, 2, 'tmp-1']);
+  // a resync that only carries the newest rows keeps the older ones already loaded
+  const older = { ...prev, items: [{ id: 0, from: 'him', at: '2026-10-12T09:00:00Z' }, ...prev.items] };
+  assert.deepEqual(mergeResync(older, fresh).items.map((m) => m.id), [0, 1, 2, 'tmp-1']);
+  assert.equal(merged.replying, null);
+});
+
+test('resync keeps waiting while his reply has not arrived', () => {
+  const prev = { available: true, replying: { startedAt: 'x' }, items: [{ id: 1, from: 'me', at: '2026-10-12T10:49:00Z' }] };
+  const fresh = { available: true, items: [{ id: 0, from: 'him', at: '2026-10-12T10:40:00Z' }, { id: 1, from: 'me', at: '2026-10-12T10:49:00Z' }] };
+  assert.deepEqual(mergeResync(prev, fresh).replying, { startedAt: 'x' });
+  assert.equal(mergeResync(prev, { available: false }), prev);
+});
+
+test('full history merges under the quick view without losing newer rows', () => {
+  const prev = { available: true, replying: { startedAt: 'x' }, items: [{ id: 5, from: 'me' }, { id: 6, from: 'him' }, { id: 'tmp-2', from: 'me' }] };
+  const full = { available: true, replying: null, items: [{ id: 1, from: 'me' }, { id: 5, from: 'me' }] };
+  const merged = mergeFull(prev, full);
+  assert.deepEqual(merged.items.map((m) => m.id), [1, 5, 6, 'tmp-2']);
+  assert.deepEqual(merged.replying, { startedAt: 'x' });
 });

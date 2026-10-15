@@ -3,6 +3,7 @@
  * 撕边和植物都由随机种子生成，同一个 seed 每次画出来一样。
  */
 import { useId, useMemo } from 'react';
+import AuthImg from './AuthImg.jsx';
 
 /* ---------- 随机 ---------- */
 function rng(seed) {
@@ -183,16 +184,16 @@ export function Cyanotype({ w, h, seed = 2, variant = 'fern', src, alt = '', dev
     <div className={`cyano ${develop ? 'm-develop' : ''} ${className}`} style={{ width: w, height: h, ...style }}>
       {src ? (
         <>
-          <img src={src} alt={alt} className="ink" />
+          <AuthImg src={src} alt={alt} className="ink" />
           <i className="cyano-tint" />
         </>
       ) : (
         <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role={alt ? 'img' : undefined} aria-label={alt || undefined} aria-hidden={alt ? undefined : 'true'}>
           <defs>
             <linearGradient id={`g${id}`} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" style={{ stopColor: 'var(--print-a)' }} />
-              <stop offset=".5" style={{ stopColor: 'var(--print-b)' }} />
-              <stop offset="1" style={{ stopColor: 'var(--print-c)' }} />
+              <stop offset="0" style={{ stopColor: 'var(--tint-a, var(--print-a))' }} />
+              <stop offset=".5" style={{ stopColor: 'var(--tint-b, var(--print-b))' }} />
+              <stop offset="1" style={{ stopColor: 'var(--tint-c, var(--print-c))' }} />
             </linearGradient>
             <filter id={`n${id}`}>
               <feTurbulence type="fractalNoise" baseFrequency=".75" numOctaves="2" seed="4" />
@@ -201,7 +202,7 @@ export function Cyanotype({ w, h, seed = 2, variant = 'fern', src, alt = '', dev
             <filter id={`s${id}`}><feGaussianBlur stdDeviation=".45" /></filter>
           </defs>
           <rect width={w} height={h} fill={`url(#g${id})`} />
-          <rect width={w} height={h} filter={`url(#n${id})`} />
+          <rect className="cyano-noise" width={w} height={h} filter={`url(#n${id})`} />
           <g className="ink" filter={`url(#s${id})`}><Plants w={w} h={h} seed={seed} variant={variant} /></g>
         </svg>
       )}
@@ -231,7 +232,7 @@ export function Wax({ size = 56, className = '', style }) {
     return `${f(c + Math.cos(a) * q)} ${f(c + Math.sin(a) * q)}`;
   }).join('L') + 'Z';
   return (
-    <svg width={size} height={size} className={`wax ${className}`} style={style} aria-hidden="true">
+    <svg width={size} height={size} className={`wax deco ${className}`} style={style} aria-hidden="true">
       <defs>
         <radialGradient id={`w${id}`} cx=".38" cy=".32" r=".8">
           <stop offset="0" style={{ stopColor: 'var(--l1)' }} />
@@ -253,7 +254,7 @@ export function Stamp({ seed = 11, className = '', style }) {
   for (let i = 0; i <= 9; i++) pts.push([(i * W) / 9, 0], [(i * W) / 9, H]);
   for (let i = 0; i <= 11; i++) pts.push([0, (i * H) / 11], [W, (i * H) / 11]);
   return (
-    <div className={`stamp ${className}`} style={style} aria-hidden="true">
+    <div className={`stamp deco ${className}`} style={style} aria-hidden="true">
       <svg width={W} height={H}>
         <rect width={W} height={H} fill="var(--sheet)" />
         <foreignObject x="6" y="7" width="54" height="64"><Cyanotype w={54} h={64} seed={seed} variant="sprig" develop={false} /></foreignObject>
@@ -266,7 +267,7 @@ export function Stamp({ seed = 11, className = '', style }) {
 
 export function Postmark({ date = 'OCT · 09', year = '2026', className = '', style }) {
   return (
-    <svg width="96" height="80" className={className} style={style} fill="none" stroke="var(--ink)" aria-hidden="true">
+    <svg width="96" height="80" className={`deco ${className}`} style={style} fill="none" stroke="var(--ink)" aria-hidden="true">
       <circle cx="36" cy="40" r="30" strokeWidth="1.1" />
       <circle cx="36" cy="40" r="23" strokeWidth=".6" />
       <text x="36" y="37" textAnchor="middle" fontFamily="Cormorant Garamond" fontSize="8" letterSpacing="1.5" fill="var(--ink)" stroke="none">{date}</text>
@@ -278,7 +279,7 @@ export function Postmark({ date = 'OCT · 09', year = '2026', className = '', st
 
 export function PaperClip({ className = '', style }) {
   return (
-    <svg width="22" height="62" className={className} style={style} fill="none" stroke="var(--postmark)" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+    <svg width="22" height="62" className={`deco ${className}`} style={style} fill="none" stroke="var(--postmark)" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
       <path d="M7 18V8a4 4 0 0 1 8 0v40a6 6 0 0 1-12 0V14" />
     </svg>
   );
@@ -287,10 +288,10 @@ export function PaperClip({ className = '', style }) {
 export function Vinyl({ size = 92, spinning = false, className = '', style }) {
   const c = size / 2;
   const rings = [];
-  for (let k = 6; k < c - 14; k += 3) rings.push(<circle key={k} cx={c} cy={c} r={c - k + 6} fill="none" stroke="#6b7f95" strokeWidth=".35" opacity=".7" />);
+  for (let k = 6; k < c - 14; k += 3) rings.push(<circle key={k} cx={c} cy={c} r={c - k + 6} fill="none" stroke="var(--vinyl-ring, #6b7f95)" strokeWidth=".35" opacity=".7" />);
   return (
     <svg width={size} height={size} className={`${spinning ? 'spin' : ''} ${className}`} style={style} aria-hidden="true">
-      <circle cx={c} cy={c} r={c} fill="#3a5570" />
+      <circle cx={c} cy={c} r={c} fill="var(--vinyl, #3a5570)" />
       {rings}
       <path d={`M${c * 0.4} ${c * 0.4}A${c * 0.85} ${c * 0.85} 0 0 1 ${c * 1.2} ${c * 0.18}`} fill="none" stroke="#fff" strokeWidth="2" opacity=".14" />
       <circle cx={c} cy={c} r={c * 0.3} fill="var(--print-c)" />

@@ -1,18 +1,17 @@
 /**
  * 主题切换。颜色全在 src/design/tokens.css 的变量里，这里只负责给 <html> 换 data-theme。
  *   - 网址带 ?theme=lilac 时优先（截图、给甲方看用）
- *   - 否则读本地记住的 imprint.theme
- *   - 默认 'cyan'（蓝晒，写在 :root，不需要 data-theme）
+ *   - 否则读本地记住的 imprint.theme2
+ *   - 默认 'cream'（奶油玻璃）；蓝晒写在 :root，不需要 data-theme
  * 设置 · 美化 里调用 setTheme(name)。
  */
 import { useEffect, useState } from 'react';
 
+// 整个 App 现在只有一套样子：奶油玻璃（旧的蓝晒 / 雾紫 / 灰绿撕纸风已经退休）
 export const THEMES = [
-  { id: 'cyan', name: '蓝晒', swatch: '#6E9BC5' },
-  { id: 'lilac', name: '雾紫', swatch: '#8C7EBD' },
-  { id: 'sage', name: '灰绿', swatch: '#739C86' },
+  { id: 'cream', name: '奶油玻璃', swatch: '#EBCDC9' },
 ];
-const KEY = 'imprint.theme';
+const KEY = 'imprint.theme2'; // 换了新键：换上奶油玻璃后大家都先看到新样子，想换回去在美化里选
 const subs = new Set();
 
 function apply(id) {
@@ -32,7 +31,7 @@ export function initTheme() {
   let saved = null;
   try { saved = localStorage.getItem(KEY); } catch { /* 隐私模式 */ }
   const id = THEMES.some((t) => t.id === fromUrl) ? fromUrl : saved;
-  apply(THEMES.some((t) => t.id === id) ? id : 'cyan');
+  apply(THEMES.some((t) => t.id === id) ? id : THEMES[0].id);
 }
 
 export function setTheme(id) {

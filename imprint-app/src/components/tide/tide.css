@@ -73,3 +73,31 @@
 .td-live-note { margin-top: 12px; padding: 10px 14px; color: var(--muted); }
 .td-live-note summary { cursor: pointer; color: var(--ink); font-size: 12px; }
 .td-live-note p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.7; }
+
+/* 劲儿账本 */
+.td-ledger { padding: 12px 14px; }
+.td-ledger-k { margin: 0 0 8px; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+.td-lrow { display: grid; grid-template-columns: 62px 34px 46px minmax(0, 1fr); gap: 6px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.td-lrow small { color: var(--muted); font-size: 10.5px; }
+.td-lrow b { font-weight: 500; }
+.td-lrow span { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.td-lrow span.up { color: #c46a5c; }
+.td-lrow span.down { color: #5b9a7c; }
+.td-lrow em { font-style: normal; color: var(--muted); overflow-wrap: anywhere; }
+.td-week { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+.td-week span { display: grid; gap: 1px; padding: 6px; border-radius: 10px; background: color-mix(in srgb, var(--ink) 4%, transparent); text-align: center; }
+.td-week span b { font-weight: 500; font-size: 12px; }
+.td-week span em { font-style: normal; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.td-week span.quiet { opacity: .5; }
+.td-week .td-ledger-k { grid-column: 1 / -1; margin-top: 4px; }
+.td-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 10px; }
+.td-mode button { min-height: 40px; border-radius: 12px; font-size: 13px; color: var(--muted); background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.td-mode button.on { color: var(--ink); background: color-mix(in srgb, var(--accent) 22%, transparent); font-weight: 600; }
+.td-drow { grid-template-columns: 62px 74px minmax(0, 1fr); }
+.td-thought { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--line); }
+.td-thought b { font-weight: 400; font-size: 13px; overflow-wrap: anywhere; }
+.td-thought.fix b { font-weight: 600; }
+.td-thought em { font-style: normal; font-size: 10.5px; color: var(--muted); }
+.td-exp { padding: 8px 0; border-top: 1px dashed var(--line); }
+.td-exp small { font-size: 10.5px; color: var(--muted); }
+.td-exp p { margin: 3px 0 0; font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }

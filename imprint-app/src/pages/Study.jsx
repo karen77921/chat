@@ -18,6 +18,18 @@ const CLASSICS = [
 const SIZES = [15.5, 17, 18.5, 20];
 
 const go = (hash) => { location.hash = hash; };
+const SHELF = '#/together?tab=read';
+const FROM_SHELF = 'st-from-shelf';
+// 从书架点进书时记一笔；退出时退回书架那条历史记录，而不是再压一条「一起读」进去——
+// 否则「一起」页的返回（history.back）会把人又送回书里，怎么都退不出去
+const openBook = (hash) => { try { sessionStorage.setItem(FROM_SHELF, '1'); } catch { /* 无痕模式 */ } go(hash); };
+function leaveTo(e) {
+  e?.preventDefault();
+  let fromShelf = false;
+  try { fromShelf = sessionStorage.getItem(FROM_SHELF) === '1'; sessionStorage.removeItem(FROM_SHELF); } catch { /* 无痕模式 */ }
+  if (fromShelf && history.length > 1) history.back();
+  else location.replace(SHELF);
+}
 const initial = (name, fallback) => { const s = [...String(name || '').trim()]; return s.length ? s[s.length - 1] : fallback; };
 const hash = (s) => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 function inkOn(hex) {
@@ -120,7 +132,7 @@ export function Shelf({ embedded = false }) {
           <button type="button" className="st-ghost" onClick={() => setSheet('import')}>导入</button></header>
       ) : (
         <header className="st-head">
-          <a href="#/together?tab=read" className="st-back" aria-label="返回">‹</a>
+          <a href={SHELF} className="st-back" aria-label="返回" onClick={(e) => { e.preventDefault(); location.replace(SHELF); }}>‹</a>
           <div><div className="st-eyebrow">The Study</div><h1>书房</h1></div>
           <button type="button" className="st-ghost" onClick={() => setSheet('import')}>导入</button>
         </header>
@@ -140,13 +152,13 @@ export function Shelf({ embedded = false }) {
       {cur && (
         <>
           <section className="st-stage">
-            <button type="button" className="st-hero" onClick={() => go(`#/study/read?id=${cur.id}`)} aria-label={`读《${cur.title}》`}>
+            <button type="button" className="st-hero" onClick={() => openBook(`#/study/read?id=${cur.id}`)} aria-label={`读《${cur.title}》`}>
               <Cover book={cur} />
               <i className="st-ribbon her" /><i className="st-ribbon him" />
             </button>
             {rest.slice(0, 3).map((b, i) => (
               <div key={b.id} className="st-stand" style={{ left: 196 + i * 27 }}>
-                <Spine book={b} {...spineSize(b, 186)} w={20 + (hash(b.id) % 6)} onClick={() => go(`#/study/read?id=${b.id}`)} />
+                <Spine book={b} {...spineSize(b, 186)} w={20 + (hash(b.id) % 6)} onClick={() => openBook(`#/study/read?id=${b.id}`)} />
               </div>
             ))}
             <i className="st-flat" style={{ left: 196 + Math.min(rest.length, 3) * 27 + 10, background: rest[3]?.color || '#6d7d84' }} />
@@ -167,7 +179,7 @@ export function Shelf({ embedded = false }) {
                   : him.pct > me.pct + 0.4 ? <>{names.him}读到了「{him.title}」<br />在前面等你</>
                     : <>{names.him}在你后面一点<br />读到「{him.title}」</>}
               </small>
-              <button type="button" className="st-black" onClick={() => go(`#/study/read?id=${cur.id}`)}>{me.started ? '继续阅读' : '开始读'}</button>
+              <button type="button" className="st-black" onClick={() => openBook(`#/study/read?id=${cur.id}`)}>{me.started ? '继续阅读' : '开始读'}</button>
             </div>
           </section>
 
@@ -175,7 +187,7 @@ export function Shelf({ embedded = false }) {
           {rows.map((row, ri) => (
             <div key={ri} className="st-shelfrow">
               <div className="st-spines">
-                {row.map((b) => <Spine key={b.id} book={b} {...spineSize(b)} onClick={() => go(`#/study/read?id=${b.id}`)} />)}
+                {row.map((b) => <Spine key={b.id} book={b} {...spineSize(b)} onClick={() => openBook(`#/study/read?id=${b.id}`)} />)}
                 {ri === rows.length - 1 && <button type="button" className="st-add" onClick={() => setSheet('import')} aria-label="导入">＋</button>}
               </div>
               <div className="st-ledge" />
@@ -183,7 +195,7 @@ export function Shelf({ embedded = false }) {
           ))}
 
           {(data.recent || []).filter((n, i, all) => all.findIndex((x) => x.book === n.book && x.quote === n.quote) === i).slice(0, 2).map((n) => (
-            <button key={n.id} type="button" className={`st-quote ${n.by}`} onClick={() => go(`#/study/read?id=${n.book}&ch=${n.ch}&para=${n.para}`)}>
+            <button key={n.id} type="button" className={`st-quote ${n.by}`} onClick={() => openBook(`#/study/read?id=${n.book}&ch=${n.ch}&para=${n.para}`)}>
               <p>{quoted(n.quote.length > 120 ? `${n.quote.slice(0, 120)}…` : n.quote)}</p>
               <div><b>{n.by === 'him' ? himI : meI}</b>　{n.text}</div>
             </button>
@@ -502,7 +514,7 @@ function Reader({ id, chParam, paraParam }) {
     turn(dir);
   };
 
-  if (data?.error) return <main className="st st-reader"><p className="st-quiet">{data.error}　<a href="#/together?tab=read">回书架</a></p></main>;
+  if (data?.error) return <main className="st st-reader"><p className="st-quiet">{data.error}　<a href={SHELF} onClick={leaveTo}>回书架</a></p></main>;
   const book = data?.book;
   const marks = data?.marks || [];
   const roots = marks.filter((m) => !m.parent);
@@ -565,7 +577,7 @@ function Reader({ id, chParam, paraParam }) {
   return (
     <main className={`st st-reader ${prefs.night ? 'night' : ''} ${paged ? 'paged' : ''}`} style={{ '--fs': `${SIZES[prefs.size]}px` }} onClick={() => { setPick(null); setAa(false); }}>
       <header className="st-rbar">
-        <a href="#/together?tab=read" className="st-x" aria-label="回书架">×</a>
+        <a href={SHELF} className="st-x" aria-label="回书架" onClick={leaveTo}>×</a>
         <button type="button" className="st-c" onClick={(e) => { e.stopPropagation(); setToc(true); }}>{book?.title || ''}</button>
         <button type="button" className="st-tocb" onClick={(e) => { e.stopPropagation(); setToc(true); }} aria-label="目录">目录</button>
         <button type="button" className="st-aa" onClick={(e) => { e.stopPropagation(); setAa((v) => !v); }}>Aa</button>

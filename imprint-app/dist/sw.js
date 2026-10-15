@@ -31,8 +31,15 @@ function assetFirst(event) {
 function pageFirst(event) {
   const scope = self.registration.scope;
   const fresh = fetch(event.request);
-  // 先登记「存新版」，保证在页面读走内容之前复制一份
-  event.waitUntil(fresh.then((res) => remember(scope, res.clone())).catch(() => {}));
+  // 先登记「存新版」，保证在页面读走内容之前复制一份；顺便告诉页面现在最新的是哪一版，
+  // 页面要是用的旧版（服务器慢时先拿了存着的），下次切回来就自己刷新
+  event.waitUntil(fresh.then(async (res) => {
+    const copy = res.clone();
+    await remember(scope, res.clone());
+    const entry = (await copy.text()).match(/assets\/index-[\w-]+\.js/)?.[0];
+    if (!entry) return;
+    for (const win of await self.clients.matchAll({ type: 'window' })) win.postMessage({ type: 'imprint-latest', entry });
+  }).catch(() => {}));
   const slow = new Promise((ok) => setTimeout(ok, 3000)).then(() => caches.match(scope));
   return Promise.race([fresh, slow])
     .then((first) => first || fresh)

@@ -7,11 +7,10 @@ import Icon from '../../design/icons.jsx';
 import { useLoad } from '../../lib/useLoad.js';
 import { BUILTIN, Sticker } from './stickers.jsx';
 import { api } from '../../lib/api.js';
-import { shrinkImage, mapLimited } from '../../lib/image.js';
 
 const MAX_IMAGES = 9;
 
-export default function InputBar({ queued, replying, quote, onCancelQuote, editing, onCancelEdit, draft, onSend, onReply, onPause, onUpload, toName, nameOf }) {
+export default function InputBar({ queued, replying, quote, onCancelQuote, editing, onCancelEdit, draft, onSend, onSendImages, onReply, onPause, onUpload, toName, nameOf }) {
   const [text, setText] = useState('');
   const [panel, setPanel] = useState(null); // null | 'plus' | 'sticker' | 'gifts'
   const [picked, setPicked] = useState(null); // 券：先点选中，再点「用掉」才发
@@ -57,29 +56,12 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendText(); }
   };
 
-  const pickImages = async (files) => {
+  // 发图不再在这里等上传：图马上出现在聊天里，上传在后台做（见 lib/chat.js 的 sendImages）
+  const pickImages = (files) => {
     const list = [...files].slice(0, MAX_IMAGES);
-    if (!list.length || sendingAttachment.current) return;
-    sendingAttachment.current = true;
-    setBusy(`正在传 ${list.length} 张图…`); setPanel(null);
-    let step = '压图';
-    let sizes = [];
-    try {
-      const ups = await mapLimited(list, 2, async (f) => {
-        const small = await shrinkImage(f);
-        sizes.push(`${(f.size / 1048576).toFixed(1)}→${(small.size / 1048576).toFixed(1)} MB`);
-        step = '上传';
-        return onUpload(small, 'image');
-      }, (n) => setBusy(n < list.length ? `正在传图 ${n}/${list.length}…` : '马上就好…'));
-      step = '发送';
-      await onSend({ type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) });
-      setBusy('');
-    } catch (e) {
-      // 把卡在哪一步、为什么、图多大都说出来，才查得出来
-      const why = e?.status ? `HTTP ${e.status} ${e.message || ''}` : (e?.message || String(e));
-      setBusy(`图没${step === '发送' ? '发' : '传'}出去（${step}：${why.slice(0, 60)}${sizes.length ? `；${sizes.join('、')}` : ''}）`);
-      setTimeout(() => setBusy(''), 15000);
-    } finally { sendingAttachment.current = false; }
+    if (!list.length) return;
+    setPanel(null);
+    onSendImages(list);
   };
   const pickFile = async (f) => {
     if (!f || sendingAttachment.current) return;

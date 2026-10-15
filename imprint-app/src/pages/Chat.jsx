@@ -163,7 +163,8 @@ export default function Chat({ query }) {
       {!searching && (
         <InputBar toName={group ? data?.name : him?.name} nameOf={who} queued={queued} replying={!!st} quote={quote} editing={editing}
           onCancelQuote={() => setQuote(null)} onCancelEdit={() => setEditing(null)} draft={draft}
-          onSend={send} onReply={doReply} onPause={c.pause} onUpload={c.upload} />
+          onSend={send} onSendImages={(files) => { setQuote(null); c.sendImages(files).catch(() => flash('图没发出去，点那条重发')); }}
+          onReply={doReply} onPause={c.pause} onUpload={c.upload} />
       )}
 
       {menu && (

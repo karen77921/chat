@@ -202,7 +202,7 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
         {body}
         {m.reaction && <span className="cm-react"><Sticker sticker={{ id: m.reaction }} size={26} /></span>}
       </div>
-      {m.status === 'unsent' && <button type="button" className="cm-unsent" onClick={() => onResend(m)}><Icon name="alert" size={13} stroke={1.5} />没发出去，点一下重发</button>}
+      {m.status === 'unsent' && <button type="button" className="cm-unsent" onClick={() => onResend(m)}><Icon name="alert" size={13} stroke={1.5} />没发出去，点一下重发{m.error ? `（${m.error}）` : ''}</button>}
       {foot}
     </div>
   );

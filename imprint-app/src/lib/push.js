@@ -11,6 +11,14 @@ const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.p
 export function registerSW() {
   if (!('serviceWorker' in navigator) || !import.meta.env.PROD) return;
   navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+  // 服务器慢的时候先用了手机里存的旧版：知道有新版以后，等她下次切回 App 再刷新（不打断正在打的字）
+  let stale = false;
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const entry = event.data?.type === 'imprint-latest' && event.data.entry;
+    const mine = document.querySelector('script[src*="assets/index-"]')?.getAttribute('src') || '';
+    if (entry && mine && !mine.endsWith(entry)) stale = true;
+  });
+  document.addEventListener('visibilitychange', () => { if (stale && document.visibilityState === 'visible') location.reload(); });
 }
 
 function keyBytes(b64) {

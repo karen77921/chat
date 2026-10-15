@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, MOCK, streamUrl, adaptStreamEvent } from './api.js';
 import { upsertMessage, settleSentMessage, mergeResync, mergeFull } from './chatItems.js';
+import { shrinkImage, mapLimited } from './image.js';
 
 /** 他那边的状态：回复中 → 超过 30 秒没新动静「仍在等待」→ 超过 2 分钟「卡住了」 */
 export const WAIT_MS = 30000;
@@ -139,9 +140,37 @@ export function useChat(chatId, demo) {
       throw e;
     }
   };
+  /** 发图：先把手机上的预览放进聊天（马上看得到），压图、上传在后台做，传完再正式发出去。
+   *  失败了那条就标「没发出去」并写明卡在哪一步、为什么，点一下就重传（原图还留着）。 */
+  const sendImages = async (files) => {
+    const id = `tmp-${Date.now()}-${++temporarySequence.current}`;
+    const previews = files.map((f) => { const url = URL.createObjectURL(f); return { url, thumb: url }; });
+    patch((d) => ({ ...d, items: [...d.items, { id, from: 'me', status: 'sending', at: new Date().toISOString(), type: 'images', images: previews, files }] }));
+    let step = '压图';
+    try {
+      const ups = await mapLimited(files, 2, async (f) => {
+        const small = await shrinkImage(f);
+        step = '上传';
+        return upload(small, 'image');
+      });
+      step = '发送';
+      const m = await api(`${base}/messages`, { method: 'POST', body: { type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) } });
+      patch((d) => ({ ...d, items: settleSentMessage(d.items, id, m) }));
+      setTimeout(() => previews.forEach((p) => URL.revokeObjectURL(p.url)), 5000);
+      return m;
+    } catch (e) {
+      const why = e?.status ? `HTTP ${e.status}${e.message ? ` ${e.message}` : ''}` : (e?.message || '没连上');
+      patch((d) => ({ ...d, items: d.items.map((x) => (x.id === id ? { ...x, status: 'unsent', error: `${step}：${why}`.slice(0, 80) } : x)) }));
+      throw e;
+    }
+  };
   const resend = async (m) => {
     patch((d) => ({ ...d, items: d.items.filter((x) => x.id !== m.id) }));
-    const { id, status, at, from, ...body } = m;
+    if (m.files?.length) {
+      m.images?.forEach((p) => URL.revokeObjectURL(p.url));
+      return sendImages(m.files);
+    }
+    const { id, status, at, from, error, ...body } = m;
     return send(body);
   };
   /** to：群聊里让谁回（成员 id），不给就是大家 */
@@ -177,7 +206,7 @@ export function useChat(chatId, demo) {
     return api('/api/chat/upload', { method: 'POST', form, timeout: kind === 'voice' ? 60000 : 180000 });
   };
 
-  return { data, now, reload: load, send, resend, reply, pause, regenerate, edit, remove, react, upload };
+  return { data, now, reload: load, send, sendImages, resend, reply, pause, regenerate, edit, remove, react, upload };
 }
 
 const pad = (n) => String(n).padStart(2, '0');

@@ -9,7 +9,7 @@ const MAX_PIXELS = 2_400_000;
 const MAX_EDGE = 4096;
 // 长图（长表格、长聊天记录）：多留点宽度，小字才不会在上传前就糊掉；服务器会把它切成几段给他看
 const TALL_RATIO = 2.5;
-const TALL_MAX_PIXELS = 6_000_000;
+const TALL_MAX_PIXELS = 3_500_000; // 768×4500 左右：小字还认得出，文件也不至于太大
 const TALL_MAX_EDGE = 10000;
 const QUALITY = 0.8;
 const SMALL = 400 * 1024;

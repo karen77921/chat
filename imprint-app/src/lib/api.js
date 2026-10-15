@@ -80,9 +80,10 @@ export function authedImageUrl(url) {
 
 export function streamUrl() { return withToken(`${RELAY}/app/stream`); }
 
-/** 分块上传：切成 128 KB 一块，一块块传（每块和发一条消息差不多大），断了只重传那一块，
- *  到齐了服务器拼好再交给中继存。手机网络传整张图，路上一断就全没了。onProgress(0–1) */
-const CHUNK = 128 * 1024;
+/** 分块上传：切成 64 KB 一块，一块接一块地传（每块和发一条消息差不多大），断了只重传那一块，
+ *  到齐了服务器拼好再交给中继存。到服务器的上行有时只有几 KB/s：块要小到中继 30 秒内转得完，
+ *  而且一次只传一块，不让两块抢同一条细水管。onProgress(0–1) */
+const CHUNK = 64 * 1024;
 const toBase64 = (blob) => new Promise((ok, fail) => {
   const reader = new FileReader();
   reader.onload = () => ok(String(reader.result).split(',', 2)[1] || '');
@@ -98,18 +99,18 @@ export async function uploadInChunks(file, { onProgress } = {}) {
     for (let attempt = 1; ; attempt++) {
       try {
         // 网很慢的时候一块也可能要几十秒：多等一会儿，别在快传完时放弃
-        await loop('upload/chunk', { method: 'POST', body: { id, index, total, data }, timeout: 90000 });
+        await loop('upload/chunk', { method: 'POST', body: { id, index, total, data }, timeout: 60000 });
         onProgress?.(++done / total);
         return;
       } catch (e) {
-        if (attempt >= 5 || (e?.status && e.status !== 0 && e.status < 500 && e.status !== 408 && e.status !== 429)) throw e;
+        if (attempt >= 6 || (e?.status && e.status !== 502 && e.status !== 504 && e.status !== 0 && e.status < 500 && e.status !== 408 && e.status !== 429)) throw e;
         await new Promise((ok) => setTimeout(ok, 800 * attempt));
       }
     }
   };
   let next = 0;
   const worker = async () => { while (next < total) await sendOne(next++); };
-  await Promise.all([worker(), worker()]);
+  await worker();
   const up = await loop('upload/finish', { method: 'POST', body: { id, total, name: file.name || 'photo.jpg', mime: file.type || '' }, timeout: 90000 });
   if (!up?.url) throw new ApiError(0, '服务器没给图片地址');
   return { ...up, thumb: up.thumb || up.url };

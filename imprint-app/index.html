@@ -13,10 +13,9 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Imprint" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- 手写体和标题衬线体；正文用系统自带的苹方-繁，不需要加载 -->
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Long+Cang&family=Mrs+Saint+Delafield&display=swap" />
+    <!-- 标题衬线体和英文手写体放在自己服务器上（design/fonts.css）。中文手写体只有 Google 有：
+         不挡着页面加载，连不上就用系统手写体，不会再白屏等它 -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Long+Cang&display=swap" media="print" onload="this.media='all'" />
   </head>
   <body>
     <div id="root"></div>

@@ -1,6 +1,54 @@
-/* Imprint 的 service worker：只管手机推送（不缓存页面，免得更新后还看到旧版） */
+/* Imprint 的 service worker：手机推送 + 把 App 本身存在手机上，打开时不用每次从服务器重新下载。
+ * - assets/ 里的文件名带内容指纹，内容变了名字就变：存过的直接用，永远不会是旧版
+ * - 页面本身先问服务器（拿到最新版）；服务器 3 秒还没回，先用存着的打开，新版在后台存好、下次打开就是
+ * - 聊天、心潮这些数据（/relay/…）一律不经过这里 */
+const SHELL = 'imprint-shell-v1';
+const KEEP = 120;
+
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (event) => event.waitUntil((async () => {
+  for (const key of await caches.keys()) if (key !== SHELL) await caches.delete(key);
+  await self.clients.claim();
+})()));
+
+async function remember(req, res) {
+  if (!res || !res.ok || res.type === 'opaque') return;
+  const cache = await caches.open(SHELL);
+  await cache.put(req, res);
+  const keys = await cache.keys();
+  for (const old of keys.slice(0, Math.max(0, keys.length - KEEP))) await cache.delete(old);
+}
+
+function assetFirst(event) {
+  const fresh = caches.match(event.request).then((hit) => hit || fetch(event.request).then((res) => {
+    event.waitUntil(remember(event.request, res.clone()));
+    return res;
+  }));
+  event.waitUntil(fresh.catch(() => {}));
+  return fresh;
+}
+
+function pageFirst(event) {
+  const scope = self.registration.scope;
+  const fresh = fetch(event.request);
+  // 先登记「存新版」，保证在页面读走内容之前复制一份
+  event.waitUntil(fresh.then((res) => remember(scope, res.clone())).catch(() => {}));
+  const slow = new Promise((ok) => setTimeout(ok, 3000)).then(() => caches.match(scope));
+  return Promise.race([fresh, slow])
+    .then((first) => first || fresh)
+    .catch(() => caches.match(scope).then((hit) => hit || fresh));
+}
+
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  const base = new URL(self.registration.scope);
+  if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) return;
+  const rel = url.pathname.slice(base.pathname.length);
+  if (rel.startsWith('assets/')) event.respondWith(assetFirst(event));
+  else if (req.mode === 'navigate' && (rel === '' || rel === 'index.html')) event.respondWith(pageFirst(event));
+});
 
 self.addEventListener('push', (event) => {
   let data = {};

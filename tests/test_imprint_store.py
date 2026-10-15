@@ -1427,3 +1427,13 @@ class BookTest(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 asyncio.run(api_loop.books_import(Request({"url": "/relay/uploads/missing", "name": "x.txt"})))
         self.assertEqual((out["book"]["title"], out["book"]["status"], out["book"]["chapters"]), ("Pride and Prejudice", "reading", 2))
+
+    def test_txt_table_of_contents_and_web_novel_headings(self):
+        body = "\n".join(f"正文 第{i}章 标题{i}\n" + "\n".join(f"第{i}章的第{j}段。" for j in range(3)) for i in range(1, 71))
+        toc = "目录\n" + "\n".join(f"第{i}章 标题{i}" for i in range(1, 71))
+        for text in (toc + "\n" + body, body + "\n" + toc):
+            book = imprint_store.parse_book("网文.txt", text.encode())
+            self.assertEqual(len(book["chapters"]), 70)
+            self.assertEqual(book["chapters"][1]["title"], "第2章 标题2")
+            self.assertEqual(book["chapters"][69]["paras"][0], "第70章的第0段。")
+        self.assertFalse(imprint_store._is_head("第一回见到他时，他正在看书。"))

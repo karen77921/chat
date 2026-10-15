@@ -304,7 +304,9 @@ function Reader({ id, chParam, paraParam }) {
   const [toast, setToast] = useState('');
   const [page, setPage] = useState(0);
   const [pages, setPages] = useState(1);
-  const [slide, setSlide] = useState(false); // 翻页动画：换章、改字号时不要动画
+  const [slide, setSlide] = useState(false); // 换章、改字号时不要动画
+  const [flip, setFlip] = useState(null); // 仿真翻页：{ dir, show: 正在翻的那一页, angle, anim }
+  const flipping = useRef(false);
   const ready = useRef(false);
   const lastSaved = useRef('');
   const target = useRef(paraParam != null ? Number(paraParam) : null);
@@ -401,12 +403,29 @@ function Reader({ id, chParam, paraParam }) {
     return () => { removeEventListener('scroll', on); clearTimeout(timer); };
   }, [paged, data?.paras, saveAt]);
 
+  // —— 仿真翻页：翻起来的那一页绕着书脊转过去，底下露出下一页 ——
+  const FLIP_MS = 430, FLAT = 0, GONE = -92;
+  const twoFrames = (fn) => requestAnimationFrame(() => requestAnimationFrame(fn));
+  const finish = (angle, after) => {
+    setFlip((f) => f && { ...f, angle, anim: true });
+    setTimeout(() => { after?.(); setFlip(null); flipping.current = false; }, FLIP_MS + 30);
+  };
+  const startFlip = (dir) => {
+    if (dir > 0) { setFlip({ dir, show: page, angle: FLAT, anim: false }); setPage(page + 1); } else setFlip({ dir, show: page - 1, angle: GONE, anim: false });
+    setSlide(false);
+    flipping.current = true;
+  };
+  const flipTo = (dir) => {
+    const to = page + dir;
+    startFlip(dir);
+    twoFrames(() => finish(dir > 0 ? GONE : FLAT, dir < 0 ? () => setPage(to) : null));
+  };
   const turn = (dir) => {
     setPick(null);
-    if (!data?.paras) return;
+    if (!data?.paras || flipping.current) return;
     if (dir > 0) {
-      if (page < pages - 1) { setSlide(true); setPage(page + 1); } else if (data.ch < data.toc.length - 1) { target.current = 0; setCh(data.ch + 1); } else say('这本读完啦');
-    } else if (page > 0) { setSlide(true); setPage(page - 1); } else if (data.ch > 0) { target.current = 'end'; setCh(data.ch - 1); }
+      if (page < pages - 1) flipTo(1); else if (data.ch < data.toc.length - 1) { target.current = 0; setCh(data.ch + 1); } else say('这本读完啦');
+    } else if (page > 0) flipTo(-1); else if (data.ch > 0) { target.current = 'end'; setCh(data.ch - 1); }
   };
   const jump = (i) => { target.current = 0; setToc(false); if (i === data?.ch) settle(0); else setCh(i); };
   useEffect(() => {
@@ -415,12 +434,45 @@ function Reader({ id, chParam, paraParam }) {
     addEventListener('keydown', on);
     return () => removeEventListener('keydown', on);
   });
-  const onTouchStart = (e) => { const p = e.touches[0]; touch.current = { x: p.clientX, y: p.clientY }; };
+  // 手指拖着翻：页跟着手走，松手过了四分之一就翻过去，不然弹回来
+  const onTouchStart = (e) => {
+    if (flipping.current && !touch.current) return;
+    const p = e.touches[0];
+    touch.current = { x: p.clientX, y: p.clientY, t: Date.now(), mode: '', from: page };
+  };
+  const onTouchMove = (e) => {
+    const s = touch.current;
+    if (!s) return;
+    const p = e.touches[0], dx = p.clientX - s.x, dy = p.clientY - s.y;
+    if (!s.mode) {
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      s.dir = dx < 0 ? 1 : -1;
+      s.mode = (s.dir > 0 ? page < pages - 1 : page > 0) ? 'flip' : 'chapter';
+      if (s.mode === 'flip') { setPick(null); startFlip(s.dir); }
+    }
+    if (s.mode === 'flip') {
+      const prog = Math.max(0, Math.min(1, (s.dir > 0 ? -dx : dx) / (stride() * 0.75)));
+      setFlip((f) => f && { ...f, angle: s.dir > 0 ? GONE * prog : GONE * (1 - prog), anim: false });
+    }
+  };
   const onTouchEnd = (e) => {
     const s = touch.current; touch.current = null;
-    if (!s) return;
-    const p = e.changedTouches[0], dx = p.clientX - s.x, dy = p.clientY - s.y;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2) turn(dx < 0 ? 1 : -1);
+    if (!s?.mode) return;
+    const dx = e.changedTouches[0].clientX - s.x;
+    if (s.mode === 'chapter') { if (Math.abs(dx) > 40) turn(s.dir); return; }
+    const prog = Math.abs(dx) / (stride() * 0.75), fast = Math.abs(dx) / Math.max(1, Date.now() - s.t) > 0.45;
+    const done = (s.dir > 0 ? dx < 0 : dx > 0) && (prog > 0.22 || (fast && prog > 0.05));
+    if (s.dir > 0) finish(done ? GONE : FLAT, done ? null : () => setPage(s.from));
+    else finish(done ? FLAT : GONE, done ? () => setPage(s.from - 1) : null);
+  };
+  // 点书页左右两边翻页（中间点句子）
+  const onEdgeTap = (e) => {
+    if (!paged || e.target.closest('button')) return;
+    const r = vp.current.getBoundingClientRect(), x = e.clientX - r.left;
+    const dir = x < r.width * 0.24 ? -1 : x > r.width * 0.76 ? 1 : 0;
+    if (!dir) return;
+    e.stopPropagation(); e.preventDefault();
+    turn(dir);
   };
 
   if (data?.error) return <main className="st st-reader"><p className="st-quiet">{data.error}　<a href="#/together?tab=read">回书架</a></p></main>;
@@ -450,31 +502,8 @@ function Reader({ id, chParam, paraParam }) {
     } catch (e) { say(e?.message || '没划上'); }
   };
 
-  return (
-    <main className={`st st-reader ${prefs.night ? 'night' : ''} ${paged ? 'paged' : ''}`} style={{ '--fs': `${SIZES[prefs.size]}px` }} onClick={() => { setPick(null); setAa(false); }}>
-      <header className="st-rbar">
-        <a href="#/together?tab=read" className="st-x" aria-label="回书架">×</a>
-        <button type="button" className="st-c" onClick={(e) => { e.stopPropagation(); setToc(true); }}>{book?.title || ''}</button>
-        <button type="button" className="st-tocb" onClick={(e) => { e.stopPropagation(); setToc(true); }} aria-label="目录">目录</button>
-        <button type="button" className="st-aa" onClick={(e) => { e.stopPropagation(); setAa((v) => !v); }}>Aa</button>
-      </header>
-      {aa && (
-        <div className="st-aa-pop" onClick={(e) => e.stopPropagation()}>
-          <div className="st-aa-row"><span>字号</span>
-            <button type="button" disabled={prefs.size === 0} onClick={() => setPrefs((p) => ({ ...p, size: p.size - 1 }))}>A−</button>
-            <button type="button" disabled={prefs.size === SIZES.length - 1} onClick={() => setPrefs((p) => ({ ...p, size: p.size + 1 }))}>A+</button></div>
-          <div className="st-aa-row"><span>翻书</span>
-            <button type="button" className={paged ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, mode: 'page' }))}>左右翻</button>
-            <button type="button" className={!paged ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, mode: 'scroll' }))}>上下滑</button></div>
-          <div className="st-aa-row"><span>夜读</span><button type="button" className={prefs.night ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, night: !p.night }))}>{prefs.night ? '开' : '关'}</button></div>
-          <button type="button" className="st-aa-toc" onClick={() => { setAa(false); setToc(true); }}>目录 · {data?.toc?.length || 0} 章</button>
-        </div>
-      )}
-
-      {!data && <p className="st-quiet">翻开中…</p>}
-      {data?.paras && (
-        <div className={paged ? 'st-vp' : ''} ref={vp} onTouchStart={paged ? onTouchStart : undefined} onTouchEnd={paged ? onTouchEnd : undefined}>
-        <article className={`st-text ${slide ? 'slide' : ''}`} ref={cols} style={paged ? { transform: `translateX(${-page * stride()}px)` } : undefined}>
+  const articleBody = data?.paras ? (
+        <>
           <div className="st-num">{head ? head[1].toUpperCase() : `${data.ch + 1} / ${data.toc.length}`}</div>
           <h1 className={`st-chapter ${head ? '' : 'long'}`}>{head ? head[2] : data.title}</h1>
           {data.paras.map((text, i) => {
@@ -503,7 +532,43 @@ function Reader({ id, chParam, paraParam }) {
               ? <button type="button" className="st-black" onClick={() => jump(data.ch + 1)}>下一章 →</button>
               : <button type="button" className="st-black" onClick={() => api(`/api/books/${id}/progress`, { method: 'POST', body: { ch: data.ch, para: data.paras.length - 1, done: true } }).then(() => say('读完了。去书架上看看你们留下的批注吧'))}>读完了</button>}
           </nav>
+        </>
+  ) : null;
+
+  return (
+    <main className={`st st-reader ${prefs.night ? 'night' : ''} ${paged ? 'paged' : ''}`} style={{ '--fs': `${SIZES[prefs.size]}px` }} onClick={() => { setPick(null); setAa(false); }}>
+      <header className="st-rbar">
+        <a href="#/together?tab=read" className="st-x" aria-label="回书架">×</a>
+        <button type="button" className="st-c" onClick={(e) => { e.stopPropagation(); setToc(true); }}>{book?.title || ''}</button>
+        <button type="button" className="st-tocb" onClick={(e) => { e.stopPropagation(); setToc(true); }} aria-label="目录">目录</button>
+        <button type="button" className="st-aa" onClick={(e) => { e.stopPropagation(); setAa((v) => !v); }}>Aa</button>
+      </header>
+      {aa && (
+        <div className="st-aa-pop" onClick={(e) => e.stopPropagation()}>
+          <div className="st-aa-row"><span>字号</span>
+            <button type="button" disabled={prefs.size === 0} onClick={() => setPrefs((p) => ({ ...p, size: p.size - 1 }))}>A−</button>
+            <button type="button" disabled={prefs.size === SIZES.length - 1} onClick={() => setPrefs((p) => ({ ...p, size: p.size + 1 }))}>A+</button></div>
+          <div className="st-aa-row"><span>翻书</span>
+            <button type="button" className={paged ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, mode: 'page' }))}>左右翻</button>
+            <button type="button" className={!paged ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, mode: 'scroll' }))}>上下滑</button></div>
+          <div className="st-aa-row"><span>夜读</span><button type="button" className={prefs.night ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, night: !p.night }))}>{prefs.night ? '开' : '关'}</button></div>
+          <button type="button" className="st-aa-toc" onClick={() => { setAa(false); setToc(true); }}>目录 · {data?.toc?.length || 0} 章</button>
+        </div>
+      )}
+
+      {!data && <p className="st-quiet">翻开中…</p>}
+      {data?.paras && (
+        <div className={paged ? 'st-vp' : ''} ref={vp} onClickCapture={onEdgeTap}
+          onTouchStart={paged ? onTouchStart : undefined} onTouchMove={paged ? onTouchMove : undefined} onTouchEnd={paged ? onTouchEnd : undefined}>
+        <article className={`st-text ${slide ? 'slide' : ''}`} ref={cols} style={paged ? { transform: `translateX(${-page * stride()}px)` } : undefined}>
+          {articleBody}
         </article>
+        {paged && flip && (
+          <div className={`st-flip ${flip.anim ? 'anim' : ''}`} style={{ '--a': `${flip.angle}deg`, '--p': Math.min(1, Math.abs(flip.angle) / 90) }} aria-hidden="true">
+            <article className="st-text" style={{ transform: `translateX(${-flip.show * stride()}px)` }}>{articleBody}</article>
+            <i className="st-flip-shade" />
+          </div>
+        )}
         </div>
       )}
 

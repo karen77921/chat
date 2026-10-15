@@ -719,9 +719,21 @@ def _join_lines(lines: list[str]) -> str:
     return re.sub(r"\s+", " ", out).strip()
 
 
+def _head_text(text: str) -> str:
+    """「正文 第一章 xx」「【第一章】」「第一卷 第三章」这种网文写法，去掉前缀和括号再认。"""
+    t = re.sub(r"\s+", " ", text).strip()
+    t = re.sub(r"^(?:正文|VIP章节|章节)\s*[:：]?\s*", "", t)
+    t = re.sub(r"^(?:第\s*[\d一二三四五六七八九十百千零〇两]+\s*[卷部]|卷\s*[\d一二三四五六七八九十百]+)[^第]{0,12}\s*(?=第)", "", t)
+    return t.strip("【】[]〔〕「」 ")
+
+
 def _is_head(text: str) -> bool:
-    text = text.strip()
-    return 0 < len(text) <= 60 and bool(BOOK_HEAD_RE.match(text))
+    raw = text.strip()
+    if not 0 < len(raw) <= 60:
+        return False
+    if _CJK.search(raw) and (re.search(r"[。，；、…]$", raw) or (re.search(r"[！？]$", raw) and len(raw) > 12)):
+        return False  # 中文句子收尾的不是标题（「第一回见到他时……」）
+    return bool(BOOK_HEAD_RE.match(_head_text(raw)))
 
 
 def book_meta_from_text(text: str) -> tuple[str, str]:
@@ -764,25 +776,17 @@ def book_paragraphs(text: str) -> list[str]:
 
 
 def book_chapters(paras: list[str]) -> list[dict]:
-    """→ [{title, paras}]。目录里的「CHAPTER I.」会和正文重复：同名的只留最后一次出现。"""
+    """→ [{title, paras}]。目录（连着好几行标题、中间没有正文）放在开头还是结尾都不算章节。"""
     chapters = [{"title": "", "paras": []}]
     for p in paras[:BOOK_MAX_PARAS]:
         if _is_head(p):
-            chapters.append({"title": p.strip().rstrip(".").strip(), "paras": []})
+            chapters.append({"title": _head_text(p).rstrip(".").strip()[:80] or p.strip()[:80], "paras": []})
         else:
             chapters[-1]["paras"].append(p)
-    key = lambda c: re.sub(r"[\W_]+", "", c["title"].casefold())
-    last = {key(c): i for i, c in enumerate(chapters) if c["title"]}
-    merged: list[dict] = []
-    for i, c in enumerate(chapters):
-        if c["title"] and last[key(c)] != i:
-            if merged:  # 目录那一行：内容并到前面
-                merged[-1]["paras"].extend(c["paras"])
-            continue
-        merged.append(c)
-    out = [c for c in merged if c["paras"]]
-    if len(out) > 1 and not out[0]["title"] and sum(len(p) for p in out[0]["paras"]) < 400:
-        out = out[1:]  # 开头只有「目录」几个字这种，不单独成章
+    size = lambda c: sum(len(p) for p in c["paras"])
+    out = [c for c in chapters if c["paras"]]
+    if len(out) > 1 and not out[0]["title"] and size(out[0]) < 400:
+        out = out[1:]  # 开头只有书名、「目录」几个字这种，不单独成章
     if out and not out[0]["title"]:
         out[0]["title"] = "开篇"
     if len(out) <= 1:  # 没认出章节：每 60 段一节

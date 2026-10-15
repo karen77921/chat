@@ -226,3 +226,12 @@
 .st-turn button { font-size: 22px !important; line-height: 1; padding: 2px 12px !important; }
 .st-turn em { font-style: normal; font-size: 11.5px; min-width: 52px; text-align: center; }
 .st .st-c { flex: 1; min-width: 0; text-align: center; font-family: var(--st-serif); font-size: 12px; letter-spacing: .28em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* —— 仿真翻页 —— */
+.st-flip { position: absolute; inset: 0; z-index: 3; overflow: hidden; background: var(--st-paper); pointer-events: none;
+  transform-origin: left center; transform: perspective(1500px) rotateY(var(--a)); backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  box-shadow: calc(-26px * var(--p)) 0 36px rgba(40, 30, 20, calc(.28 * var(--p))), 1px 0 0 rgba(0, 0, 0, .04); will-change: transform; }
+.st-flip.anim { transition: transform .43s cubic-bezier(.3, .55, .25, 1), box-shadow .43s; }
+.st-flip-shade { position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(0, 0, 0, calc(.10 * var(--p))) 0%, rgba(255, 255, 255, calc(.30 * var(--p))) 55%, rgba(0, 0, 0, calc(.22 * var(--p))) 92%, rgba(0, 0, 0, calc(.35 * var(--p))) 100%); }
+.st-reader.night .st-flip-shade { mix-blend-mode: multiply; }

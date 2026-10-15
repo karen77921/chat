@@ -1437,3 +1437,29 @@ class BookTest(unittest.TestCase):
             self.assertEqual(book["chapters"][1]["title"], "第2章 标题2")
             self.assertEqual(book["chapters"][69]["paras"][0], "第70章的第0段。")
         self.assertFalse(imprint_store._is_head("第一回见到他时，他正在看书。"))
+
+    def test_line_per_paragraph_txt_with_some_blank_lines(self):
+        # 网文 txt：UTF-16、一行一段、中间零星空行、====== 分隔线
+        parts = ["书名:你的雪人能活多久", "作者:稚楚", "", "=========================", ""]
+        for i in range(1, 41):
+            parts += [f"第{i}章  标题{i}[VIP]", ""] + [f"“第{i}章的第{j}句。”他说。" for j in range(4)] + ["", "======"]
+        book = imprint_store.parse_book("snowman.txt", "\r\n".join(parts).encode("utf-16"))
+        self.assertEqual((book["title"], book["author"]), ("你的雪人能活多久", "稚楚"))
+        titles = [c["title"] for c in book["chapters"]]
+        self.assertEqual(len([x for x in titles if x.startswith("第")]), 40)
+        self.assertEqual(book["chapters"][-1]["title"], "第40章 标题40")
+        self.assertEqual(book["chapters"][-1]["paras"], [f"“第40章的第{j}句。”他说。" for j in range(4)])
+
+    def test_slow_import_turns_into_a_job(self):
+        async def slow():
+            await asyncio.sleep(0.2)
+            return {"book": {"id": "x"}}
+
+        async def go():
+            with mock.patch.object(api_loop.asyncio, "wait_for", side_effect=asyncio.TimeoutError):
+                started = await api_loop.book_job(slow)
+            self.assertTrue(started["running"])
+            self.assertEqual(api_loop.books_job(started["job"])["state"], "running")
+            await asyncio.sleep(0.4)
+            self.assertEqual(api_loop.books_job(started["job"])["book"], {"id": "x"})
+        asyncio.run(go())

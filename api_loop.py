@@ -6514,31 +6514,73 @@ def import_book_bytes(name: str, data: bytes, source: str, read_now: bool = Fals
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+BOOK_JOBS: dict[str, dict[str, Any]] = {}
+
+
+async def book_job(work) -> dict[str, Any]:
+    """导书可能很慢（大文件、连国外书库）：先等 15 秒，没完就转到后台，页面拿 job 号来问进度，中转不会超时。"""
+    job = uuid.uuid4().hex[:12]
+    BOOK_JOBS[job] = {"state": "running"}
+
+    async def go() -> None:
+        try:
+            BOOK_JOBS[job] = {"state": "done", **(await work())}
+        except HTTPException as exc:
+            BOOK_JOBS[job] = {"state": "error", "detail": str(exc.detail)}
+        except Exception as exc:  # 后台任务不能把错吞掉，页面要看得到
+            BOOK_JOBS[job] = {"state": "error", "detail": f"没放上去（{type(exc).__name__}）"}
+
+    task = asyncio.create_task(go())
+    try:
+        await asyncio.wait_for(asyncio.shield(task), 15)
+    except asyncio.TimeoutError:
+        return {"job": job, "running": True}
+    out = BOOK_JOBS.pop(job)
+    if out["state"] == "error":
+        raise HTTPException(status_code=400, detail=out["detail"])
+    return out
+
+
+@app.get("/loop/books/job/{job}")
+def books_job(job: str):
+    out = BOOK_JOBS.get(job) or {"state": "error", "detail": "这次导入找不到了，刷新书架看看"}
+    if out["state"] != "running":
+        BOOK_JOBS.pop(job, None)
+    return out
+
+
 @app.post("/loop/books/import")
 async def books_import(request: Request):
     """她传上来的 txt / epub / pdf（先走聊天的上传通道，这里按 url 取回来拆成章节）。"""
     body = await request.json()
     name = str(body.get("name") or "book.txt")
-    data, _ = await fetch_upload({"url": str(body.get("url") or "")})
-    if not data:
-        raise HTTPException(status_code=400, detail="文件没传上来，再试一次")
-    return await asyncio.to_thread(import_book_bytes, name, data, "upload:" + name, bool(body.get("read_now")))
+
+    async def work() -> dict[str, Any]:
+        data, _ = await fetch_upload({"url": str(body.get("url") or "")})
+        if not data:
+            raise HTTPException(status_code=400, detail="文件没传上来，再试一次")
+        return await asyncio.to_thread(import_book_bytes, name, data, "upload:" + name, bool(body.get("read_now")))
+
+    return await book_job(work)
 
 
 @app.post("/loop/books/gutenberg/{number}")
 async def books_gutenberg(number: int):
     """古登堡书库（公版书）：按编号取 txt，几个镜像轮流试。"""
-    last = ""
-    for pattern in GUTENBERG_MIRRORS:
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(40, connect=10), follow_redirects=True) as client:
-                resp = await client.get(pattern.format(n=int(number)), headers={"User-Agent": "imprint-study/1"})
-            if resp.status_code == 200 and len(resp.content) > 2000:
-                return await asyncio.to_thread(import_book_bytes, f"pg{number}.txt", resp.content, f"gutenberg:{number}", True)
-            last = f"HTTP {resp.status_code}"
-        except httpx.HTTPError as exc:
-            last = type(exc).__name__
-    raise HTTPException(status_code=502, detail=f"古登堡书库连不上（{last}）。可以在电脑上下好 txt / epub，用「导入」传上来")
+    async def work() -> dict[str, Any]:
+        last = ""
+        for pattern in GUTENBERG_MIRRORS:
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=8), follow_redirects=True) as client:
+                    resp = await client.get(pattern.format(n=int(number)), headers={"User-Agent": "imprint-study/1"})
+                if resp.status_code == 200 and len(resp.content) > 2000:
+                    return await asyncio.to_thread(import_book_bytes, f"pg{number}.txt", resp.content, f"gutenberg:{number}", True)
+                last = f"HTTP {resp.status_code}"
+            except httpx.HTTPError as exc:
+                last = type(exc).__name__
+        raise HTTPException(status_code=502, detail=f"古登堡书库连不上（{last}），服务器在国内可能够不着它。可以下好 txt / epub，用「从手机里选」传上来")
+
+    return await book_job(work)
 
 
 @app.get("/loop/drives")

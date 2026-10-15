@@ -724,7 +724,11 @@ def _head_text(text: str) -> str:
     t = re.sub(r"\s+", " ", text).strip()
     t = re.sub(r"^(?:正文|VIP章节|章节)\s*[:：]?\s*", "", t)
     t = re.sub(r"^(?:第\s*[\d一二三四五六七八九十百千零〇两]+\s*[卷部]|卷\s*[\d一二三四五六七八九十百]+)[^第]{0,12}\s*(?=第)", "", t)
-    return t.strip("【】[]〔〕「」 ")
+    t = re.sub(r"\s*[\[【(（]\s*VIP[^\]】)）]*[\]】)）]?\s*$", "", t, flags=re.I)  # 网文的「[VIP]」
+    pair = {"【": "】", "[": "]", "〔": "〕", "「": "」"}
+    if t[:1] in pair and t.endswith(pair[t[:1]]):
+        t = t[1:-1]
+    return t.strip()
 
 
 def _is_head(text: str) -> bool:
@@ -739,8 +743,10 @@ def _is_head(text: str) -> bool:
 def book_meta_from_text(text: str) -> tuple[str, str]:
     """古登堡的书开头写着 Title: / Author:"""
     head = text[:6000]
-    title = re.search(r"^\s*Title:\s*(.+)$", head, re.M)
-    author = re.search(r"^\s*Author:\s*(.+)$", head, re.M)
+    title = re.search(r"^\s*(?:Title|书名)\s*[:：]\s*(.+?)\s*$", head, re.M)
+    author = re.search(r"^\s*(?:Author|作者)\s*[:：]\s*(.+?)\s*$", head, re.M)
+    if title:
+        return title.group(1).strip("《》 "), (author.group(1).strip() if author else "")
     return (title.group(1).strip() if title else ""), (author.group(1).strip() if author else "")
 
 
@@ -755,17 +761,27 @@ def book_clean_text(text: str) -> str:
     return text
 
 
+BOOK_RULE = re.compile(r"^[\s=\-_*~#·—.。…<>【】\[\]]{3,}$")  # ====== 这种分隔线
+BOOK_LINE_END = re.compile(r"[。！？!?…”」』\"'）)~～]$|[.;:]$")
+
+
 def book_paragraphs(text: str) -> list[str]:
-    """空行分段（英文、古登堡）；几乎没有空行的（中文 txt 一行一段）就一行一段。"""
-    lines = text.split("\n")
-    blank = sum(1 for x in lines if not x.strip())
-    if blank < max(3, len(lines) * 0.05):
-        return [re.sub(r"\s+", " ", x).strip() for x in lines if x.strip()]
+    """两种 txt：一行一段（中文网文常见，中间夹几行空行也算）；或者空行分段、段内硬换行（英文、古登堡）。"""
+    lines = [x for x in text.split("\n") if not BOOK_RULE.match(x)]
+    full = [x.strip() for x in lines if x.strip()]
+    blank = len(lines) - len(full)
+    # 硬换行的书：很多行在句子中间断开、下一行紧接着；一行一段的书几乎每行都是句子收尾
+    cont = sum(1 for a, b in zip(lines, lines[1:]) if a.strip() and b.strip() and not BOOK_LINE_END.search(a.strip()) and not _is_head(a))
+    if blank < max(3, len(lines) * 0.05) or (full and cont < len(full) * 0.25):
+        return [re.sub(r"\s+", " ", x) for x in full]
     paras, buf = [], []
     for line in lines + [""]:
         if line.strip():
             # 段中间夹着的独立标题行（前后没空行）也拆出来
-            if _is_head(line) and not buf:
+            if _is_head(line):
+                if buf:
+                    paras.append(_join_lines(buf))
+                    buf = []
                 paras.append(line.strip())
                 continue
             buf.append(line)

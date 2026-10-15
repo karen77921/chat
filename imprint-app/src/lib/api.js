@@ -230,6 +230,18 @@ async function liveFeatures() {
   };
 }
 
+/** 导书慢的时候后端转到后台做：每 3 秒问一次，最多等 5 分钟 */
+async function bookJob(r) {
+  if (!r?.running) return r;
+  for (let i = 0; i < 100; i += 1) {
+    await new Promise((ok) => setTimeout(ok, 3000));
+    const s = await loop(`books/job/${r.job}`).catch(() => ({ state: 'running' }));
+    if (s.state === 'done') return s;
+    if (s.state === 'error') throw new ApiError(400, s.detail || '没放上去');
+  }
+  throw new ApiError(408, '还在整理，过一会儿刷新书架看看');
+}
+
 async function compat(path, opts) {
   const method = opts.method || 'GET';
   const [p] = path.split('?');
@@ -370,12 +382,12 @@ async function compat(path, opts) {
   if (method === 'POST' && (m = /^\/api\/books\/([0-9a-f]+)\/(progress|mark|update)$/.exec(p))) return loop(`imprint/books/${m[1]}/${m[2]}`, opts);
   if (method === 'DELETE' && (m = /^\/api\/books\/marks\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/books/marks/${m[1]}`, { method: 'DELETE' });
   if (method === 'DELETE' && (m = /^\/api\/books\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/books/${m[1]}`, { method: 'DELETE' });
-  if (method === 'POST' && (m = /^\/api\/books\/gutenberg\/(\d+)$/.exec(p))) return loop(`books/gutenberg/${m[1]}`, { method: 'POST', body: {}, timeout: 180000 });
+  if (method === 'POST' && (m = /^\/api\/books\/gutenberg\/(\d+)$/.exec(p))) return bookJob(await loop(`books/gutenberg/${m[1]}`, { method: 'POST', body: {}, timeout: 60000 }));
   if (method === 'POST' && p === '/api/books/import') {
     // 先走聊天的上传通道把文件传上去，再让后端按 url 取回来拆章节
     const file = opts.body?.file;
     const up = await request(`${RELAY}/app/upload?name=${encodeURIComponent(file?.name || 'book.txt')}`, { method: 'POST', raw: file, timeout: 180000 });
-    return loop('books/import', { method: 'POST', body: { url: up.url, name: file?.name || 'book.txt', read_now: !!opts.body?.readNow }, timeout: 180000 });
+    return bookJob(await loop('books/import', { method: 'POST', body: { url: up.url, name: file?.name || 'book.txt', read_now: !!opts.body?.readNow }, timeout: 60000 }));
   }
   if (method === 'POST' && p === '/api/books/ask') {
     // 书里点「问他」：发到正在用的聊天窗口，再叫他回

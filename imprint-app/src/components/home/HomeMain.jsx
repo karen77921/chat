@@ -38,7 +38,7 @@ const KIND = {
 const TREASURES = [
   ['一起', 'play', '#/together', '听歌 · 看片 · 读书'], ['留言板', 'feather', '#/notes', '写给彼此'], ['搜留言', 'search', '#/notes?search=1', '翻以前的'],
   ['续火花', 'flame', '#/spark', '礼物铺 · 券'], ['买买申请', 'gift', '#/approvals', '他来批'], ['存钱罐', 'heart', '#/piggy', '他只能看'],
-  ['单词本', 'pen', '#/words', '他会抽查'],
+  ['单词本', 'pen', '#/words', '他会抽查'], ['抽屉', 'gift', '#/drawer', '封好的纸条'],
 ];
 const ACT_SHOWN = 4;
 
@@ -163,6 +163,7 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
           ) : <p className="hm-empty">他现在没有答应你、还没做的事</p>}
         </div>
       </section>
+      <HerStatus names={names} now={now} />
 
       {/* 往下：一起、动态、入口 */}
       {listen && (
@@ -204,7 +205,7 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
         </div>
       ) : <div className="card hm-pad muted">还没有可记录的动态</div>}
 
-      <button type="button" className="card hm-box" onClick={() => setBoxOpen(true)} aria-label="打开百宝箱">
+      <button type="button" className="card hm-box hm-tbox" onClick={() => setBoxOpen(true)} aria-label="打开百宝箱">
         <span className="hm-box-ic"><Icon name="gift" size={20} stroke={1.4} /></span>
         <span className="hm-box-t"><b>百宝箱</b><em>{TREASURES.map(([zh]) => zh).join(' · ')}</em></span>
         <span className="hm-round"><Icon name="chev" size={14} /></span>
@@ -227,6 +228,45 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
 
       {naming && <Names names={names} onClose={() => setNaming(false)} onSaved={() => { setNaming(false); onNamesSaved?.(); }} />}
     </main>
+  );
+}
+
+/* 她的此刻：点一下心情和在干嘛，他下一句话就知道，不用每次都问吃了没睡了没 */
+const MOODS = ['开心', '还行', '累', '困', '烦', '难过', '想你'];
+const DOINGS = ['上班', '上课', '学习', '吃饭', '路上', '躺着', '洗澡', '打游戏', '睡觉'];
+function HerStatus({ names: raw, now }) {
+  const names = { ...raw, him: raw?.him || '他' };
+  const { data, setData } = useLoad('/api/her-status');
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const st = data?.status || {};
+  const set = async (next) => {
+    setBusy(true);
+    try { setData(await api('/api/her-status', { method: 'POST', body: next })); } catch { /* 下次再点 */ }
+    setBusy(false);
+  };
+  const pick = (key, v) => set({ mood: st.mood || '', doing: st.doing || '', [key]: st[key] === v ? '' : v });
+  const shown = [st.mood, st.doing].filter(Boolean).join(' · ');
+  return (
+    <>
+      <button type="button" className="card hm-her" onClick={() => setOpen(true)}>
+        <span className="hm-k">我此刻</span>
+        <b>{shown || '点一下，告诉' + names.him + '你在干嘛'}</b>
+        {st.at && shown && <small>{ago(st.at, now)}</small>}
+      </button>
+      {open && (
+        <Sheet open onClose={() => setOpen(false)} label="我此刻" seed={63}>
+          <div className="hm-her-sheet">
+            <p className="hm-empty">点一下就好，{names.him}下一句话就知道了。</p>
+            <h4>心情</h4>
+            <div className="hm-chips">{MOODS.map((m) => <button key={m} type="button" disabled={busy} className={`chip ${st.mood === m ? 'on' : ''}`} onClick={() => pick('mood', m)}>{m}</button>)}</div>
+            <h4>在干嘛</h4>
+            <div className="hm-chips">{DOINGS.map((m) => <button key={m} type="button" disabled={busy} className={`chip ${st.doing === m ? 'on' : ''}`} onClick={() => pick('doing', m)}>{m}</button>)}</div>
+            {shown && <button type="button" className="cl-link" disabled={busy} onClick={() => set({})}>清空</button>}
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }
 

@@ -21,6 +21,7 @@ const Approvals = lazy(() => import('./pages/Approvals.jsx'));
 const Piggy = lazy(() => import('./pages/Piggy.jsx'));
 const Vocab = lazy(() => import('./pages/Vocab.jsx'));
 const Study = lazy(() => import('./pages/Study.jsx'));
+const Drawer = lazy(() => import('./pages/Drawer.jsx'));
 const Together = lazy(() => import('./pages/Together.jsx'));
 const Tide = lazy(() => import('./pages/Tide.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
@@ -34,6 +35,7 @@ const ROUTES = {
   '/spark': Spark,
   '/approvals': Approvals,
   '/piggy': Piggy,
+  '/drawer': Drawer,
   '/words': Vocab,
   '/study': Study,
   '/study/read': Study,

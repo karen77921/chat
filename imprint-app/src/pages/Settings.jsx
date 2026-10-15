@@ -224,9 +224,10 @@ function Walls() {
     setBusy(false);
   };
   const decide = (status) => post(`/api/walls/proposals/${open.id}`, { status, reply: reply.trim() }, () => { setOpen(null); setReply(''); });
-  const copy = async (x) => {
-    const text = `他的改墙提议：${x.title}\n哪里：${x.where || '（没写）'}\n为什么：${x.why}\n想改成：${x.suggestion}${x.reply ? `\n我说：${x.reply}` : ''}`;
-    try { await navigator.clipboard.writeText(text); setNote('复制好了，发给 cc 就行'); } catch { setNote('复制不了，长按文字手动复制吧'); }
+  const ticket = (x) => `他的改墙提议：${x.title}\n哪里：${x.where || '（没写）'}\n为什么：${x.why}\n想改成：${x.suggestion}${x.reply ? `\n我说：${x.reply}` : ''}`;
+  const copy = async (list) => {
+    try { await navigator.clipboard.writeText(list.map(ticket).join('\n\n———\n\n')); setNote(`复制好了${list.length > 1 ? `（${list.length} 条）` : ''}，发给 cc 就行`); }
+    catch { setNote('复制不了，长按文字手动复制吧'); }
   };
   const notes = data.notes || [];
   const asks = data.proposals || [];
@@ -244,6 +245,9 @@ function Walls() {
       </div>
       <p className="st-tip" style={{ marginTop: 22 }}>核心规则他不能直接改。觉得哪行在推他做不对的事，他会写成提议放在这里：你同意了，就复制给 cc 改；改好之后点「已经改好」，他会知道。</p>
       {asks.length === 0 && <div className="card st-pad">还没有提议。</div>}
+      {asks.filter((x) => x.status === 'approved').length > 1 && (
+        <button type="button" className="cl-link st-addmcp" onClick={() => copy(asks.filter((x) => x.status === 'approved'))}>把同意了还没改的 {asks.filter((x) => x.status === 'approved').length} 条一起复制给 cc</button>
+      )}
       <div className="st-prompts">
         {asks.map((x) => (
           <button key={x.id} type="button" className={`card st-prompt ${x.status === 'pending' ? '' : 'off'}`} onClick={() => { setOpen(x); setReply(x.reply || ''); }}>
@@ -263,7 +267,7 @@ function Walls() {
             {note && <p className="st-tip" role="status">{note}</p>}
             {open.status === 'pending' && <button type="button" className="btn-main" disabled={busy} onClick={() => decide('approved')}>同意</button>}
             {open.status === 'pending' && <button type="button" className="cl-link" disabled={busy} onClick={() => decide('declined')}>不同意</button>}
-            {open.status === 'approved' && <button type="button" className="btn-main" onClick={() => copy(open)}>复制给 cc</button>}
+            {open.status === 'approved' && <button type="button" className="btn-main" onClick={() => copy([open])}>复制给 cc</button>}
             {open.status === 'approved' && <button type="button" className="cl-link" disabled={busy} onClick={() => decide('done')}>已经改好了</button>}
           </div>
         </Sheet>

@@ -414,6 +414,11 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/cache-check') return loop('cache-check');
   if (method === 'POST' && p === '/api/cache-check') return loop('cache-check', opts);
   if (method === 'GET' && p === '/api/walls') return loop('walls');
+  if (method === 'GET' && p === '/api/drawer') return loop('imprint/drawer');
+  if (method === 'POST' && p === '/api/drawer') return loop('imprint/drawer', opts);
+  if (method === 'POST' && (m = /^\/api\/drawer\/([0-9a-f]+)\/(reveal|ask)$/.exec(p))) return loop(`imprint/drawer/${m[1]}/${m[2]}`, { method: 'POST' });
+  if (method === 'GET' && p === '/api/her-status') return loop('imprint/her-status');
+  if (method === 'POST' && p === '/api/her-status') return loop('imprint/her-status', opts);
   if (method === 'POST' && (m = /^\/api\/walls\/(notes|proposals)\/([0-9a-f]+)$/.exec(p))) return loop(`walls/${m[1]}/${m[2]}`, opts);
   if (method === 'GET' && p === '/api/prompts') return loop('prompts');
   if (method === 'PUT' && p === '/api/prompts') return loop('prompts', { ...opts, method: 'POST' });

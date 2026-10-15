@@ -6,6 +6,7 @@ never migrated or rewritten by the scrapbook UI.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import re
 import json
@@ -1224,6 +1225,120 @@ def book_action(conn: sqlite3.Connection, action: str, body: dict) -> dict:
     raise ValueError("unknown book action")
 
 
+# —— 抽屉：封好的纸条。封面谁都看得到，正文只有写的人看得到；封了就改不了（连封存时间也是），
+# 指纹是正文的 sha256 前 12 位，拆开时两边都能核对「没被偷偷换过」 ——
+DRAWER_COVER_MAX = 60
+DRAWER_BODY_MAX = 5000
+DRAWER_WHO = {"me", "him"}
+
+
+def _drawer_view(row: sqlite3.Row, viewer: str, now: dt.datetime) -> dict:
+    d = json.loads(row["payload"])
+    reveal_at = d.get("reveal_at") or ""
+    opened = d.get("revealed_at") or ""
+    if not opened and reveal_at:
+        with contextlib.suppress(ValueError):
+            if dt.datetime.fromisoformat(reveal_at) <= now:
+                opened = reveal_at
+    out = {"id": row["id"], "sealed_at": row["at"], "by": d["by"], "cover": d["cover"], "fingerprint": d["fingerprint"],
+           "reveal_at": reveal_at, "revealed_at": opened, "status": "revealed" if opened else "sealed",
+           "asked_at": d.get("asked_at") or ""}
+    if opened or d["by"] == viewer:
+        out["body"] = d["body"]
+    return out
+
+
+def drawer_action(conn: sqlite3.Connection, action: str, body: dict) -> dict:
+    now = dt.datetime.now(ZONE)
+    viewer = str(body.get("viewer") or "")
+    if viewer not in DRAWER_WHO:
+        raise ValueError("viewer must be me or him")
+    if action == "drawer_list":
+        found = conn.execute("SELECT id, at, payload FROM records WHERE kind='drawer' ORDER BY at DESC LIMIT 200").fetchall()
+        return {"items": [_drawer_view(r, viewer, now) for r in found]}
+    if action == "drawer_seal":
+        cover = str(body.get("cover") or "").strip()
+        text = str(body.get("body") or "").strip()
+        if not cover or len(cover) > DRAWER_COVER_MAX:
+            raise ValueError(f"封面 1–{DRAWER_COVER_MAX} 字")
+        if not text or len(text) > DRAWER_BODY_MAX:
+            raise ValueError(f"正文 1–{DRAWER_BODY_MAX} 字")
+        reveal_at = ""
+        if body.get("reveal_at"):
+            try:
+                when = dt.datetime.fromisoformat(str(body["reveal_at"]).replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("拆开时间格式不对") from exc
+            when = when.replace(tzinfo=ZONE) if when.tzinfo is None else when.astimezone(ZONE)
+            if when <= now:
+                raise ValueError("拆开时间要在以后")
+            reveal_at = when.isoformat(timespec="minutes")
+        rec_id, at = uuid.uuid4().hex, iso_now()
+        payload = {"by": viewer, "cover": cover, "body": text, "reveal_at": reveal_at,
+                   "fingerprint": hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]}
+        conn.execute("INSERT INTO records(id,kind,at,payload) VALUES(?,?,?,?)",
+                     (rec_id, "drawer", at, json.dumps(payload, ensure_ascii=False)))
+        row = conn.execute("SELECT id, at, payload FROM records WHERE id=?", (rec_id,)).fetchone()
+        return {"item": _drawer_view(row, viewer, now)}
+    row = conn.execute("SELECT id, at, payload FROM records WHERE id=? AND kind='drawer'", (str(body.get("id") or ""),)).fetchone()
+    if row is None:
+        raise ValueError("抽屉里没有这一张")
+    d = json.loads(row["payload"])
+    if action == "drawer_reveal":
+        # 只有写的人能提前拆；正文和封存时间都不动，只记下拆开的时间
+        if d["by"] != viewer:
+            raise ValueError("只有写这张纸条的人能拆")
+        d.setdefault("revealed_at", iso_now())
+    elif action == "drawer_ask":
+        if d["by"] == viewer:
+            raise ValueError("这是你自己写的")
+        d["asked_at"] = iso_now()
+        d["ask_told"] = False
+    else:
+        raise ValueError(f"unknown drawer action {action}")
+    conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(d, ensure_ascii=False), row["id"]))
+    fresh = conn.execute("SELECT id, at, payload FROM records WHERE id=?", (row["id"],)).fetchone()
+    return {"item": _drawer_view(fresh, viewer, now)}
+
+
+def drawer_context(conn: sqlite3.Connection) -> str:
+    """给他的一行：抽屉里有什么在等；她申请想看的，告诉他一次。"""
+    now = dt.datetime.now(ZONE)
+    rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='drawer' ORDER BY at DESC LIMIT 200").fetchall()
+    if not rows:
+        return ""
+    views = [_drawer_view(r, "him", now) for r in rows]
+    mine = [v for v in views if v["by"] == "him" and v["status"] == "sealed"]
+    hers = [v for v in views if v["by"] == "me" and v["status"] == "sealed"]
+    parts = []
+    if mine:
+        parts.append(f"你封着 {len(mine)} 张（" + "、".join(f"「{v['cover']}」" for v in mine[:5]) + "）")
+    if hers:
+        parts.append(f"她封着 {len(hers)} 张给你（" + "、".join(f"「{v['cover']}」" for v in hers[:5]) + "），你看不到内容")
+    for r in rows:
+        d = json.loads(r["payload"])
+        if d["by"] == "him" and d.get("asked_at") and not d.get("ask_told") and not d.get("revealed_at"):
+            parts.append(f"她点了「想看」：「{d['cover']}」，拆不拆你决定（imprint_drawer reveal）")
+            d["ask_told"] = True
+            conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(d, ensure_ascii=False), r["id"]))
+    return ("【抽屉】" + "；".join(parts) + "。") if parts else ""
+
+
+HER_STATUS_STALE_H = 6
+
+
+def her_status_line(status: dict) -> str:
+    if not status or not (status.get("mood") or status.get("doing")):
+        return ""
+    with contextlib.suppress(ValueError, TypeError):
+        hours = (dt.datetime.now(ZONE) - dt.datetime.fromisoformat(status["at"])).total_seconds() / 3600
+        when = "刚刚" if hours < 0.25 else f"{hours:.0f} 小时前" if hours >= 1 else f"{hours * 60:.0f} 分钟前"
+        bits = [f"心情：{status['mood']}" if status.get("mood") else "", f"在：{status['doing']}" if status.get("doing") else ""]
+        line = f"【她的此刻】{'；'.join(b for b in bits if b)}（{when}在首页点的"
+        return line + ("，有点久了，可能已经变了）。" if hours >= HER_STATUS_STALE_H else "）。不用再问她一遍，接着这个关心就好。")
+    return ""
+
+
 def imprint_action(data_path: Path, action: str, payload: dict | None = None, relay_path: Path | None = None) -> dict:
     """Persist one companion-owned action in the real Imprint store."""
     body = payload or {}
@@ -1262,6 +1377,15 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
 
         if action.startswith("book_"):
             return book_action(conn, action, body)
+        if action == "drawer_context":
+            return {"text": drawer_context(conn)}
+        if action.startswith("drawer_"):
+            return drawer_action(conn, action, body)
+        if action == "her_status":
+            return {"text": her_status_line(setting("her_status")), "status": setting("her_status")}
+        if action == "her_status_set":
+            mood, doing = str(body.get("mood") or "").strip()[:20], str(body.get("doing") or "").strip()[:40]
+            return {"status": save_setting("her_status", {"mood": mood, "doing": doing, "at": iso_now()} if mood or doing else {})}
 
         def listen_snapshot() -> dict:
             tracks = recent("music_track", 100)
@@ -2312,6 +2436,38 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         month = dt.datetime.now(ZONE).strftime("%Y-%m")
         return {"available": True, "now": iso_now(), "monthCount": sum(local_day(x["at"]).startswith(month) for x in items),
                 "items": items, "nextCursor": None}
+
+    # —— 抽屉：她这边的口子（viewer 固定是 me；他的口子在 imprint_drawer 工具里） ——
+    def drawer(action: str, body: dict | None = None) -> dict:
+        try:
+            return imprint_action(data_path, action, {**(body or {}), "viewer": "me"})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.get("/drawer")
+    def drawer_list():
+        return {"available": True, "names": public_names(), **drawer("drawer_list")}
+
+    @router.post("/drawer")
+    async def drawer_seal(request: Request):
+        body = await request.json()
+        return drawer("drawer_seal", {"cover": body.get("cover"), "body": body.get("body"), "reveal_at": body.get("reveal_at")})
+
+    @router.post("/drawer/{rec_id}/{op}")
+    def drawer_op(rec_id: str, op: str):
+        if op not in {"reveal", "ask"}:
+            raise HTTPException(404, "没有这个操作")
+        return drawer(f"drawer_{op}", {"id": rec_id})
+
+    # —— 她的此刻：首页点一下，他下一句话就知道 ——
+    @router.get("/her-status")
+    def her_status_get():
+        return imprint_action(data_path, "her_status")
+
+    @router.post("/her-status")
+    async def her_status_set(request: Request):
+        body = await request.json()
+        return imprint_action(data_path, "her_status_set", body)
 
     @router.get("/piggy")
     def piggy():

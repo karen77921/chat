@@ -2374,6 +2374,11 @@ async def build_messages(
     piggy = piggy_context_text()
     if piggy:
         volatile_parts.append(piggy)
+    for action in ("her_status", "drawer_context"):
+        with contextlib.suppress(Exception):
+            line = imprint_action(LOOP_CACHE_DIR / "imprint.db", action)["text"]
+            if line:
+                volatile_parts.append(line)
     with contextlib.suppress(Exception):
         news = wall_news_text()
         if news:
@@ -3141,6 +3146,27 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_drawer",
+        "description": "The drawer of sealed notes between you and her. seal: write a note with a cover line (anyone can see it) "
+                       "and a body (only you can see it until it is revealed); optionally reveal_at to open it automatically on a "
+                       "date. A sealed note can never be edited, not by you either, and its sealed time and fingerprint prove it "
+                       "was not swapped: use it for game answers, bets, surprises, words saved for a day. reveal: open one of "
+                       "yours now. ask: tell her you'd like to see one of hers (only she can open it). list: everything in it.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["list", "seal", "reveal", "ask"]},
+                "cover": {"type": "string", "description": "seal: the line she sees on the envelope, up to 60 chars"},
+                "body": {"type": "string", "description": "seal: the hidden text, up to 5000 chars"},
+                "reveal_at": {"type": "string", "description": "seal, optional: ISO date-time (Asia/Shanghai) to open automatically"},
+                "id": {"type": "string", "description": "reveal / ask"},
+            },
+            "required": ["operation"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_my_walls",
         "description": "Your own walls. view_context: read exactly what Imprint sent you this turn (persona, her extra prompts, "
                        "your own notes, every rule, the per-turn background). Notes are rules you write for yourself and are "
@@ -3566,6 +3592,8 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
         add_builtin("imprint_book")
     if garden or any(word in query for word in WALL_WORDS):
         add_builtin("imprint_my_walls")
+    if garden or any(word in query for word in ("抽屉", "纸条", "封", "揭晓", "拆开", "拆", "答案", "打赌", "赌", "二十个问题", "惊喜")):
+        add_builtin("imprint_drawer")
     if any(word in query for word in ("存钱罐", "小金库", "存了", "扣了", "扣钱", "存钱", "余额", "攒钱")):
         add_builtin("imprint_view_piggy")
     if any(word in query for word in ("申请", "审批", "批准", "批一下", "批了", "想买", "买买")):
@@ -3694,7 +3722,7 @@ def sanitize_svg(raw: str) -> bytes:
 
 WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛病", "老是", "总是", "改掉", "习惯", "自由", "受限",
               "prompt", "my_walls")
-TOOLBOX_TOPICS = "墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
@@ -3886,6 +3914,16 @@ class Turn:
                 return f"ERROR: public GitHub read failed: {exc}"[:2000]
         if public_name == "imprint_my_walls":
             return self.my_walls(args)
+        if public_name == "imprint_drawer":
+            op = str(args.get("operation") or "list")
+            if op != "list" and self.dry:
+                return "ERROR: drawer changes are disabled for this dry/retry turn"
+            try:
+                return json.dumps(imprint_action(LOOP_CACHE_DIR / "imprint.db", f"drawer_{op}", {
+                    "viewer": "him", "id": args.get("id"), "cover": args.get("cover"), "body": args.get("body"),
+                    "reveal_at": args.get("reveal_at")}), ensure_ascii=False)[:30_000]
+            except ValueError as exc:
+                return f"ERROR: {exc}"
         if public_name == "imprint_inspect_settings":
             return json.dumps(public_config(), ensure_ascii=False)[:40_000]
         if public_name == "imprint_manage_settings":

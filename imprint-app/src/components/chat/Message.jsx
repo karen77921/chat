@@ -39,8 +39,13 @@ function useLongPress(onLong) {
   };
 }
 
+function Marked({ text, q }) {
+  return <>{splitByQuery(text, q).map((p, i) => (p.hit ? <mark key={i}>{p.t}</mark> : p.t))}</>;
+}
+
+/** 他偶尔会写 **加粗**：画成粗体，不把星号原样露出来 */
 function Text({ text, q }) {
-  return <>{splitByQuery(text || '', q).map((p, i) => (p.hit ? <mark key={i}>{p.t}</mark> : p.t))}</>;
+  return <>{String(text || '').split(/\*\*([^*\n]+)\*\*/).map((t, i) => (i % 2 ? <b key={i}><Marked text={t} q={q} /></b> : <Marked key={i} text={t} q={q} />))}</>;
 }
 
 function bubbleParts(text) {

@@ -1540,3 +1540,53 @@ class BookTest(unittest.TestCase):
             await asyncio.sleep(0.4)
             self.assertEqual(api_loop.books_job(started["job"])["book"], {"id": "x"})
         asyncio.run(go())
+
+
+class DrawerTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.db = Path(self.temp.name) / "imprint.db"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def act(self, action, body=None):
+        return imprint_action(self.db, action, body or {})
+
+    def test_sealed_notes_hide_body_cannot_change_and_open_on_time(self):
+        his = self.act("drawer_seal", {"viewer": "him", "cover": "二十个问题第三局的答案", "body": "长颈鹿"})["item"]
+        self.assertEqual(his["body"], "长颈鹿")  # 写的人看得到
+        seen = self.act("drawer_list", {"viewer": "me"})["items"][0]
+        self.assertNotIn("body", seen)  # 她只看到封面
+        self.assertEqual(seen["fingerprint"], his["fingerprint"])
+        with self.assertRaises(ValueError):
+            self.act("drawer_reveal", {"viewer": "me", "id": his["id"]})  # 只有写的人能拆
+        self.act("drawer_ask", {"viewer": "me", "id": his["id"]})
+        line = self.act("drawer_context")["text"]
+        self.assertIn("她点了「想看」", line)
+        self.assertNotIn("想看", self.act("drawer_context")["text"])  # 只告诉一次
+        opened = self.act("drawer_reveal", {"viewer": "him", "id": his["id"]})["item"]
+        self.assertEqual(opened["status"], "revealed")
+        self.assertEqual(self.act("drawer_list", {"viewer": "me"})["items"][0]["body"], "长颈鹿")
+        self.assertEqual(opened["sealed_at"], his["sealed_at"])  # 封存时间没动
+
+        later = (dt.datetime.now(imprint_store.ZONE) + dt.timedelta(minutes=5)).isoformat()
+        hers = self.act("drawer_seal", {"viewer": "me", "cover": "十月底给你的", "body": "秘密", "reveal_at": later})["item"]
+        self.assertNotIn("body", next(x for x in self.act("drawer_list", {"viewer": "him"})["items"] if x["id"] == hers["id"]))
+        self.assertIn("她封着 1 张给你", self.act("drawer_context")["text"])
+        self.assertNotIn("秘密", self.act("drawer_context")["text"])
+        with mock.patch.object(imprint_store.dt, "datetime", wraps=dt.datetime) as fake:
+            fake.now.return_value = dt.datetime.now(imprint_store.ZONE) + dt.timedelta(minutes=10)
+            mine = next(x for x in self.act("drawer_list", {"viewer": "him"})["items"] if x["id"] == hers["id"])
+        self.assertEqual((mine["status"], mine["body"]), ("revealed", "秘密"))
+        with self.assertRaises(ValueError):
+            self.act("drawer_seal", {"viewer": "me", "cover": "x", "body": "y", "reveal_at": "2000-01-01T00:00"})
+
+    def test_her_status_reaches_him(self):
+        self.assertEqual(self.act("her_status")["text"], "")
+        self.act("her_status_set", {"mood": "累", "doing": "上班"})
+        line = self.act("her_status")["text"]
+        self.assertIn("心情：累", line)
+        self.assertIn("在：上班", line)
+        self.act("her_status_set", {})
+        self.assertEqual(self.act("her_status")["text"], "")

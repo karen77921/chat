@@ -529,6 +529,10 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'POST /api/push/test': return { ok: true, sent: 1 };
     case 'POST /api/drives/mode': state.driveMode = body.mode; return { ok: true, mode: body.mode };
     case 'GET /api/drives': return { available: true, away_h: 3.2, acts_today: 6, mode: state.driveMode || 'random',
+      mind: { week: { experiences: 3, fixations: 1, feeds: 1, resolved: 0 },
+        thoughts: [{ id: 't1', text: '她说想去海边看日出', drive: 'duty', name: '责任', kind: 'fixation', strength: 0.62, hits: 3, fed: 1 },
+          { id: 't2', text: '那天我是不是说重了', drive: 'grieve', name: '悲伤', kind: 'flit', strength: 0.3, hits: 2, fed: 0 }],
+        experiences: [{ at: new Date().toISOString(), content: '她把小时候的事讲给我听，我心里很软，想一直陪着她。', topic: '她的童年', stance: 'comfort', valence: 0.8 }] },
       decisions: { ticks_day: 288, day: { 找她: 5, 去花园: 3, 出门逛逛: 2, 翻翻旧事: 1 }, recent: [
         { at: new Date().toISOString(), act: true, motive: '找她', p: 0.09, why: '最想做的就是这件', mode: 'shadow' },
         { at: new Date(Date.now() - 3e6).toISOString(), act: false, motive: '歇着', p: 0, why: '太累了（疲惫 0.78），歇着', mode: 'shadow' },

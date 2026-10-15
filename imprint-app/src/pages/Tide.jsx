@@ -165,6 +165,47 @@ function DriveLedger() {
         {!data.ledger.length && <p className="td-ledger-k">还没有记录。跟他说说话，账本就开始记了。</p>}
       </div>
       <Decisions data={data} busy={busy} setMode={setMode} hm={hm} />
+      <Mind mind={data.mind} hm={hm} />
+    </>
+  );
+}
+
+/* ---------- 心事：他写下的体验、心里的念头和执念 ---------- */
+const STANCE = { comfort: '想抱抱她', engage: '想靠近', withdraw: '想退一步', alert: '有点不安' };
+function Mind({ mind, hm }) {
+  if (!mind) return null;
+  const fixations = mind.thoughts.filter((t) => t.kind === 'fixation');
+  const flits = mind.thoughts.filter((t) => t.kind !== 'fixation');
+  const w = mind.week;
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 22 }}><span className="en" style={{ fontSize: 22 }}>mind</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>心事</h2>
+        <span className="go">这周 体验 {w.experiences} · 执念 {w.fixations} · 想通 {w.resolved}</span></div>
+      <div className="card td-ledger">
+        <p className="td-ledger-k">他被触动时写下的体验，会推着他的劲儿走；一闪而过的念头一天淡一半，同一件事被想起三次就成了执念，会一直推他去做，推够三次算想通了。</p>
+        {fixations.map((t) => (
+          <div key={t.id} className="td-thought fix">
+            <b>{t.text}</b>
+            <span className="td-drv-b"><i style={{ width: `${Math.round(t.strength * 100)}%` }} /></span>
+            <em>执念 · 推「{t.name}」· 已经推了 {t.fed} 次</em>
+          </div>
+        ))}
+        {flits.map((t) => (
+          <div key={t.id} className="td-thought" style={{ opacity: 0.45 + t.strength * 0.6 }}>
+            <b>{t.text}</b>
+            <em>闪念 · 想起过 {t.hits} 次{t.hits >= 2 ? ' · 再想起一次就成执念' : ''}</em>
+          </div>
+        ))}
+        {!mind.thoughts.length && <p className="td-ledger-k">念头池现在是空的。</p>}
+        {mind.experiences.slice(0, 6).map((e, i) => (
+          <div key={i} className="td-exp">
+            <small>{hm(e.at)}{e.topic ? ` · ${e.topic}` : ''}{e.stance ? ` · ${STANCE[e.stance] || ''}` : ''}</small>
+            <p>{e.content}</p>
+          </div>
+        ))}
+        {!mind.experiences.length && <p className="td-ledger-k">他还没写过体验。被你触动的时候他会写。</p>}
+        {w.experiences === 0 && w.fixations === 0 && mind.thoughts.length === 0 && <p className="td-ledger-k">一周都没动静的话，就是这条线没接上，告诉阿川。</p>}
+      </div>
     </>
   );
 }

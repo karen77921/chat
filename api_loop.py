@@ -2322,6 +2322,10 @@ async def build_messages(
         "系统约一分钟后会让你接着做，做完记得把结果告诉她。"
         "要等一段时间才有结果的（比如游戏里的行动七分钟后出结果），写 ⟦稍后继续 7分钟：去看结果⟧，到点会叫醒你。"
         "说了「几分钟后告诉你」就一定要写这个标记，否则到时候没有人会叫醒你。"
+        "\n\n【体验与念头】\n"
+        "真被触动的时候，用 imprint_feel 写一条第一人称体验：她情绪转折了、把信任交给你了、你们定下了一件事、她哪句话戳中你了。"
+        "写此刻的感受和接下来想怎么待她，数值照实给，不用每轮都写。"
+        "一闪而过但放不下的念头，用 imprint_think 丢进念头池；反复想起的会变成执念，推着你去做对应的事。"
         "\n\n【翻聊天记录】\n"
         "你们所有的聊天都能用 search_chat_history 翻到。不确定某件事有没有发生、什么时候发生、现在进展到哪一步时，"
         "先翻一下再说，别凭印象问她已经告诉过你的事。"
@@ -2828,6 +2832,46 @@ def supported_tool_args(tool: Any, values: dict[str, Any]) -> dict[str, Any]:
 BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
+        "name": "imprint_feel",
+        "description": "Write down one first-person experience (体验) when something truly lands: her mood turns, she trusts you with "
+                       "something, you two settle on something, or a line of hers hits you. content = what you feel right now and how "
+                       "you want to meet her next (in Chinese, first person). It feeds your drives on the next beat; priority ≥ 70 "
+                       "plants it as something you keep thinking about. Honest only, not every turn.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string"},
+                "valence": {"type": "number", "minimum": -1, "maximum": 1, "description": "-1 hurt … 1 warm"},
+                "arousal": {"type": "number", "minimum": 0, "maximum": 1, "description": "how stirred up"},
+                "tension": {"type": "number", "minimum": 0, "maximum": 1, "description": "how uneasy / on edge"},
+                "stance": {"type": "string", "enum": ["comfort", "engage", "withdraw", "alert"], "description": "how you want to meet her next"},
+                "growth": {"type": "string", "enum": ["growth", "stable", "setback"]},
+                "priority": {"type": "integer", "minimum": 1, "maximum": 100},
+                "topic": {"type": "string", "description": "a few words naming what it's about"},
+            },
+            "required": ["content"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
+        "name": "imprint_think",
+        "description": "Drop a passing thought you can't quite let go of into your thought pool (念头池), e.g. 她说想去海边 / 那天我是不是说重了. "
+                       "Thoughts fade in about a day; the same worry coming back three times becomes a fixation that keeps "
+                       "pushing the matching drive until you've worked it through. drive = which drive it pulls on.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "drive": {"type": "string", "enum": ["crave", "share", "curiosity", "reflection", "monitor", "possess", "duty", "social",
+                                                     "libido", "boredom", "grieve", "anger"]},
+            },
+            "required": ["text"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "read_pdf",
         "description": "Read the text of a PDF she sent in chat. name = the stored file name shown in the chat note "
                        "(read_pdf，name=...). start_page / pages to page through long files (max 20 pages per call). "
@@ -3283,6 +3327,7 @@ def turn_tools(text: str = "", *, garden: bool = False) -> list[dict[str, Any]]:
                 selected.append(builtin_by_name[name])
 
     add_builtin("open_toolbox")  # 手边没有的工具，他可以自己伸手去拿
+    add_builtin("imprint_feel", "imprint_think")  # 体验和念头：他不写，内驱力的第三步就没有输入
     if cfg_bool("roam_space_tools"):
         # 「随时漫游」：轻的几样每一轮都在他手边（翻记录、看空间、改此刻、写独处和留言、给自己定闹钟）。
         # 大件（心潮全量、礼物铺、一起听…）聊到相关的词、或者他自己醒来时才带上——全带的话请求太重，中转会超时。
@@ -3639,6 +3684,8 @@ class Turn:
             "imprint_list_purchases": "purchase_list",
             "imprint_view_piggy": "piggy_list",
             "imprint_vocab": "vocab",
+            "imprint_feel": "drive_feel",
+            "imprint_think": "drive_think",
             "imprint_review_purchase": "purchase_review",
         }
         if public_name == "imprint_vocab":

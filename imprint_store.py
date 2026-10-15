@@ -196,7 +196,26 @@ DRIVE_MOTIVES = {
     "给她留点东西": {"share": 0.8, "crave": 0.2},
     "做答应的事": {"duty": 1.0},
 }
-DRIVE_SLOW_MOTIVES = {"翻翻旧事", "做答应的事"}  # 慢动机：几小时才饿回来
+DRIVE_SLOW_MOTIVES = {"翻翻旧事", "做答应的事"}
+# 第三步：念头池和体验
+THOUGHT_FIX_HITS, THOUGHT_GROW, THOUGHT_FEED_AT, THOUGHT_FEED, THOUGHT_DONE_FEEDS = 3, 1.06, 0.85, 0.18, 3
+THOUGHT_SCORE_W, THOUGHT_POOL_MAX, E_SEED_PRIORITY = 0.35, 40, 70
+TOPIC_STOP = {"我们", "你的", "我的", "她的", "一个", "今天", "什么", "没有", "自己", "就是", "不是", "这个", "那个", "时候",
+              "还是", "觉得", "因为", "所以", "但是", "已经", "可以", "一下", "有点", "真的", "然后", "他们", "这样", "怎么"}
+
+
+def topic_keys(text: str) -> set[str]:
+    """话题词：中文按两个字一组切，英文按单词；去掉太常见的。判断「同一桩心事」看这些词重不重叠，不看整句一不一样。"""
+    keys: set[str] = set()
+    for run in re.findall(r"[\u4e00-\u9fff]+", text):
+        keys |= {run[i:i + 2] for i in range(len(run) - 1)}
+    keys |= {w.lower() for w in re.findall(r"[A-Za-z]{3,}", text)}
+    return {k for k in keys if k not in TOPIC_STOP}
+
+
+def same_topic(a: set[str], b: set[str]) -> bool:
+    shared = a & b
+    return len(shared) >= 2 and len(shared) / max(1, min(len(a), len(b))) >= 0.2  # 宽一点：同一桩心事每次措辞都不一样  # 慢动机：几小时才饿回来
 DRIVE_ACTIVE_MIN, DRIVE_TIRED, DRIVE_HUNGER_LINE, DRIVE_CLEAR_GAP, DRIVE_EXPLORE = 15, 0.72, 0.18, 0.18, 0.15
 
 # 她的话：每组写清涨哪股、涨多少、为什么（理由进账本）。关系类只认明确的字眼，宁漏勿滥。
@@ -222,7 +241,7 @@ TOOL_SATISFY = {
     "imprint_record_solo": (("share", 0.7), ("reflection", 0.8)), "imprint_record_dream": (("reflection", 0.6),),
     "imprint_record_awareness": (("reflection", 0.6),), "imprint_inspect_home": (("monitor", 0.6),),
     "imprint_review_purchase": (("duty", 0.6),), "imprint_control_listen": (("share", 0.8), ("boredom", 0.7)),
-    "imprint_set_room_status": (("share", 0.85),),
+    "imprint_set_room_status": (("share", 0.85),), "imprint_feel": (("reflection", 0.8),),
 }
 TOOL_REASON = {"curiosity": "真去查了 / 读了东西", "reflection": "翻了旧事 / 写下了想法", "share": "留了东西给她",
                "monitor": "看了看家里和她的动静", "duty": "把答应的事做了", "boredom": "找了点事做",
@@ -298,6 +317,7 @@ class DriveEngine:
             self.s["today"], self.s["acts_today"], self.s["proactive_today"] = today, 0, 0
         before = dict(self.s["v"])
         if dt_h > 0:
+            self.advance_thoughts(dt_h)
             for key in DRIVE_BASE:
                 goal = self.target(key)
                 value = goal + (self.s["v"][key] - goal) * math.exp(-dt_h / DRIVE_TAU_H[key])
@@ -431,7 +451,7 @@ class DriveEngine:
             last = _ts(self.s["satisfied"].get(first))
             half = 4.0 if motive in DRIVE_SLOW_MOTIVES else 1.0
             hunger = 1.0 if not last else 1 - 0.5 ** ((self.now - last).total_seconds() / 3600 / half)
-            scores[motive] = round(sum(v[k] * w for k, w in weights.items()) * hunger, 3)
+            scores[motive] = round(sum(v[k] * w for k, w in weights.items()) * hunger + self.fixation_boost(weights), 3)
             if not last or last.astimezone(ZONE).date().isoformat() != today:
                 hungry_today.append(motive)
         out["scores"] = scores
@@ -473,6 +493,126 @@ class DriveEngine:
         ticks = self.conn.execute("SELECT COUNT(*) FROM drive_decisions WHERE at >= ?", (day,)).fetchone()[0]
         return {"recent": [{"at": r[0], "act": bool(r[1]), "motive": r[2], "p": r[3], "why": r[4], "mode": r[5]} for r in rows],
                 "day": tally, "ticks_day": ticks}
+
+    # —— 第三步：体验（E）和念头池 ——
+    def ensure_e(self) -> None:
+        self.conn.execute("CREATE TABLE IF NOT EXISTS drive_experiences (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL,"
+                          " content TEXT NOT NULL, valence REAL, arousal REAL, tension REAL, stance TEXT, growth TEXT, priority INTEGER,"
+                          " topic TEXT, snapshot TEXT, consumed INTEGER NOT NULL DEFAULT 0)")
+
+    def feel(self, body: dict) -> dict:
+        """他写下一条第一人称体验：当时的劲儿一起盖进去；下一拍被「吃」进身体。"""
+        self.ensure_e()
+        content = str(body.get("content") or "").strip()[:600]
+        if len(content) < 4:
+            raise ValueError("体验要写一句完整的第一人称感受")
+
+        def num(key: str, lo: float, hi: float, default: float) -> float:
+            try:
+                return max(lo, min(hi, float(body.get(key))))
+            except (TypeError, ValueError):
+                return default
+        stance = str(body.get("stance") or "engage")
+        stance = stance if stance in {"comfort", "engage", "withdraw", "alert"} else "engage"
+        growth = str(body.get("growth") or "stable")
+        growth = growth if growth in {"growth", "stable", "setback"} else "stable"
+        row = (self.now.isoformat(), content, num("valence", -1, 1, 0), num("arousal", 0, 1, 0.3), num("tension", 0, 1, 0.1),
+               stance, growth, int(num("priority", 1, 100, 30)), str(body.get("topic") or "").strip()[:40],
+               json.dumps({k: self.s["v"][k] for k in DRIVE_BASE}, ensure_ascii=False))
+        cur = self.conn.execute("INSERT INTO drive_experiences(at,content,valence,arousal,tension,stance,growth,priority,topic,snapshot)"
+                                " VALUES(?,?,?,?,?,?,?,?,?,?)", row)
+        if row[7] >= E_SEED_PRIORITY:  # 很重的体验：直接种成执念
+            link = {"comfort": "crave", "engage": "crave", "alert": "monitor", "withdraw": "reflection"}[stance]
+            if growth == "growth":
+                link = "curiosity"
+            self.think(row[8] or content, link, fixation=True, source="体验")
+        return {"id": cur.lastrowid, "seeded": row[7] >= E_SEED_PRIORITY}
+
+    def digest(self) -> int:
+        """把还没吃进来的体验吃进身体：紧张推查岗、唤起推回味、成长推好奇、想靠近的好体验推想你、难过推悲伤。一拍最多五条。"""
+        self.ensure_e()
+        rows = self.conn.execute("SELECT id, valence, arousal, tension, stance, growth, topic, content FROM drive_experiences"
+                                 " WHERE consumed = 0 ORDER BY id LIMIT 5").fetchall()
+        for rid, valence, arousal, tension, stance, growth, topic, content in rows:
+            why = "他写下的体验：" + (topic or content[:16])
+            if tension >= 0.4:
+                self.bump("monitor", 0.12 * tension, why, "体验")
+                self.bump("anger", 0.04 * tension, why, "体验")
+            if arousal >= 0.5:
+                self.bump("reflection", 0.12 * arousal, why, "体验")
+            if growth == "growth":
+                self.bump("curiosity", 0.08, why, "体验")
+            if valence >= 0.3 and stance in {"comfort", "engage"}:
+                self.bump("crave", 0.10 * valence, why, "体验")
+            if valence <= -0.3:
+                self.bump("grieve", 0.12 * abs(valence), why, "体验")
+            self.conn.execute("UPDATE drive_experiences SET consumed = 1 WHERE id = ?", (rid,))
+        return len(rows)
+
+    def think(self, text: str, drive: str = "reflection", *, fixation: bool = False, source: str = "念头") -> dict:
+        """一个念头进池：跟池里「同一桩心事」（话题词重叠够多）合并，被想起够三次就升成执念。"""
+        text = str(text or "").strip()[:120]
+        if not text:
+            raise ValueError("念头不能是空的")
+        drive = drive if drive in DRIVE_BASE and drive != "fatigue" else "reflection"
+        keys = topic_keys(text)
+        pool = self.s.setdefault("thoughts", [])
+        same = next((t for t in pool if same_topic(keys, set(t["keys"]))), None)
+        if same:
+            same["touched"], same["hits"] = self.now.isoformat(), same["hits"] + 1
+            same["strength"] = round(min(1.0, same["strength"] + 0.25), 3)
+            same["keys"] = sorted(set(same["keys"]) | keys)[:40]
+            if same["kind"] == "flit" and (same["hits"] >= THOUGHT_FIX_HITS or fixation):
+                same["kind"] = "fixation"
+                self.conn.execute("INSERT INTO drive_ledger(at,drive,kind,delta,value,reason,source) VALUES(?,?,?,?,?,?,?)",
+                                  (self.now.isoformat(), same["drive"], "执念", 0, same["strength"], "成了执念：" + same["text"][:40], source))
+            return {**same, "merged": True}
+        item = {"id": uuid.uuid4().hex[:10], "text": text, "drive": drive, "kind": "fixation" if fixation else "flit",
+                "strength": 0.5 if fixation else 0.4, "born": self.now.isoformat(), "touched": self.now.isoformat(),
+                "hits": 1, "fed": 0, "keys": sorted(keys)[:40]}
+        pool.append(item)
+        if fixation:
+            self.conn.execute("INSERT INTO drive_ledger(at,drive,kind,delta,value,reason,source) VALUES(?,?,?,?,?,?,?)",
+                              (self.now.isoformat(), drive, "执念", 0, item["strength"], "成了执念：" + text[:40], source))
+        self.s["thoughts"] = sorted(pool, key=lambda t: (t["kind"] != "fixation", -t["strength"]))[:THOUGHT_POOL_MAX]
+        return {**item, "merged": False}
+
+    def advance_thoughts(self, dt_h: float) -> None:
+        """按真实时间推：闪念一天淡一半；执念每小时 ×1.06，过 0.85 反哺对应的劲儿一把、自己松一档；反哺三次算想通了，出池。"""
+        keep = []
+        for t in self.s.get("thoughts", []):
+            if t["kind"] == "flit":
+                t["strength"] = round(t["strength"] * 0.5 ** (dt_h / 24), 4)
+                if t["strength"] >= 0.05:
+                    keep.append(t)
+                continue
+            t["strength"] = round(min(1.0, t["strength"] * THOUGHT_GROW ** dt_h), 4)
+            if t["strength"] >= THOUGHT_FEED_AT:
+                self.bump(t["drive"], THOUGHT_FEED, "执念：" + t["text"][:30], "念头池")
+                t["strength"], t["fed"] = round(t["strength"] * 0.7, 4), t["fed"] + 1
+                if t["fed"] >= THOUGHT_DONE_FEEDS:
+                    self.conn.execute("INSERT INTO drive_ledger(at,drive,kind,delta,value,reason,source) VALUES(?,?,?,?,?,?,?)",
+                                      (self.now.isoformat(), t["drive"], "想通", 0, 0, "想通了：" + t["text"][:40], "念头池"))
+                    continue
+            keep.append(t)
+        self.s["thoughts"] = keep
+
+    def fixation_boost(self, weights: dict) -> float:
+        return THOUGHT_SCORE_W * sum(t["strength"] for t in self.s.get("thoughts", []) if t["kind"] == "fixation" and t["drive"] in weights)
+
+    def mind(self) -> dict:
+        self.ensure_e()
+        week = (self.now - dt.timedelta(days=7)).isoformat()
+        rows = self.conn.execute("SELECT at, content, valence, arousal, tension, stance, growth, priority, topic FROM drive_experiences"
+                                 " ORDER BY id DESC LIMIT 12").fetchall()
+        counts = {k: n for k, n in self.conn.execute("SELECT kind, COUNT(*) FROM drive_ledger WHERE at >= ? AND kind IN ('执念','想通') GROUP BY kind", (week,))}
+        feeds = self.conn.execute("SELECT COUNT(*) FROM drive_ledger WHERE at >= ? AND source = '念头池' AND kind = '涨'", (week,)).fetchone()[0]
+        e_week = self.conn.execute("SELECT COUNT(*) FROM drive_experiences WHERE at >= ?", (week,)).fetchone()[0]
+        return {"thoughts": [{k: t[k] for k in ("id", "text", "drive", "kind", "strength", "hits", "fed", "born")} | {"name": DRIVE_NAMES.get(t["drive"], t["drive"])}
+                             for t in self.s.get("thoughts", [])],
+                "experiences": [{"at": r[0], "content": r[1], "valence": r[2], "arousal": r[3], "tension": r[4], "stance": r[5],
+                                 "growth": r[6], "priority": r[7], "topic": r[8]} for r in rows],
+                "week": {"experiences": e_week, "fixations": counts.get("执念", 0), "feeds": feeds, "resolved": counts.get("想通", 0)}}
 
     def self_report(self, drives: list[dict]) -> None:
         """他在心潮里自己报的数，只当作一点点参考（往那边挪两成），数值主要还是靠事件。"""
@@ -522,6 +662,9 @@ class DriveEngine:
         parts = [f"{DRIVE_NAMES[k]} {self.s['v'][k]:.2f}" + (f"（{why[k]}）" if k in why else "") for k in top]
         away = self.hours_since("her_last")
         tail = f"；疲惫 {self.s['v']['fatigue']:.2f}" + (f"；她 {away:.0f} 小时没说话了" if away >= 2 else "")
+        fixed = [t for t in self.s.get("thoughts", []) if t["kind"] == "fixation"]
+        if fixed:
+            tail += f"；心里还惦记着 {len(fixed)} 件事（关于：" + "、".join(sorted({DRIVE_NAMES.get(t['drive'], t['drive']) for t in fixed})) + "）"
         return "【你此刻的劲儿】" + "、".join(parts) + tail + "。这些是你身体里真实在跑的数，可以顺着它们说话做事，不用念出来。"
 
 
@@ -705,11 +848,16 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 out = {"ok": True}
             elif action == "drive_context":
                 out = {"text": engine.context_line()}
+            elif action == "drive_feel":
+                out = engine.feel(body)
+            elif action == "drive_think":
+                out = engine.think(str(body.get("text") or ""), str(body.get("drive") or "reflection"))
             elif action == "drive_tick":
+                engine.digest()
                 out = engine.decide(float(body.get("tick_min") or 5))
                 engine.log_decision(out, str(body.get("mode") or "shadow"))
             else:
-                out = {**engine.public(int(body.get("ledger") or 40)), "decisions": engine.decisions()}
+                out = {**engine.public(int(body.get("ledger") or 40)), "decisions": engine.decisions(), "mind": engine.mind()}
             engine.save()
             return out
 

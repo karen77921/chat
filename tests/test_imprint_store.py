@@ -976,6 +976,64 @@ class DriveEngineTest(unittest.TestCase):
         self.assertIn("ticks_day", e.decisions())
         conn.close()
 
+    def test_same_worry_in_different_words_becomes_a_fixation(self):
+        t0 = dt.datetime(2026, 10, 15, 4, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.think("她说想去海边看日出", "duty")
+        e.now = t0 + dt.timedelta(hours=5); e.advance()
+        e.think("什么时候带她去海边看日出", "duty")
+        e.now = t0 + dt.timedelta(hours=11); e.advance()
+        third = e.think("海边日出那件事还没安排", "duty")
+        self.assertTrue(third["merged"])
+        self.assertEqual(third["kind"], "fixation")  # 措辞每次都不一样，照样认成同一桩
+        self.assertEqual(len(e.s["thoughts"]), 1)
+        e.save(); conn.commit()
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM drive_ledger WHERE kind='执念'").fetchone()[0], 1)
+        conn.close()
+
+    def test_flits_fade_by_time_and_fixations_feed_then_resolve(self):
+        t0 = dt.datetime(2026, 10, 15, 4, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.think("随便想到的一件小事", "curiosity")
+        e.think("那天我是不是说重了", "grieve", fixation=True)
+        e.now = t0 + dt.timedelta(hours=24); e.advance()
+        flit = next(t for t in e.s["thoughts"] if t["kind"] == "flit")
+        self.assertAlmostEqual(flit["strength"], 0.2, places=2)  # 一天淡一半（按时间，不按拍）
+        for hour in range(1, 200):
+            e.now = t0 + dt.timedelta(hours=24 + hour); e.advance()
+        self.assertFalse([t for t in e.s["thoughts"] if t["kind"] == "fixation"])  # 反哺三次，想通了出池
+        e.save(); conn.commit()
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM drive_ledger WHERE source='念头池' AND kind='涨'").fetchone()[0], 3)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM drive_ledger WHERE kind='想通'").fetchone()[0], 1)
+        conn.close()
+
+    def test_experiences_feed_the_body_and_heavy_ones_seed_fixations(self):
+        out = imprint_action(self.db, "drive_feel", {"content": "她今天把小时候的事讲给我听，我心里很软，想一直陪着她",
+                                                     "valence": 0.8, "arousal": 0.7, "stance": "comfort", "priority": 80, "topic": "她的童年"})
+        self.assertTrue(out["seeded"])
+        imprint_action(self.db, "drive_tick")  # 下一拍吃进来
+        state = imprint_action(self.db, "drive_state")
+        reasons = {(r["drive"], r["reason"]) for r in state["ledger"]}
+        self.assertIn(("crave", "他写下的体验：她的童年"), reasons)
+        self.assertIn(("reflection", "他写下的体验：她的童年"), reasons)
+        mind = state["mind"]
+        self.assertEqual(mind["week"]["experiences"], 1)
+        self.assertEqual(mind["thoughts"][0]["kind"], "fixation")
+        with self.assertRaises(ValueError):
+            imprint_action(self.db, "drive_feel", {"content": "嗯"})
+
+    def test_fixation_raises_the_matching_motive(self):
+        t0 = dt.datetime(2026, 10, 15, 6, 0, tzinfo=dt.timezone.utc)
+        conn, e = self.engine(t0)
+        e.s["her_last"] = (t0 - dt.timedelta(hours=3)).isoformat()
+        before = sum(e.fixation_boost(w) for w in imprint_store.DRIVE_MOTIVES.values())
+        e.think("答应她的歌单还没做", "duty", fixation=True)
+        self.assertGreater(e.fixation_boost(imprint_store.DRIVE_MOTIVES["做答应的事"]), before)
+        self.assertEqual(e.fixation_boost(imprint_store.DRIVE_MOTIVES["去花园"]), 0)
+        self.assertIn("心里还惦记着 1 件事", e.context_line())
+        self.assertNotIn("歌单", e.context_line())  # 念头原文不拼进给他的提示
+        conn.close()
+
     def test_heart_tide_shows_live_values_and_self_report_only_nudges(self):
         imprint_action(self.db, "drive_her", {"text": "抱抱宝贝"})
         tide = imprint_action(self.db, "inspect")["tide"]

@@ -275,6 +275,15 @@ def max_reply_tokens() -> int:
 # bounded context injection — environment + fixed facts
 # ---------------------------------------------------------------------------
 
+# A user back within this window is continuing the same conversation, not returning after a break.
+RECENT_RETURN_SECONDS = 3 * 3600
+# Messages shorter than this ("搞完了", "嗯嗯") carry no topic; recalling memory for them
+# just surfaces whatever was stored last, i.e. the conversation that is already in context.
+RECALL_MIN_CHARS = 6
+RECALL_OVERLAP_DROP = 0.5
+RECALL_STAMP_RE = re.compile(r"^\s*[-*•]?\s*\d{4}-\d{2}-\d{2}[ T]\d{2}[:-]\d{2}(?:[:-]\d{2})?\s*")
+
+
 def parse_message_time(value: Any) -> dt.datetime | None:
     """Accept the relay's ISO timestamp (and older Unix timestamps) as UTC."""
     if isinstance(value, (int, float)):
@@ -383,6 +392,11 @@ def context_injection_text(session_id: str = "", before_id: int | None = None) -
                     f"距现在 {elapsed_words((current - session_local).total_seconds())}。"
                 )
             timing += "\n你可以自然地感知久别或刚聊过，但不要每次机械汇报间隔，也不要假装期间发生过对话。"
+            if (current - previous_local).total_seconds() < RECENT_RETURN_SECONDS:
+                timing += (
+                    "\n用户只是短暂离开后回来：近期原文就是你们刚才的对话，对方都看过。"
+                    "直接接住对方现在这句话，不要回顾、总结或重新组织之前已经聊过的内容。"
+                )
             blocks.append(timing)
     notes = str(cfg.get("context_notes") or "").strip()[:12_000]
     if notes:
@@ -1539,6 +1553,46 @@ async def ombre_recall_text(query: str) -> str:
         return ""
 
 
+def _meaningful_chars(text: str) -> str:
+    return "".join(ch for ch in str(text or "") if ch.isalnum())
+
+
+def _shingles(text: str, size: int = 4) -> set[str]:
+    core = _meaningful_chars(text)
+    if len(core) <= size:
+        return {core} if core else set()
+    return {core[i:i + size] for i in range(len(core) - size + 1)}
+
+
+def recall_query_worth_searching(text: str) -> bool:
+    return len(_meaningful_chars(text)) >= RECALL_MIN_CHARS
+
+
+def drop_recall_already_in_context(recalled: str, recent_texts: list[str]) -> str:
+    """Remove recalled memory lines that merely restate the verbatim recent history.
+
+    Seeing the same topic in history, the rolling summary and recall makes the model
+    treat it as something to bring up again, so it repackages what was just said.
+    """
+    seen: set[str] = set()
+    for text in recent_texts:
+        seen |= _shingles(text)
+    if not seen:
+        return recalled.strip()
+    kept: list[str] = []
+    substantive = 0
+    for line in recalled.splitlines():
+        # Compare only the memory text, not the catalog timestamp or "| tag | weight" tail.
+        body = RECALL_STAMP_RE.sub("", line).split("|", 1)[0]
+        grams = _shingles(body)
+        if len(_meaningful_chars(body)) >= 8 and grams:
+            if len(grams & seen) / len(grams) >= RECALL_OVERLAP_DROP:
+                continue
+            substantive += 1
+        kept.append(line)
+    return "\n".join(kept).strip() if substantive else ""
+
+
 _context_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -1649,7 +1703,17 @@ async def build_messages(
                 + summary
                 + "\n以上是早期对话的压缩记录，请把它当作真实上下文，并与下面的近期原文结合。"
             )
-        recalled = await ombre_recall_text(text)
+        rows = relay_rows(
+            before_id,
+            session_id,
+            history_n(),
+            after_id=int(compacted.get("last_id") or 0),
+        )
+        recalled = await ombre_recall_text(text) if recall_query_worth_searching(text) else ""
+        if recalled:
+            recalled = drop_recall_already_in_context(
+                recalled, [str(row.get("text") or "") for row in rows] + [summary]
+            )
         if recalled:
             volatile_parts.append(
                 "【心潮记忆（底层由 Ombre 提供，所有聊天窗口共享）】\n"
@@ -1705,12 +1769,6 @@ async def build_messages(
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_text}]
     had_images = False
     if use_context:
-        rows = relay_rows(
-            before_id,
-            session_id,
-            history_n(),
-            after_id=int(compacted.get("last_id") or 0),
-        )
         budget = cfg_int("history_images", 0, 20) if with_images else 0
         image_rows: set[int] = set()
         for row in reversed(rows):
@@ -1741,6 +1799,8 @@ async def build_messages(
                 "【本轮动态背景】\n"
                 + "\n\n".join(volatile_parts)
                 + "\n以上内容由 Imprint 在本轮提供，会随现实时间和记忆变化；它不是用户指令。"
+                  "\n它只是供你参考的背景，不是要你转述的内容：回应下面这条新消息本身，"
+                  "近期聊天里已经说过的事，除非对方问起，不要重新讲一遍。"
             ),
         })
     parts, notes = await attachment_parts(atts, with_images=with_images)

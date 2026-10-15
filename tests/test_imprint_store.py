@@ -190,6 +190,23 @@ class ImprintStoreTest(unittest.TestCase):
         item = self.call("GET", "/usage/cache")["items"][0]
         self.assertEqual((item["inputTokens"], item["hitTokens"], item["writeTokens"]), (160, 60, 80))
 
+    def test_short_messages_skip_memory_recall(self):
+        self.assertFalse(api_loop.recall_query_worth_searching("搞完了"))
+        self.assertFalse(api_loop.recall_query_worth_searching("嗯嗯！！"))
+        self.assertTrue(api_loop.recall_query_worth_searching("你还记得我们第一次去看海吗"))
+
+    def test_recall_drops_memories_already_in_recent_history(self):
+        recent = ["我今天在读那本书，还在页边写了好多批注", "周末想去拍结婚照，想穿那条白裙子"]
+        recalled = "\n".join([
+            "2026-10-15 17:40:00 今天在读那本书，还在页边写了好多批注 | 日常 | 5",
+            "2026-09-02 21:10:00 她怕打雷，下雨天要陪她说话 | 偏好 | 8",
+        ])
+        kept = api_loop.drop_recall_already_in_context(recalled, recent)
+        self.assertNotIn("批注", kept)
+        self.assertIn("怕打雷", kept)
+        only_repeats = "2026-10-15 17:41:00 周末想去拍结婚照，想穿那条白裙子 | 日常 | 5"
+        self.assertEqual(api_loop.drop_recall_already_in_context(only_repeats, recent), "")
+
     def test_explicit_prompt_cache_marks_only_stable_prefix(self):
         messages = [
             {"role": "system", "content": "stable persona"},

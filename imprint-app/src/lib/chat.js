@@ -9,7 +9,7 @@
  * 假数据模式下由 mock.js 的 mockStream 模拟。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, MOCK, streamUrl, adaptStreamEvent } from './api.js';
+import { api, MOCK, streamUrl, adaptStreamEvent, uploadFile } from './api.js';
 import { upsertMessage, settleSentMessage, mergeResync, mergeFull } from './chatItems.js';
 import { shrinkImage, mapLimited } from './image.js';
 
@@ -147,20 +147,34 @@ export function useChat(chatId, demo) {
     const previews = files.map((f) => { const url = URL.createObjectURL(f); return { url, thumb: url }; });
     patch((d) => ({ ...d, items: [...d.items, { id, from: 'me', status: 'sending', at: new Date().toISOString(), type: 'images', images: previews, files }] }));
     let step = '压图';
+    const shown = (progress) => patch((d) => ({ ...d, items: d.items.map((x) => (x.id === id ? { ...x, progress } : x)) }));
+    const loaded = files.map(() => 0);
+    const sizes = files.map(() => 0);
     try {
-      const ups = await mapLimited(files, 2, async (f) => {
-        const small = await shrinkImage(f);
+      shown('压图中…');
+      const ups = await mapLimited(files, 2, async (f, i) => {
+        // 压图最多等 20 秒：iPhone 压超大的图偶尔会卡住不动，卡住就直接传原图
+        const small = MOCK ? f : await Promise.race([shrinkImage(f), new Promise((ok) => setTimeout(() => ok(f), 20000))]);
+        sizes[i] = small.size;
         step = '上传';
-        return upload(small, 'image');
+        if (MOCK) return upload(small, 'image');
+        return uploadFile(small, { onProgress: (r) => {
+          loaded[i] = r;
+          const total = sizes.reduce((a, b) => a + b, 0) || 1;
+          const done = sizes.reduce((a, b, k) => a + b * loaded[k], 0);
+          shown(`上传 ${Math.round((done / total) * 100)}% · ${(total / 1048576).toFixed(1)} MB`);
+        } });
       });
       step = '发送';
+      shown('发送中…');
       const m = await api(`${base}/messages`, { method: 'POST', body: { type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) } });
       patch((d) => ({ ...d, items: settleSentMessage(d.items, id, m) }));
       setTimeout(() => previews.forEach((p) => URL.revokeObjectURL(p.url)), 5000);
       return m;
     } catch (e) {
       const why = e?.status ? `HTTP ${e.status}${e.message ? ` ${e.message}` : ''}` : (e?.message || '没连上');
-      patch((d) => ({ ...d, items: d.items.map((x) => (x.id === id ? { ...x, status: 'unsent', error: `${step}：${why}`.slice(0, 80) } : x)) }));
+      const size = sizes.some(Boolean) ? `，${(sizes.reduce((a, b) => a + b, 0) / 1048576).toFixed(1)} MB` : '';
+      patch((d) => ({ ...d, items: d.items.map((x) => (x.id === id ? { ...x, status: 'unsent', progress: '', error: `${step}：${why}${size}`.slice(0, 90) } : x)) }));
       throw e;
     }
   };

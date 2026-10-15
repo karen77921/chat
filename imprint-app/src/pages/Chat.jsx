@@ -128,7 +128,7 @@ export default function Chat({ query }) {
           const next = shown[i + 1];
           const showTime = !next || next.from !== m.from || new Date(next.at) - new Date(m.at) > 300000 || m.status === 'failed';
           let tail = '';
-          if (m === lastMine && !searching) tail = m.status === 'queued' ? ' · 他还没开始回' : m.status === 'sending' ? ' · 发送中…' : m.status === 'sent' ? ' · 已读' : '';
+          if (m === lastMine && !searching) tail = m.status === 'queued' ? ' · 他还没开始回' : m.status === 'sending' ? ` · ${m.progress || '发送中…'}` : m.status === 'sent' ? ' · 已读' : '';
           if (m.status === 'failed') tail = ' · 失败';
           return (
             <div key={m.id}>

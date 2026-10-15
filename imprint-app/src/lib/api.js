@@ -80,6 +80,30 @@ export function authedImageUrl(url) {
 
 export function streamUrl() { return withToken(`${RELAY}/app/stream`); }
 
+/** 上传一个文件到中继，边传边报进度（fetch 拿不到上传进度，用 XHR）。onProgress(0–1) */
+export function uploadFile(file, { onProgress, timeout = 180000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${RELAY}/app/upload?name=${encodeURIComponent(file?.name || 'attachment')}`);
+    const value = token();
+    if (value) xhr.setRequestHeader('Authorization', `Bearer ${value}`);
+    if (file?.type) xhr.setRequestHeader('Content-Type', file.type);
+    xhr.timeout = timeout;
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    xhr.onload = () => {
+      let data = null;
+      try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { data = null; }
+      if (xhr.status === 401) window.dispatchEvent(new Event('imprint-auth-required'));
+      if (xhr.status < 200 || xhr.status >= 300) { reject(new ApiError(xhr.status, data?.detail || data?.error || xhr.statusText)); return; }
+      if (!data?.url) { reject(new ApiError(xhr.status, '服务器没给图片地址')); return; }
+      resolve({ ...data, thumb: data.thumb || data.url });
+    };
+    xhr.onerror = () => reject(new ApiError(0, '连不上服务器'));
+    xhr.ontimeout = () => reject(new ApiError(0, `${Math.round(timeout / 60000)} 分钟没传完`));
+    xhr.send(file);
+  });
+}
+
 async function request(path, { method = 'GET', body, form, timeout = 30000, raw } = {}) {
   const headers = {};
   const value = token();

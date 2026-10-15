@@ -62,15 +62,23 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
     if (!list.length || sendingAttachment.current) return;
     sendingAttachment.current = true;
     setBusy(`正在传 ${list.length} 张图…`); setPanel(null);
+    let step = '压图';
+    let sizes = [];
     try {
-      const ups = await mapLimited(list, 2, async (f) => onUpload(await shrinkImage(f), 'image'),
-        (n) => setBusy(n < list.length ? `正在传图 ${n}/${list.length}…` : '马上就好…'));
+      const ups = await mapLimited(list, 2, async (f) => {
+        const small = await shrinkImage(f);
+        sizes.push(`${(f.size / 1048576).toFixed(1)}→${(small.size / 1048576).toFixed(1)} MB`);
+        step = '上传';
+        return onUpload(small, 'image');
+      }, (n) => setBusy(n < list.length ? `正在传图 ${n}/${list.length}…` : '马上就好…'));
+      step = '发送';
       await onSend({ type: 'images', images: ups.map((u) => ({ url: u.url, thumb: u.thumb, w: u.w, h: u.h })) });
       setBusy('');
-    } catch {
-      // 以前传失败了什么都不说，看起来就像「一直传不上去」
-      setBusy('图没传上去，网不太好，再发一次试试');
-      setTimeout(() => setBusy(''), 4000);
+    } catch (e) {
+      // 把卡在哪一步、为什么、图多大都说出来，才查得出来
+      const why = e?.status ? `HTTP ${e.status} ${e.message || ''}` : (e?.message || String(e));
+      setBusy(`图没${step === '发送' ? '发' : '传'}出去（${step}：${why.slice(0, 60)}${sizes.length ? `；${sizes.join('、')}` : ''}）`);
+      setTimeout(() => setBusy(''), 15000);
     } finally { sendingAttachment.current = false; }
   };
   const pickFile = async (f) => {

@@ -80,6 +80,40 @@ export function authedImageUrl(url) {
 
 export function streamUrl() { return withToken(`${RELAY}/app/stream`); }
 
+/** 分块上传：切成 128 KB 一块，一块块传（每块和发一条消息差不多大），断了只重传那一块，
+ *  到齐了服务器拼好再交给中继存。手机网络传整张图，路上一断就全没了。onProgress(0–1) */
+const CHUNK = 128 * 1024;
+const toBase64 = (blob) => new Promise((ok, fail) => {
+  const reader = new FileReader();
+  reader.onload = () => ok(String(reader.result).split(',', 2)[1] || '');
+  reader.onerror = () => fail(reader.error || new Error('read'));
+  reader.readAsDataURL(blob);
+});
+export async function uploadInChunks(file, { onProgress } = {}) {
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const total = Math.max(1, Math.ceil(file.size / CHUNK));
+  let done = 0;
+  const sendOne = async (index) => {
+    const data = await toBase64(file.slice(index * CHUNK, (index + 1) * CHUNK));
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await loop('upload/chunk', { method: 'POST', body: { id, index, total, data }, timeout: 30000 });
+        onProgress?.(++done / total);
+        return;
+      } catch (e) {
+        if (attempt >= 4 || (e?.status && e.status !== 0 && e.status < 500 && e.status !== 408 && e.status !== 429)) throw e;
+        await new Promise((ok) => setTimeout(ok, 800 * attempt));
+      }
+    }
+  };
+  let next = 0;
+  const worker = async () => { while (next < total) await sendOne(next++); };
+  await Promise.all([worker(), worker()]);
+  const up = await loop('upload/finish', { method: 'POST', body: { id, total, name: file.name || 'photo.jpg', mime: file.type || '' }, timeout: 90000 });
+  if (!up?.url) throw new ApiError(0, '服务器没给图片地址');
+  return { ...up, thumb: up.thumb || up.url };
+}
+
 /** 上传一个文件到中继，边传边报进度（fetch 拿不到上传进度，用 XHR）。onProgress(0–1) */
 export function uploadFile(file, { onProgress, timeout = 180000 } = {}) {
   return new Promise((resolve, reject) => {

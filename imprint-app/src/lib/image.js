@@ -1,9 +1,11 @@
 /**
  * 发图前先在手机上压一下：手机原图动辄 3–8 MB，原样上传慢、发给模型也慢（还可能超过单张 5 MB 的上限）。
- * 长边缩到 2048（模型看图最多也就用到 ~1568），转成 JPEG 0.85；动图和本来就小的图原样不动。
+ * 长边缩到 1600（模型看图最多也就用到 ~1568，再大他也看不出区别），转成 JPEG 0.8，一张照片大概只剩 300–600 KB；
+ * 动图和本来就小的图原样不动。不限制大小：选什么图都发，压不了的就原样传。
  */
-const MAX_EDGE = 2048;
-const SMALL = 600 * 1024;
+const MAX_EDGE = 1600;
+const QUALITY = 0.8;
+const SMALL = 400 * 1024;
 
 // iPhone 上 createImageBitmap 偶尔解出一张「空的」图，画出来就是一张纯白，然后被当成照片传上去。
 // 所以先用 <img> 解码（iOS 上最稳），压完再抽查几个点：一片空白就不用它，原图照传。
@@ -23,13 +25,13 @@ async function decode(file) {
   return { src: bmp, width: bmp.width, height: bmp.height, done: () => bmp.close?.() };
 }
 
-/** 抽查一个 8×8 的网格：全是刚铺的白底，说明照片根本没画上去 */
+/** 抽查一个 8×8 的网格：照片先画在透明的画布上，一个点都没画上（全透明）才算解坏了。
+ *  （不能看「是不是白的」：白底的截图会被误判，改传原图又大又慢） */
 function looksBlank(ctx, w, h) {
   try {
     for (let y = 0; y < 8; y++) {
       for (let x = 0; x < 8; x++) {
-        const [r, g, b] = ctx.getImageData(Math.floor(((x + 0.5) * w) / 8), Math.floor(((y + 0.5) * h) / 8), 1, 1).data;
-        if (r < 250 || g < 250 || b < 250) return false;
+        if (ctx.getImageData(Math.floor(((x + 0.5) * w) / 8), Math.floor(((y + 0.5) * h) / 8), 1, 1).data[3] > 0) return false;
       }
     }
     return true;
@@ -53,10 +55,11 @@ export async function shrinkImage(file) {
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return file;
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); // 透明 PNG 转 JPEG 不要变黑底
     ctx.drawImage(pic.src, 0, 0, w, h);
     if (looksBlank(ctx, w, h)) return file;
-    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', 0.85));
+    ctx.globalCompositeOperation = 'destination-over'; // 透明 PNG 转 JPEG 不要变黑底：白底垫在下面
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', QUALITY));
     if (!blob || blob.size < 1024 || blob.size >= file.size) return file;
     const name = (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg';
     return new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() });

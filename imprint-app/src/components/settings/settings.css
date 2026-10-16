@@ -74,6 +74,7 @@
 .st-wall.on { box-shadow: 0 0 0 2px var(--print-c); }
 .st-wall .cyano { filter: blur(2px); }
 .st-wall > span { position: absolute; left: 8px; bottom: 6px; font-size: 10px; color: #fff; }
+.st-wall .st-wall-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .st-wall .st-wall-u { position: static; display: flex; align-items: center; justify-content: center; height: 100%; color: var(--ink); background: var(--l2); }
 .st-wall.add { border: 1.5px dashed color-mix(in srgb, var(--print-c) 50%, transparent); color: var(--accent); font-size: 11.5px; }
 .st-bprev { position: relative; height: 150px; border-radius: 14px; overflow: hidden; padding: 16px 14px; display: flex; flex-direction: column; gap: 10px; }

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import Icon from '../design/icons.jsx';
 import { Band, TornBox, Cyanotype } from '../design/paper.jsx';
 import Sheet from '../design/Sheet.jsx';
-import { api, saveToken, savedToken } from '../lib/api.js';
+import { api, saveToken, savedToken, uploadFile, authedImageUrl } from '../lib/api.js';
 import { shrinkImage } from '../lib/image.js';
 import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
@@ -23,7 +23,8 @@ import '../components/settings/settings.css';
 const PAGES = {
   access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], walls: ['his walls', '他的墙'], features: ['features', '功能管理'], cache: ['cache check', '缓存体检'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
-const upload = async (file, kind) => { const f = new FormData(); f.append('file', await shrinkImage(file)); f.append('kind', kind); return api('/api/chat/upload', { method: 'POST', form: f, timeout: 60000 }); };
+// 头像、壁纸走和聊天发图同一条路：先压小，直接交给中继，显示进度，断了自动重传（以前 1 分钟传不完就悄悄失败）
+const upload = async (file, kind, onProgress) => uploadFile(await shrinkImage(file), { onProgress });
 const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
 const hm = (iso) => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
@@ -680,7 +681,9 @@ function Beauty() {
   const [tip, setTip] = useState('');
   const avIn = useRef(null), wallIn = useRef(null);
   const who = useRef('him');
-  const flash = (t) => { setTip(t); setTimeout(() => setTip(''), 1800); };
+  const flash = (t, ms = 1800) => { setTip(t); setTimeout(() => setTip(''), ms); };
+  const [wallThumb, setWallThumb] = useState('');
+  useEffect(() => { if (wall) authedImageUrl(wall).then(setWallThumb, () => setWallThumb('')); }, [wall]);
   useEffect(() => {
     api('/api/settings/beauty').then((saved) => {
       if (saved.beauty && Object.keys(saved.beauty).length) setBeauty(saved.beauty);
@@ -696,18 +699,20 @@ function Beauty() {
   const pickAvatar = async (f) => {
     if (!f) return;
     try {
-      const u = await upload(f, 'avatar');
+      setTip('头像上传中…');
+      const u = await upload(f, 'avatar', (r) => setTip(`头像上传 ${Math.round(r * 100)}%`));
       await api('/api/settings/avatar', { method: 'PUT', body: { who: who.current, url: u.url } });
       flash('头像换好了，重新进入聊天即可看到');
-    } catch (e) { flash(e?.message || '头像保存失败'); }
+    } catch (e) { flash(`头像没换成：${e?.message || '上传失败'}`, 6000); }
   };
   const pickWall = async (f) => {
     if (!f) return;
     try {
-      const u = await upload(f, 'wallpaper');
+      setTip('背景上传中…');
+      const u = await upload(f, 'wallpaper', (r) => setTip(`背景上传 ${Math.round(r * 100)}%`));
       await api('/api/settings/beauty', { method: 'PUT', body: { ...beauty, wallpaper: u.url } });
-      setWall(u.url); setBeauty({ ...beauty, wallpaper: u.url }); flash('聊天背景换好了');
-    } catch (e) { flash(e?.message || '背景保存失败'); }
+      setWall(u.url); setBeauty({ ...beauty, wallpaper: u.url }); flash('聊天背景换好了，进聊天就能看到');
+    } catch (e) { flash(`背景没换成：${e?.message || '上传失败'}`, 6000); }
   };
   const STYLES = [['glass', '磨砂玻璃'], ['paper', '纸片'], ['cyan', '蓝晒信纸']];
   return (
@@ -729,7 +734,9 @@ function Beauty() {
       <div className="nc-k">聊天背景</div>
       <div className="st-walls">
         <button type="button" className={`st-wall ${!beauty.wallpaper ? 'on' : ''}`} onClick={() => save({ ...beauty, wallpaper: null })}><Cyanotype w={104} h={110} seed={7} develop={false} /><span>默认 · 虚化</span></button>
-        {wall && <button type="button" className="st-wall on"><span className="st-wall-u">你选的</span></button>}
+        {wall && <button type="button" className={`st-wall ${beauty.wallpaper ? 'on' : ''}`} onClick={() => save({ ...beauty, wallpaper: wall })}>
+          {wallThumb ? <img src={wallThumb} alt="" className="st-wall-img" /> : <span className="st-wall-u">你选的</span>}<span>你选的</span>
+        </button>}
         <button type="button" className="st-wall add" onClick={() => wallIn.current.click()}>＋ 相册</button>
       </div>
       <div className="nc-k">气泡</div>

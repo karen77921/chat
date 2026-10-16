@@ -213,11 +213,11 @@ export function useChat(chatId, demo) {
   };
   /** 上传图片 / 语音 / 文件，返回 { url } */
   const upload = (file, kind) => {
+    if (!MOCK) return uploadFile(file, { timeout: kind === 'voice' ? 60000 : 300000 }); // 直接交给中继，断了自动重传
     const form = new FormData();
     form.append('file', file);
     form.append('kind', kind);
-    // 网慢的时候大文件 1 分钟传不完：图片和文件多给点时间
-    return api('/api/chat/upload', { method: 'POST', form, timeout: kind === 'voice' ? 60000 : 180000 });
+    return api('/api/chat/upload', { method: 'POST', form });
   };
 
   return { data, now, reload: load, send, sendImages, resend, reply, pause, regenerate, edit, remove, react, upload };

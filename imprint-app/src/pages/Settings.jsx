@@ -753,7 +753,7 @@ function Beauty() {
         <input type="range" min="0.2" max="0.95" step="0.01" value={beauty.alpha} onChange={(e) => setBeauty({ ...beauty, alpha: Number(e.target.value) })} onPointerUp={() => save(beauty)} />
         <b className="serif">{Math.round(beauty.alpha * 100)}%</b>
       </label>
-      {tip && <div className="rm-tip" role="status">{tip}</div>}
+      {tip && <div className="st-beauty-tip" role="status">{tip}</div>}
       <input ref={avIn} type="file" accept="image/*" hidden onChange={(e) => { pickAvatar(e.target.files[0]); e.target.value = ''; }} />
       <input ref={wallIn} type="file" accept="image/*" hidden onChange={(e) => { pickWall(e.target.files[0]); e.target.value = ''; }} />
     </>

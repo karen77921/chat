@@ -335,7 +335,7 @@ function StatusLine({ st, onPause, onRetry }) {
 
 function ChatBackground({ url }) {
   return (
-    <div className="ch-bg" aria-hidden="true">
+    <div className={`ch-bg ${url ? 'own' : ''}`} aria-hidden="true">
       {url ? <AuthImg src={url} alt="" /> : (
         <div className="ch-bg-art">
           <Cyanotype w={430} h={932} seed={7} develop={false} />

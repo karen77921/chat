@@ -80,44 +80,8 @@ export function authedImageUrl(url) {
 
 export function streamUrl() { return withToken(`${RELAY}/app/stream`); }
 
-/** 分块上传：切成 64 KB 一块，一块接一块地传（每块和发一条消息差不多大），断了只重传那一块，
- *  到齐了服务器拼好再交给中继存。到服务器的上行有时只有几 KB/s：块要小到中继 30 秒内转得完，
- *  而且一次只传一块，不让两块抢同一条细水管。onProgress(0–1) */
-const CHUNK = 64 * 1024;
-const toBase64 = (blob) => new Promise((ok, fail) => {
-  const reader = new FileReader();
-  reader.onload = () => ok(String(reader.result).split(',', 2)[1] || '');
-  reader.onerror = () => fail(reader.error || new Error('read'));
-  reader.readAsDataURL(blob);
-});
-export async function uploadInChunks(file, { onProgress } = {}) {
-  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const total = Math.max(1, Math.ceil(file.size / CHUNK));
-  let done = 0;
-  const sendOne = async (index) => {
-    const data = await toBase64(file.slice(index * CHUNK, (index + 1) * CHUNK));
-    for (let attempt = 1; ; attempt++) {
-      try {
-        // 网很慢的时候一块也可能要几十秒：多等一会儿，别在快传完时放弃
-        await loop('upload/chunk', { method: 'POST', body: { id, index, total, data }, timeout: 60000 });
-        onProgress?.(++done / total);
-        return;
-      } catch (e) {
-        if (attempt >= 6 || (e?.status && e.status !== 502 && e.status !== 504 && e.status !== 0 && e.status < 500 && e.status !== 408 && e.status !== 429)) throw e;
-        await new Promise((ok) => setTimeout(ok, 800 * attempt));
-      }
-    }
-  };
-  let next = 0;
-  const worker = async () => { while (next < total) await sendOne(next++); };
-  await worker();
-  const up = await loop('upload/finish', { method: 'POST', body: { id, total, name: file.name || 'photo.jpg', mime: file.type || '' }, timeout: 90000 });
-  if (!up?.url) throw new ApiError(0, '服务器没给图片地址');
-  return { ...up, thumb: up.thumb || up.url };
-}
-
 /** 上传一个文件到中继，边传边报进度（fetch 拿不到上传进度，用 XHR）。onProgress(0–1) */
-export function uploadFile(file, { onProgress, timeout = 180000 } = {}) {
+function uploadOnce(file, { onProgress, timeout }) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${RELAY}/app/upload?name=${encodeURIComponent(file?.name || 'attachment')}`);
@@ -138,6 +102,19 @@ export function uploadFile(file, { onProgress, timeout = 180000 } = {}) {
     xhr.ontimeout = () => reject(new ApiError(0, `${Math.round(timeout / 60000)} 分钟没传完`));
     xhr.send(file);
   });
+}
+
+/** 直接交给中继存（这条路最短，以前普通截图一直这么传）。连接半路断了就整张再传，最多 3 次 */
+export async function uploadFile(file, { onProgress, timeout = 300000 } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await uploadOnce(file, { onProgress, timeout });
+    } catch (e) {
+      if (attempt >= 3 || e?.status) throw e; // 服务器明确拒了（有状态码）就不重试
+      onProgress?.(0);
+      await new Promise((ok) => setTimeout(ok, 1500 * attempt));
+    }
+  }
 }
 
 async function request(path, { method = 'GET', body, form, timeout = 30000, raw } = {}) {

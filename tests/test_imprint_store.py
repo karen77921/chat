@@ -346,34 +346,6 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(len(api_loop.image_tiles(png(600, 60000))), api_loop.LONG_IMAGE_MAX_TILES)
         self.assertIsNone(api_loop.image_tiles(b"not an image"))
 
-    def test_chunked_upload_reassembles_and_hands_to_relay(self):
-        import base64 as b64
-        blob = bytes(range(256)) * 1500  # ~384 KB
-        parts = [blob[i:i + 131072] for i in range(0, len(blob), 131072)]
-        stored = {}
-
-        async def fake_relay(data, name, mime):
-            stored.update(data=data, name=name, mime=mime)
-            return {"url": "/relay/uploads/att-x.jpg"}
-
-        with mock.patch.object(api_loop, "UPLOAD_CHUNK_DIR", self.root / "chunks"), \
-                mock.patch.object(api_loop, "relay_upload", fake_relay):
-            for i, part in enumerate(parts[:-1]):
-                asyncio.run(api_loop.loop_upload_chunk(Request({"id": "abc12345", "index": i, "total": len(parts),
-                                                                "data": b64.b64encode(part).decode()})))
-            with self.assertRaises(api_loop.HTTPException):  # 少一块不拼
-                asyncio.run(api_loop.loop_upload_finish(Request({"id": "abc12345", "total": len(parts)})))
-            asyncio.run(api_loop.loop_upload_chunk(Request({"id": "abc12345", "index": len(parts) - 1, "total": len(parts),
-                                                            "data": b64.b64encode(parts[-1]).decode()})))
-            out = asyncio.run(api_loop.loop_upload_finish(Request({"id": "abc12345", "total": len(parts),
-                                                                   "name": "../a b.jpg", "mime": "image/jpeg"})))
-            self.assertEqual(stored["data"], blob)
-            self.assertNotIn("/", stored["name"])
-            self.assertEqual(out["thumb"], "/relay/uploads/att-x.jpg")
-            self.assertFalse((self.root / "chunks" / "abc12345").exists())
-            with self.assertRaises(api_loop.HTTPException):
-                asyncio.run(api_loop.loop_upload_chunk(Request({"id": "../evil", "index": 0, "total": 1, "data": ""})))
-
     def test_short_messages_skip_memory_recall(self):
         self.assertFalse(api_loop.recall_query_worth_searching("搞完了"))
         self.assertFalse(api_loop.recall_query_worth_searching("嗯嗯！！"))

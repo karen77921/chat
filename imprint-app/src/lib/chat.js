@@ -9,7 +9,7 @@
  * 假数据模式下由 mock.js 的 mockStream 模拟。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, MOCK, streamUrl, adaptStreamEvent, uploadInChunks } from './api.js';
+import { api, MOCK, streamUrl, adaptStreamEvent, uploadFile } from './api.js';
 import { upsertMessage, settleSentMessage, mergeResync, mergeFull } from './chatItems.js';
 import { shrinkImage, mapLimited } from './image.js';
 
@@ -158,7 +158,7 @@ export function useChat(chatId, demo) {
         sizes[i] = small.size;
         step = '上传';
         if (MOCK) return upload(small, 'image');
-        return uploadInChunks(small, { onProgress: (r) => {
+        return uploadFile(small, { onProgress: (r) => {
           loaded[i] = r;
           const total = sizes.reduce((a, b) => a + b, 0) || 1;
           const done = sizes.reduce((a, b, k) => a + b * loaded[k], 0);

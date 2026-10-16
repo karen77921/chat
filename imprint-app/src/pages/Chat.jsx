@@ -9,7 +9,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../design/icons.jsx';
 import { Cyanotype } from '../design/paper.jsx';
 import Sheet from '../design/Sheet.jsx';
-import { api, MOCK } from '../lib/api.js';
+import { api, MOCK, uploadFile } from '../lib/api.js';
+import { shrinkImage } from '../lib/image.js';
 import { useLoad } from '../lib/useLoad.js';
 import { useChat, replyState, hm, dayLabel, nameOf, memberOf } from '../lib/chat.js';
 import { useBeauty } from '../theme/theme.js';
@@ -251,7 +252,11 @@ function ChatDetails({ chatId, data, upload, onClose, onUpdated }) {
     if (!file) return;
     setBusy(true); setNotice('');
     try {
-      const uploaded = await upload(file, kind);
+      // 和主页「设置 → 美化」一样：先压小再传，显示进度（以前传的是原图，网慢就一直传不完）
+      say(kind === 'avatar' ? '头像上传中…' : '壁纸上传中…');
+      const small = await shrinkImage(file);
+      const uploaded = MOCK ? await upload(small, kind)
+        : await uploadFile(small, { onProgress: (r) => say(`${kind === 'avatar' ? '头像' : '壁纸'}上传 ${Math.round(r * 100)}%`) });
       if (kind === 'avatar') {
         await api('/api/settings/avatar', { method: 'PUT', body: { who: 'him', url: uploaded.url } });
         await onUpdated(); say('头像已保存');
@@ -259,7 +264,7 @@ function ChatDetails({ chatId, data, upload, onClose, onUpdated }) {
         const saved = await api('/api/settings/beauty', { method: 'PUT', body: { ...beauty, wallpaper: uploaded.url } });
         setBeauty(saved); await onUpdated(); say('聊天壁纸已保存');
       }
-    } catch (e) { say(e?.message || '图片保存失败'); }
+    } catch (e) { say(`没换成：${e?.message || '上传失败'}`); }
     finally { setBusy(false); }
   };
   return (
@@ -283,6 +288,7 @@ function ChatDetails({ chatId, data, upload, onClose, onUpdated }) {
           {beauty.wallpaper && <button type="button" className="chip" disabled={busy} onClick={() => saveBeauty({ ...beauty, wallpaper: null })}>恢复默认</button>}
           <input ref={wallInput} type="file" accept="image/*" hidden onChange={(e) => { changeImage(e.target.files[0], 'wallpaper'); e.target.value = ''; }} />
         </div>
+        {notice && <p className="ch-detail-notice" role="status">{notice}</p>}
         <div className="ch-detail-label">气泡样式</div>
         <div className="ch-detail-actions" role="radiogroup" aria-label="气泡样式">
           {[['glass', '磨砂玻璃'], ['paper', '纸片'], ['cyan', '蓝晒信纸']].map(([id, label]) => (

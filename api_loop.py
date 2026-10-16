@@ -2620,6 +2620,8 @@ async def build_messages(
         "不要把分隔标记写进代码块。"
     )
     system_text += sticker_guide_text()
+    # 「想了一下」会给她看：心里想的时候也用中文（模型不一定每次都听，但大多数时候会照做）
+    system_text += "\n\n【想的时候】\n你在心里想、打草稿的时候，也用中文想。"
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_text}]
     if summary_text:
         messages.append({"role": "user", "content": summary_text})

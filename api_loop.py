@@ -141,6 +141,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "model_chain_timeout_seconds": 90,   # all configured fallbacks together
     "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
     "ombre_recall_timeout_seconds": 8,   # automatic memory recall before a reply; skipped if slower
+    "light_chat": True,                  # chatting with her: persona + chat, no manuals/feature tours (wakes keep everything)
     "roam_space_tools": True,            # every turn carries all Imprint space tools (room, tide, notes, photos, listen…)
     "wake_always_message": True,
     "diary_enabled": True,               # 「我们的日记」：每晚他给你们俩的今天写一篇
@@ -355,7 +356,7 @@ def previous_user_times(session_id: str, before_id: int | None) -> tuple[dt.date
     )
 
 
-def context_injection_text(session_id: str = "", before_id: int | None = None) -> str:
+def context_injection_text(session_id: str = "", before_id: int | None = None, *, light: bool = False) -> str:
     """Small stable context block injected into the system prompt on every turn."""
     if not cfg_bool("context_injection"):
         return ""
@@ -423,6 +424,8 @@ def context_injection_text(session_id: str = "", before_id: int | None = None) -
             + notes
             + "\n这些是用户明确要求长期保留的背景事实；如与用户最新说法冲突，以最新说法为准。"
         )
+    if light:
+        return "\n\n".join(blocks)
     with contextlib.suppress(Exception):
         wake = wake_public()
         control = wake["control"]
@@ -607,6 +610,8 @@ VOCAB_TOPIC_RE = re.compile(r"单词|生词|背词|词书|词汇|复习|抽查|�
 
 
 BOOK_TOPIC_RE = re.compile(r"书|读|批注|划线|章|📖")
+GIFT_TOPIC_RE = re.compile(r"券|礼物|兑换|火花|积分|礼物铺")
+PIGGY_TOPIC_RE = re.compile(r"存钱罐|小金库|存了|扣了|余额|攒钱|钱")
 
 
 def book_context_text(brief: bool = False) -> str:
@@ -2402,25 +2407,34 @@ async def build_messages(
     system_text = persona_full()
     volatile_parts: list[str] = []
     summary_text = ""
-    injected = context_injection_text(session_id, before_id)
+    # 轻装聊天：跟她聊天时只给人设、聊天记录和少量背景，不再每句话都附一本功能手册——
+    # 一身职责和操作说明会把他推成「帮你办事的客服」。工具都还在，他想用自己去工具箱拿；他自己醒来时照旧全给
+    light = cfg_bool("light_chat") and not proactive
+    said = text or ""
+    injected = context_injection_text(session_id, before_id, light=light)
     if injected:
         volatile_parts.append(injected)
-    with contextlib.suppress(Exception):
-        drive_line = imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_context", {"chatting": not proactive})["text"]
-        if drive_line:
-            volatile_parts.append(drive_line)
-    vocab = vocab_context_text(brief=not (proactive or VOCAB_TOPIC_RE.search(text or "")))
-    if vocab:
-        volatile_parts.append(vocab)
-    book = book_context_text(brief=not (proactive or BOOK_TOPIC_RE.search(text or "")))
-    if book:
-        volatile_parts.append(book)
-    gifts = gifts_context_text()
-    if gifts:
-        volatile_parts.append(gifts)
-    piggy = piggy_context_text()
-    if piggy:
-        volatile_parts.append(piggy)
+    if not light:
+        with contextlib.suppress(Exception):
+            drive_line = imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_context", {"chatting": not proactive})["text"]
+            if drive_line:
+                volatile_parts.append(drive_line)
+    if not light or VOCAB_TOPIC_RE.search(said):
+        vocab = vocab_context_text(brief=not (proactive or VOCAB_TOPIC_RE.search(said)))
+        if vocab:
+            volatile_parts.append(vocab)
+    if not light or BOOK_TOPIC_RE.search(said):
+        book = book_context_text(brief=not (proactive or BOOK_TOPIC_RE.search(said)))
+        if book:
+            volatile_parts.append(book)
+    if not light or GIFT_TOPIC_RE.search(said):
+        gifts = gifts_context_text()
+        if gifts:
+            volatile_parts.append(gifts)
+    if not light or PIGGY_TOPIC_RE.search(said):
+        piggy = piggy_context_text()
+        if piggy:
+            volatile_parts.append(piggy)
     for action in ("her_status", "drawer_context"):
         with contextlib.suppress(Exception):
             line = imprint_action(LOOP_CACHE_DIR / "imprint.db", action)["text"]

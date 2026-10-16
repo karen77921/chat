@@ -260,7 +260,7 @@ async function liveFeatures() {
       { key: 'reach', name: '主动找你', desc: `Wake 2.0 · ${WAKE_MODE_NAMES[cfg.wake?.control?.mode] || cfg.wake?.control?.mode || '低频'}`, last: cfg.wake?.state?.last_opportunity_at || '', on: cfg.wake?.control?.enabled !== false },
       { key: 'memory', name: '心潮记忆整理', desc: '上下文压缩后沉入心潮记忆', last: '', on: cfg.context_compaction !== false },
       { key: 'recall', name: '心潮自动回想', desc: '每轮按当前话题读取心潮记忆', last: '', on: cfg.ombre_auto_recall !== false },
-      { key: 'light', name: '轻装聊天', desc: '跟你聊天时只带人设和聊天记录，不念功能手册（他自己醒来时照旧）', last: '', on: cfg.light_chat !== false },
+      { key: 'light', name: '轻装聊天（试验）', desc: '跟你聊天时只带人设和聊天记录，不念功能手册；说话会变得比较多，默认关着', last: '', on: cfg.light_chat === true },
       { key: 'time', name: '现实时间感知', desc: cfg.context_timezone || 'Asia/Shanghai', last: '', on: cfg.context_time !== false },
       { key: 'backup', name: '自动备份', desc: `每 ${cfg.backup_interval_hours || 24} 小时`, last: '', on: cfg.backup_enabled !== false },
     ],

@@ -141,7 +141,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "model_chain_timeout_seconds": 90,   # all configured fallbacks together
     "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
     "ombre_recall_timeout_seconds": 8,   # automatic memory recall before a reply; skipped if slower
-    "light_chat": True,                  # chatting with her: persona + chat, no manuals/feature tours (wakes keep everything)
+    "light_chat": False,                 # opt-in: chat turns without manuals/feature tours; she found it changed him too much
     "roam_space_tools": True,            # every turn carries all Imprint space tools (room, tide, notes, photos, listen…)
     "wake_always_message": True,
     "diary_enabled": True,               # 「我们的日记」：每晚他给你们俩的今天写一篇

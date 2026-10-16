@@ -53,6 +53,10 @@ install_command() {
   printf '#!/usr/bin/env bash\nset -euo pipefail\ncurl -fsSL -H "Cache-Control: no-cache" "%s/imprint-update.sh?t=$(date +%%s)" | bash\n' "${RAW}" \
     | sudo tee /usr/local/bin/imprint-update >/dev/null
   sudo chmod 755 /usr/local/bin/imprint-update
+  # 一个词就能看他最近的回复各步花了多久（网页控制台粘长命令会被吃字）
+  printf '#!/usr/bin/env bash\nset -euo pipefail\ncurl -fsSL -H "Cache-Control: no-cache" "%s/tools/reply_timing.py?t=$(date +%%s)" | sudo python3 - "$@"\n' "${RAW}" \
+    | sudo tee /usr/local/bin/imprint-timing >/dev/null
+  sudo chmod 755 /usr/local/bin/imprint-timing
 }
 if [[ "${API_LIVE}" == "${API_NEW}" && "${STORE_LIVE}" == "${STORE_NEW}" && "${INDEX_LIVE}" == "${INDEX_NEW}" ]]; then
   install_command

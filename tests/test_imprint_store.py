@@ -346,6 +346,36 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(len(api_loop.image_tiles(png(600, 60000))), api_loop.LONG_IMAGE_MAX_TILES)
         self.assertIsNone(api_loop.image_tiles(b"not an image"))
 
+    def test_light_chat_keeps_him_out_of_work_mode(self):
+        with mock.patch.object(api_loop, "LOOP_CONFIG", self.root / "light.json"), \
+                mock.patch.object(api_loop, "persona_text", lambda: "PERSONA"):
+            api_loop.save_config({"light_chat": True})
+            msgs, _ = asyncio.run(api_loop.build_messages("今天好累", [], use_context=False))
+            system = msgs[0]["content"]
+            self.assertTrue(system.startswith("PERSONA"))  # 先是他是谁
+            self.assertIn("她不是一个任务", system)
+            for manual in ("说到做到", "公开资料研究能力", "体验与念头", "翻聊天记录"):
+                self.assertNotIn(manual, system)
+            self.assertEqual([t["function"]["name"] for t in api_loop.turn_tools("今天好累", light=True)], ["open_toolbox"])
+            self.assertIn("imprint_vocab", [t["function"]["name"] for t in api_loop.turn_tools("考考我单词", light=True)])
+            # 他自己醒来时照旧拿全套
+            woke, _ = asyncio.run(api_loop.build_messages("（这不是她发来的消息。）", [], use_context=False, proactive=True))
+            self.assertIn("说到做到", woke[0]["content"])
+            api_loop.save_config({"light_chat": False})
+            full, _ = asyncio.run(api_loop.build_messages("今天好累", [], use_context=False))
+            self.assertIn("说到做到", full[0]["content"])
+
+    def test_natural_time_line_reads_like_a_person(self):
+        now = dt.datetime(2026, 10, 16, 23, 30, tzinfo=api_loop.ZoneInfo("Asia/Shanghai"))
+        cases = [(dt.timedelta(minutes=3), "刚刚还在说话"), (dt.timedelta(hours=1), "隔了一会儿"),
+                 (dt.timedelta(hours=5), "隔了几个小时"), (dt.timedelta(hours=26), "隔了一夜"), (dt.timedelta(days=3), "3 天没说话")]
+        for gap, words in cases:
+            with mock.patch.object(api_loop, "previous_user_times", lambda *_a, g=gap: (None, now - g)):
+                line = api_loop.natural_time_line("s", None, now, {"together_since": "2026-09-18"})
+            self.assertIn(words, line)
+            self.assertIn("深夜", line)
+            self.assertNotIn("距离", line)
+
     def test_short_messages_skip_memory_recall(self):
         self.assertFalse(api_loop.recall_query_worth_searching("搞完了"))
         self.assertFalse(api_loop.recall_query_worth_searching("嗯嗯！！"))

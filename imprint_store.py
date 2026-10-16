@@ -1785,6 +1785,10 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 return store(item)
             raise ValueError("unknown purchase action")
 
+        if action == "diary_recent":
+            found = conn.execute("SELECT payload FROM records WHERE kind='diary' ORDER BY id DESC LIMIT ?",
+                                 (int(body.get("limit") or 3),)).fetchall()
+            return {"items": [json.loads(r["payload"]) for r in found]}
         if action == "diary_get":
             row = conn.execute("SELECT payload FROM records WHERE id=? AND kind='diary'", (f"diary_{body.get('day')}",)).fetchone()
             return {"items": [json.loads(row["payload"])] if row else []}

@@ -2484,6 +2484,9 @@ async def build_messages(
         piggy = piggy_context_text()
         if piggy:
             volatile_parts.append(piggy)
+    diary = recent_diary_text()
+    if diary:
+        volatile_parts.append(diary)
     for action in ("her_status", "drawer_context"):
         with contextlib.suppress(Exception):
             line = imprint_action(LOOP_CACHE_DIR / "imprint.db", action)["text"]
@@ -5377,6 +5380,21 @@ def unanswered_proactive(session_id: str, limit: int = 6) -> list[str]:
     return []
 
 
+def recent_diary_text(days: int = 3) -> str:
+    """他最近几天自己写的日记：日记就是那一天的总结，聊天时他也该记得（最近一篇多给点，更早的只给开头）。"""
+    with contextlib.suppress(Exception):
+        items = imprint_action(LOOP_CACHE_DIR / "imprint.db", "diary_recent", {"limit": days}).get("items") or []
+        items = sorted(items, key=lambda x: str(x.get("day") or ""), reverse=True)
+        if not items:
+            return ""
+        parts = []
+        for i, x in enumerate(items):
+            body = re.sub(r"\s+", " ", str(x.get("text") or "")).strip()
+            parts.append(f"{x.get('day')}《{x.get('title')}》：{body[:900] if i == 0 else body[:200]}")
+        return "【你最近写的日记】\n" + "\n".join(parts) + "\n（这是你自己写下的那几天，记得就好，不用复述。）"
+    return ""
+
+
 def her_latest_lines(hours: int = 8, limit: int = 8) -> list[str]:
     """她最近在所有窗口说过的话（带时间），旧的在前。醒来时给他看，免得他照着过时的印象猜她在干嘛。"""
     path = Path(RELAY_DB)
@@ -5454,11 +5472,6 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     if not garden:
         # 小屋的「此刻」和心潮放久了就会一直停在昨天：醒来时提醒他顺手更新
         prompt += space_freshness_hint()
-    with contextlib.suppress(Exception):
-        yesterday = (dt.datetime.now(context_zone()).date() - dt.timedelta(days=1)).isoformat()
-        diary = next((x for x in imprint_action(LOOP_CACHE_DIR / "imprint.db", "diary_get", {"day": yesterday}).get("items", [])), None)
-        if diary:
-            prompt += f"\n你昨天写的日记《{diary.get('title')}》：\n{str(diary.get('text') or '')[:1200]}\n（这是你自己写的，记得就好，不用复述。）"
     latest = her_latest_lines()
     if latest:
         # 醒来时只看这个窗口最近几十条，她在别的窗口、或者更早说的近况会漏掉：把她这几个小时说的话直接摆出来

@@ -1666,6 +1666,8 @@ class DrawerTest(unittest.TestCase):
         self.act("record_diary", {"day": "2026-10-15", "title": "泡脚", "text": "她今天腿红了"})
         self.assertEqual(self.act("diary_get", {"day": "2026-10-15"})["items"][0]["title"], "泡脚")
         self.assertEqual(self.act("diary_get", {"day": "2026-10-14"})["items"], [])
+        self.act("record_diary", {"day": "2026-10-16", "title": "抽屉", "text": "今天做了抽屉"})
+        self.assertEqual([d["day"] for d in self.act("diary_recent", {"limit": 3})["items"]], ["2026-10-16", "2026-10-15"])
 
     def test_her_status_reaches_him(self):
         self.assertEqual(self.act("her_status")["text"], "")

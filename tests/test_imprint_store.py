@@ -357,6 +357,13 @@ class ImprintStoreTest(unittest.TestCase):
             for manual in ("说到做到", "公开资料研究能力", "体验与念头", "翻聊天记录"):
                 self.assertNotIn(manual, system)
             self.assertEqual([t["function"]["name"] for t in api_loop.turn_tools("今天好累", light=True)], ["open_toolbox"])
+            cfg = api_loop.load_config()
+            cfg["mcp_servers"] = [{"name": "drift", "url": api_loop.GALATEA_DRIFT_MCP_URL}]
+            api_loop.save_config(cfg)
+            quiet, _ = asyncio.run(api_loop.build_messages("今天好累", [], use_context=False))
+            self.assertNotIn("漂流瓶】", quiet[0]["content"])
+            drift, _ = asyncio.run(api_loop.build_messages("帮我投个漂流瓶", [], use_context=False))
+            self.assertIn("邮箱", drift[0]["content"])  # 隐私规矩跟着工具回来
             self.assertIn("imprint_vocab", [t["function"]["name"] for t in api_loop.turn_tools("考考我单词", light=True)])
             # 他自己醒来时照旧拿全套
             woke, _ = asyncio.run(api_loop.build_messages("（这不是她发来的消息。）", [], use_context=False, proactive=True))

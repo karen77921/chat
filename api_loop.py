@@ -2552,7 +2552,10 @@ async def build_messages(
         system_text += LIGHT_CHAT_GUIDE
         if session_id and reply_options_mode(session_id) != "off":
             system_text += reply_options_prompt(reply_options_mode(session_id))
-    if not light and cfg_bool("mcp_memory_write") and cfg_int("max_tool_steps", 0, 50) > 0 and ombre_tool("hold") is not None:
+    # 轻装时：她提到「记住」「漂流瓶」，对应的工具会递给他，管隐私和真实的那段规矩也必须跟着来
+    memory_talk = any(w in said for w in ("记住", "记忆", "心潮", "别忘", "长期保存", "档案"))
+    drift_talk = any(w in said.casefold() for w in ("漂流瓶", "投递", "收信邮箱", "邮箱", "galatea", "drift bottle"))
+    if (not light or memory_talk) and cfg_bool("mcp_memory_write") and cfg_int("max_tool_steps", 0, 50) > 0 and ombre_tool("hold") is not None:
         system_text += (
             "\n\n【心潮主动记忆】\n"
             "你可以通过底层 Ombre 的 hold 工具，把用户明确要求记住的事写入心潮，"
@@ -2566,7 +2569,7 @@ async def build_messages(
         isinstance(item, dict) and str(item.get("url") or "").rstrip("/") == GALATEA_DRIFT_MCP_URL
         for item in (load_config().get("mcp_servers") or [])
     )
-    if drift_configured and not light:
+    if drift_configured and (not light or drift_talk):
         system_text += (
             "\n\n【Galatea Garden 漂流瓶】\n"
             "你已连接官方 galatea_drift_bottle__send_drift_bottle 工具，不需要 GitHub 账号，也不要再让用户代为提交。"

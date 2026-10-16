@@ -1785,6 +1785,9 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 return store(item)
             raise ValueError("unknown purchase action")
 
+        if action == "diary_get":
+            row = conn.execute("SELECT payload FROM records WHERE id=? AND kind='diary'", (f"diary_{body.get('day')}",)).fetchone()
+            return {"items": [json.loads(row["payload"])] if row else []}
         if action == "record_diary":
             # 「我们的日记」：他给你们俩的一天写一篇，每天一篇，重写会覆盖同一天
             day = str(body.get("day") or "").strip()

@@ -5454,6 +5454,11 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     if not garden:
         # 小屋的「此刻」和心潮放久了就会一直停在昨天：醒来时提醒他顺手更新
         prompt += space_freshness_hint()
+    with contextlib.suppress(Exception):
+        yesterday = (dt.datetime.now(context_zone()).date() - dt.timedelta(days=1)).isoformat()
+        diary = next((x for x in imprint_action(LOOP_CACHE_DIR / "imprint.db", "diary_get", {"day": yesterday}).get("items", [])), None)
+        if diary:
+            prompt += f"\n你昨天写的日记《{diary.get('title')}》：\n{str(diary.get('text') or '')[:1200]}\n（这是你自己写的，记得就好，不用复述。）"
     latest = her_latest_lines()
     if latest:
         # 醒来时只看这个窗口最近几十条，她在别的窗口、或者更早说的近况会漏掉：把她这几个小时说的话直接摆出来
@@ -5808,6 +5813,9 @@ async def write_diary(day: str) -> dict[str, Any]:
     if not title or not body:
         return {"ok": False, "reason": "他这次没写出来，过一会儿再试"}
     saved = imprint_action(LOOP_CACHE_DIR / "imprint.db", "record_diary", {"day": day, "title": title, "text": body[:3000]})
+    # 以前写完只放进小屋，他自己再也看不到：同时存进心潮，以后聊到相关的事会自己想起来
+    with contextlib.suppress(Exception):
+        await _archive_digest_to_ombre(f"{day} 我写的日记《{title}》\n{body[:3000]}")
     print(f"[diary] wrote {day}: {title}", flush=True)
     return {"ok": True, "item": saved}
 

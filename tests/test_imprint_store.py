@@ -1662,6 +1662,11 @@ class DrawerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.act("drawer_seal", {"viewer": "me", "cover": "x", "body": "y", "reveal_at": "2000-01-01T00:00"})
 
+    def test_diary_can_be_read_back_by_day(self):
+        self.act("record_diary", {"day": "2026-10-15", "title": "泡脚", "text": "她今天腿红了"})
+        self.assertEqual(self.act("diary_get", {"day": "2026-10-15"})["items"][0]["title"], "泡脚")
+        self.assertEqual(self.act("diary_get", {"day": "2026-10-14"})["items"], [])
+
     def test_her_status_reaches_him(self):
         self.assertEqual(self.act("her_status")["text"], "")
         self.act("her_status_set", {"mood": "累", "doing": "上班"})

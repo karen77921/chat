@@ -218,7 +218,7 @@ async function loadChat(id, full = false) {
   const [ss, hist, settings, reactions] = await Promise.all([
     request(`${RELAY}/app/sessions`),
     full ? fullHistory(id) : recent(),
-    loop('imprint/settings').catch(() => ({ avatars: {} })),
+    loop('imprint/settings').catch(() => ({ avatars: {}, unavailable: true })),
     loop('imprint/chat/reactions').catch(() => ({ items: [] })),
     loop('imprint/stickers').then((x) => rememberStickers(
       (x.mine || []).map((s) => ({ ...s, url: attachmentUrl(s) })), (x.his || []).map((s) => ({ ...s, url: attachmentUrl(s) })),
@@ -231,7 +231,8 @@ async function loadChat(id, full = false) {
     me: { id: 'me', name: '我', avatar: attachmentUrl({ url: settings.avatars?.me }) },
     members: [{ id: 'him', name: settings.contact?.himName || '他', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
     presence: { online: true }, replying: null, beauty: settings.beauty || {},
-    wallpaper: settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
+    // 设置没读到（后端忙）时是 undefined，不是「没有壁纸」：聊天页就先用手机上记着的那张，免得壁纸一闪就没了
+    wallpaper: settings.unavailable ? undefined : settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
     items: (hist.messages || []).filter((m) => m?.meta?.visible !== false && (m.kind !== 'thinking' || String(m.text || '').trim()))
       .map((message) => ({ ...relayMessage(message), reaction: reactionById.get(String(message.id)) || null })),
   };

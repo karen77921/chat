@@ -25,6 +25,7 @@ import AuthImg from '../design/AuthImg.jsx';
 const plainText = (t) => String(t || '').split(/\s*⟦气泡⟧\s*/).filter(Boolean).join('\n');
 
 export default function Chat({ query }) {
+  const [localBeauty] = useBeauty();
   const chatId = query.id || 'w1';
   const c = useChat(chatId, MOCK ? query.demo : undefined);
   const { data, now } = c;
@@ -90,9 +91,10 @@ export default function Chat({ query }) {
   const doReply = () => (group ? setChooser(true) : c.reply());
   const status = st?.kind === 'stuck' ? '好像卡住了' : st?.kind === 'waiting' ? '仍在等待…' : st ? '回复中…' : data?.presence?.online === false ? '不在线' : '在线';
 
+  const wall = data?.wallpaper === undefined ? localBeauty.wallpaper : data.wallpaper;
   return (
-    <main className={`chat ${data?.wallpaper ? 'own-wall' : ''}`}>
-      <ChatBackground url={data?.wallpaper} />
+    <main className={`chat ${wall ? 'own-wall' : ''}`}>
+      <ChatBackground url={wall} />
 
       <header className="ch-head">
         <button type="button" className="gbtn" aria-label="返回" onClick={back}><Icon name="back" size={18} stroke={1.5} /></button>

@@ -4498,7 +4498,8 @@ async def complete_chat(route: dict[str, str], messages: list[dict[str, Any]], t
     body.update(cache_extras)
     timeout = httpx.Timeout(
         connect=15,
-        read=cfg_int("model_idle_timeout_seconds", 15, 180),
+        # 一次性请求要等整段说完才有第一个字节：不能按「多久没动静」掐，要按整个请求的时限
+        read=max(cfg_int("model_idle_timeout_seconds", 15, 180), cfg_int("model_request_timeout_seconds", 30, 300), 120),
         write=30,
         pool=15,
     )
@@ -4626,7 +4627,7 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
     errors: list[str] = []
     loop = asyncio.get_running_loop()
     # 设置里的超时太短的话，带着工具和长上下文的请求还没开口就被掐掉了：这里给个下限
-    deadline = loop.time() + (budget_s or max(90, cfg_int("model_chain_timeout_seconds", 30, 600)))
+    deadline = loop.time() + (budget_s or max(90 if stream else 180, cfg_int("model_chain_timeout_seconds", 30, 600)))
     t0 = loop.time()
     timing: dict[str, Any] = {"tools": len(tools or []), "dropped_tools": False}
     for route in main_chain():
@@ -4650,13 +4651,13 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
 
         try:
             remaining = max(1.0, deadline - loop.time())
-            route_timeout = min(budget_s or max(60, cfg_int("model_request_timeout_seconds", 30, 300)), remaining)
+            route_timeout = min(budget_s or max(60 if stream else 150, cfg_int("model_request_timeout_seconds", 30, 300)), remaining)
             request = stream_chat(route, messages, tools, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, tools, session_id)
             try:
                 # Give a tool-capable attempt a short head start, then retry the
                 # same model without schemas so ordinary conversation can get out.
                 # Background wake turns have nobody waiting, so they keep their tools (patient).
-                first_timeout = min(route_timeout, 40 if tools and not patient else route_timeout)
+                first_timeout = min(route_timeout, 40 if tools and not patient and stream else route_timeout)
                 out = await asyncio.wait_for(request, timeout=first_timeout)
             except (asyncio.TimeoutError, httpx.TimeoutException):
                 retry_remaining = min(max(route_timeout - first_timeout, 30.0), deadline - loop.time())

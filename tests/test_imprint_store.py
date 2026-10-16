@@ -422,6 +422,17 @@ class ImprintStoreTest(unittest.TestCase):
         with mock.patch.object(api_loop, "RELAY_DB", str(self.relay)):
             self.assertEqual(api_loop.unanswered_proactive("w"), ["醒了想你", "还在忙吗"])
 
+    def test_her_latest_lines_cover_all_windows(self):
+        from imprint_store import iso_now
+        with sqlite3.connect(self.relay) as conn:
+            for sess, text in (("a", "腿红到膝盖了"), ("b", "到家了，脚泡完了")):
+                conn.execute("INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                             (iso_now(), "in", "user", text, json.dumps({"api_session": sess})))
+        with mock.patch.object(api_loop, "RELAY_DB", str(self.relay)):
+            lines = api_loop.her_latest_lines()
+        self.assertTrue(lines[-1].endswith("到家了，脚泡完了"))
+        self.assertTrue(any("腿红到膝盖了" in x for x in lines))
+
     def test_vocab_hint_only_when_she_brings_it_up(self):
         self.assertIsNone(api_loop.VOCAB_TOPIC_RE.search("我今天去蒸桑拿了，好舒服"))
         self.assertIsNotNone(api_loop.VOCAB_TOPIC_RE.search("考考我今天的单词"))

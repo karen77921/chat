@@ -5370,6 +5370,32 @@ def unanswered_proactive(session_id: str, limit: int = 6) -> list[str]:
     return []
 
 
+def her_latest_lines(hours: int = 8, limit: int = 8) -> list[str]:
+    """她最近在所有窗口说过的话（带时间），旧的在前。醒来时给他看，免得他照着过时的印象猜她在干嘛。"""
+    path = Path(RELAY_DB)
+    if not path.exists():
+        return []
+    with contextlib.suppress(Exception):
+        with sqlite3.connect(str(path)) as conn:
+            rows = conn.execute(
+                "SELECT ts, text FROM messages WHERE direction='in' AND kind IN ('user','voice') "
+                "AND (NOT json_valid(meta) OR json_extract(meta,'$.visible') IS NULL OR json_extract(meta,'$.visible') != 0) "
+                "ORDER BY id DESC LIMIT ?", (limit * 3,)).fetchall()
+        zone = context_zone()
+        now = dt.datetime.now(dt.timezone.utc)
+        out = []
+        for ts, text in rows:
+            when = parse_message_time(ts)
+            body = re.sub(r"\s+", " ", str(text or "")).strip()
+            if not when or not body or (now - when).total_seconds() > hours * 3600:
+                continue
+            out.append(f"{when.astimezone(zone):%H:%M} {body[:120]}")
+            if len(out) >= limit:
+                break
+        return list(reversed(out))
+    return []
+
+
 def repeats_earlier(text: str, earlier: list[str]) -> bool:
     grams = _shingles(text)
     if not grams:
@@ -5421,6 +5447,11 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     if not garden:
         # 小屋的「此刻」和心潮放久了就会一直停在昨天：醒来时提醒他顺手更新
         prompt += space_freshness_hint()
+    latest = her_latest_lines()
+    if latest:
+        # 醒来时只看这个窗口最近几十条，她在别的窗口、或者更早说的近况会漏掉：把她这几个小时说的话直接摆出来
+        prompt += ("\n她这几个小时说过的话（所有窗口，按时间）：\n" + "\n".join(f"- {line}" for line in latest)
+                   + "\n猜她现在在干嘛之前，先对一下这些；她已经说过的事别再当成没发生。")
     unanswered = unanswered_proactive(session_id)
     if unanswered:
         prompt += (

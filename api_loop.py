@@ -141,6 +141,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
     "model_chain_timeout_seconds": 90,   # all configured fallbacks together
     "mcp_tool_timeout_seconds": 45,      # one external tool must not hold the whole chat indefinitely
     "ombre_recall_timeout_seconds": 8,   # automatic memory recall before a reply; skipped if slower
+    "chat_nonstream": False,             # experiment: chat turns as one-shot requests (some relays only cache those)
     "light_chat": False,                 # opt-in: chat turns without manuals/feature tours; she found it changed him too much
     "roam_space_tools": True,            # every turn carries all Imprint space tools (room, tide, notes, photos, listen…)
     "wake_always_message": True,
@@ -4765,7 +4766,9 @@ async def handle_turn(
     try:
         while True:
             try:
-                out = await run_model(messages, tools if max_steps > 0 else None, sink=sink, think_sink=think_sink, session_id=session_id)
+                # 有的中转流式请求不吃缓存、而且本来就是憋完一次性吐：可以改用一次性请求试试（设置里的试验开关）
+                out = await run_model(messages, tools if max_steps > 0 else None, sink=sink, think_sink=think_sink, session_id=session_id,
+                                      stream=not cfg_bool("chat_nonstream"))
             except ModelError as exc:
                 # A 400 with pixels in the prompt usually means "this model has no vision": retry text-only once.
                 if had_images and exc.status == 400 and with_images:
@@ -4966,6 +4969,7 @@ def public_config() -> dict[str, Any]:
         "context_injection": cfg_bool("context_injection"),
         "context_time": cfg_bool("context_time"),
         "light_chat": cfg_bool("light_chat"),
+        "chat_nonstream": cfg_bool("chat_nonstream"),
         "context_timezone": str(cfg.get("context_timezone", CONFIG_DEFAULTS["context_timezone"])),
         "context_notes": str(cfg.get("context_notes", CONFIG_DEFAULTS["context_notes"])),
         "prompt_cache_enabled": cfg_bool("prompt_cache_enabled"),
@@ -5031,7 +5035,7 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
             cfg["wake_custom_rate_per_hour"] = max(0.0, min(float(body.get("wake_custom_rate_per_hour")), 24.0))
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="wake_custom_rate_per_hour must be a number")
-    for name in ("context_compaction", "compact_to_ombre", "ombre_auto_recall", "mcp_memory_write", "context_injection", "context_time", "prompt_cache_enabled", "backup_enabled", "wake_enabled", "light_chat"):
+    for name in ("context_compaction", "compact_to_ombre", "ombre_auto_recall", "mcp_memory_write", "context_injection", "context_time", "prompt_cache_enabled", "backup_enabled", "wake_enabled", "light_chat", "chat_nonstream"):
         if name in body:
             value = body.get(name)
             if isinstance(value, bool):
@@ -5868,6 +5872,7 @@ async def healthz():
         "context_injection": cfg_bool("context_injection"),
         "context_time": cfg_bool("context_time"),
         "light_chat": cfg_bool("light_chat"),
+        "chat_nonstream": cfg_bool("chat_nonstream"),
         "context_timezone": str(load_config().get("context_timezone", CONFIG_DEFAULTS["context_timezone"])),
         "compact_threshold": cfg_int("compact_threshold", 20, 2000),
         "compact_keep_recent": cfg_int("compact_keep_recent", 2, 1000),

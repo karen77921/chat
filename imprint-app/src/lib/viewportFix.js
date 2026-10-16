@@ -24,6 +24,14 @@ export function installViewportFix() {
     });
   };
   document.addEventListener('focusout', () => { setTimeout(nudge, 80); setTimeout(nudge, 400); });
+  // 从相册选完图回来、键盘收起后，系统偶尔也会卡在「半屏」：背景只铺到一半、输入框浮在半空。
+  // 记下见过的最大高度；不在打字却比它矮一截，就是卡住了，碰一下屏幕就推一下
+  let tallest = window.innerHeight;
+  const stuck = () => !typing() && window.innerHeight < tallest - 80;
+  window.addEventListener('resize', () => { tallest = Math.max(tallest, window.innerHeight); if (stuck()) setTimeout(nudge, 120); });
+  document.addEventListener('change', (e) => { if (e.target?.type === 'file') { setTimeout(nudge, 300); setTimeout(nudge, 900); } }, true);
+  document.addEventListener('touchend', () => { if (stuck()) nudge(); }, { passive: true });
+  window.addEventListener('focus', () => setTimeout(nudge, 100));
   window.visualViewport?.addEventListener('resize', () => { if (!typing()) nudge(); });
   window.addEventListener('orientationchange', () => setTimeout(nudge, 300));
   window.addEventListener('pageshow', nudge);

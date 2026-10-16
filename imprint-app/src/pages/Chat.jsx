@@ -91,7 +91,7 @@ export default function Chat({ query }) {
   const status = st?.kind === 'stuck' ? '好像卡住了' : st?.kind === 'waiting' ? '仍在等待…' : st ? '回复中…' : data?.presence?.online === false ? '不在线' : '在线';
 
   return (
-    <main className="chat">
+    <main className={`chat ${data?.wallpaper ? 'own-wall' : ''}`}>
       <ChatBackground url={data?.wallpaper} />
 
       <header className="ch-head">

@@ -232,3 +232,11 @@ svg.up { transform: rotate(180deg); }
 .cin-gift em { font-style: normal; font-size: 10.5px; color: var(--muted); overflow-wrap: anywhere; }
 .cin-gift.on { border-style: solid; border-color: var(--print-c, #b97c74); }
 .cin-gift.on em { color: var(--print-c, #b97c74); }
+
+/* 自己的壁纸花的时候：图本身照样看得清，但气泡、工具卡、时间这些要压得住它 */
+.chat.own-wall .cm-bubble { -webkit-backdrop-filter: blur(14px) saturate(1.1); backdrop-filter: blur(14px) saturate(1.1); }
+.chat.own-wall .cm-bubble.him { background: rgba(255, 255, 255, max(var(--bubble-alpha, 0.65), 0.84)); }
+.chat.own-wall .cm-bubble.me { background: linear-gradient(145deg, rgba(225, 239, 251, .92), rgba(201, 224, 245, .86)); }
+.chat.own-wall .cm-term-b { background: rgba(255, 255, 255, 0.86); }
+.chat.own-wall .cm-term-h { background: color-mix(in srgb, var(--print-c) 82%, transparent); }
+.chat.own-wall .cm-time { color: var(--ink); text-shadow: 0 0 4px #fff, 0 0 8px #fff, 0 0 2px #fff; }

@@ -20,6 +20,9 @@ import { ledgerFrom } from '../lib/ledger.js';
 import '../components/chat/chat.css';
 import AuthImg from '../design/AuthImg.jsx';
 
+/** 引用、复制整条时：把气泡分隔记号去掉，按原来的分段接起来 */
+const plainText = (t) => String(t || '').split(/\s*⟦气泡⟧\s*/).filter(Boolean).join('\n');
+
 export default function Chat({ query }) {
   const chatId = query.id || 'w1';
   const c = useChat(chatId, MOCK ? query.demo : undefined);
@@ -136,7 +139,7 @@ export default function Chat({ query }) {
               <Message m={m} nameOf={who} q={searching ? q.trim() : ''}
                 sender={group && m.from !== 'me' && (prev?.from !== m.from || day) ? { name: who(m.from), color: memberOf(data, m.from)?.color } : null}
                 foot={showTime && <div className="cm-time">{hm(m.at)}{tail}</div>}
-                onMenu={(mm, rect) => setMenu({ m: mm, rect })}
+                onMenu={(mm, rect, part) => setMenu({ m: mm, rect, part })}
                 onOpenImage={(images, idx) => setViewer({ images, i: idx })}
                 onRegenerate={c.regenerate}
                 onResend={c.resend}
@@ -169,9 +172,9 @@ export default function Chat({ query }) {
 
       {menu && (
         <MessageMenu m={menu.m} rect={menu.rect} onClose={() => setMenu(null)}
-          onQuote={(m) => setQuote(m)}
+          onQuote={(m) => setQuote({ ...m, text: menu.part ?? plainText(m.text) })}
           nameOf={who}
-          onCopy={(m) => navigator.clipboard?.writeText(m.text).then(() => flash('复制好了'), () => flash('没复制上'))}
+          onCopy={(m) => navigator.clipboard?.writeText(menu.part ?? plainText(m.text)).then(() => flash('复制好了'), () => flash('没复制上'))}
           onRegenerate={c.regenerate}
           onEdit={(m) => setEditing({ id: m.id, text: m.text })}
           onDelete={c.remove}

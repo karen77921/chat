@@ -16,25 +16,30 @@ function useLongPress(onLong) {
   const origin = useRef(null);
   const openedAt = useRef(0);
   const clear = () => clearTimeout(t.current);
-  const open = (rect) => {
+  const open = (rect, part) => {
     if (Date.now() - openedAt.current < 700) return;
     openedAt.current = Date.now();
     window.getSelection()?.removeAllRanges();
-    onLong(rect);
+    onLong(rect, part);
+  };
+  // 一条消息拆成好几个气泡时，记下按的是哪一个：引用、复制就只拿那一句
+  const pressed = (e) => {
+    const bubble = e.target.closest?.('[data-part]');
+    return bubble ? { rect: bubble.getBoundingClientRect(), part: Number(bubble.dataset.part) } : { rect: e.currentTarget.getBoundingClientRect(), part: null };
   };
   const start = (e) => {
     if (e.button > 0) return;
     clear();
     origin.current = { x: e.clientX, y: e.clientY };
     // Capture the element now; React's currentTarget is unavailable once the timer fires.
-    const rect = e.currentTarget.getBoundingClientRect();
-    t.current = setTimeout(() => open(rect), 480);
+    const { rect, part } = pressed(e);
+    t.current = setTimeout(() => open(rect, part), 480);
   };
   return {
     onPointerDown: start,
     onPointerMove: (e) => { if (origin.current && Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) > 12) clear(); },
     onPointerUp: clear, onPointerLeave: clear, onPointerCancel: clear,
-    onContextMenu: (e) => { e.preventDefault(); clear(); open(e.currentTarget.getBoundingClientRect()); },
+    onContextMenu: (e) => { e.preventDefault(); clear(); const { rect, part } = pressed(e); open(rect, part); },
     onSelectStart: (e) => e.preventDefault(),
   };
 }
@@ -57,7 +62,7 @@ function Quote({ quote, nameOf }) {
   return (
     <div className="cm-quote">
       <span className="cm-quote-who">{nameOf(quote.from)}</span>
-      <span className="cm-quote-t">{quote.text || '[图片]'}</span>
+      <span className="cm-quote-t">{String(quote.text || '').replace(/\s*⟦气泡⟧\s*/g, ' ').trim() || '[图片]'}</span>
     </div>
   );
 }
@@ -127,7 +132,10 @@ function Command({ command }) {
 export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImage, onRegenerate, onEditFailed, onResend }) {
   const mine = m.from === 'me';
   const [thinkOpen, setThinkOpen] = useState(false);
-  const press = useLongPress((rect) => onMenu?.(m, rect));
+  const press = useLongPress((rect, part) => {
+    const parts = bubbleParts(m.text);
+    onMenu?.(m, rect, part != null && parts.length > 1 ? parts[part] : null);
+  });
 
   if (m.type === 'thinking') {
     return (
@@ -178,7 +186,7 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
           {parts.map((part, index) => (stickerToken(part) && !(index === 0 && m.quote) ? (
             <div key={index} className="cm-sticker"><Sticker sticker={{ id: stickerToken(part) }} size={88} /></div>
           ) : (
-            <div key={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
+            <div key={index} data-part={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
               {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
               <Text text={part} q={q} />
               {index === parts.length - 1 && m.edited && <span className="cm-edited">（改过）</span>}

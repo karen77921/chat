@@ -3,7 +3,7 @@
 .rm-head { display: grid; grid-template-columns: 1fr auto; align-items: end; padding: calc(env(safe-area-inset-top, 0px) + 52px) 22px 0 24px; }
 .rm-head h1 { margin: 0; display: flex; align-items: flex-end; gap: 8px; }
 .rm-head h1 .hand { font-size: 34px; color: var(--accent); line-height: 0.85; }
-.rm-head h1 span:last-child { font-size: 18px; letter-spacing: 0.16em; font-weight: 400; }
+.rm-head h1 span:last-child { font-size: 18px; letter-spacing: 0.16em; font-weight: 500; }
 .rm-head p { grid-column: 1 / -1; margin: 6px 0 0 2px; font-size: 11.5px; color: var(--muted); letter-spacing: 0.08em; }
 
 /* 此刻 */
@@ -11,7 +11,7 @@
 .rm-window { position: absolute; left: 14px; top: 12px; width: 96px; height: 96px; }
 .rm-window > * { position: absolute !important; inset: 0; }
 .rm-now-t { position: absolute; left: 126px; right: 14px; top: 16px; }
-.rm-now-a { font-size: 16px; letter-spacing: 0.08em; margin-top: 6px; font-weight: 400; }
+.rm-now-a { font-size: 16px; letter-spacing: 0.08em; margin-top: 6px; font-weight: 500; }
 .rm-now-l { font-size: 15px; color: var(--accent); margin-top: 4px; }
 .rm-now-s { font-size: 10.5px; color: var(--muted); margin-top: 6px; }
 
@@ -21,7 +21,7 @@
 .rm-tg-w { border-left: 2px dashed color-mix(in srgb, var(--print-c) 40%, transparent); }
 .rm-tg-t { display: flex; flex-direction: column; min-width: 0; }
 .rm-tg-t .kicker { letter-spacing: 0.2em; }
-.rm-tg-t b { font-weight: 400; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.rm-tg-t b { font-weight: 500; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .rm-tg-p { margin-left: auto; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); flex: none; }
 
 .rm-tabs { display: flex; gap: 7px; align-items: center; padding: 22px var(--pad) 0; }
@@ -69,7 +69,7 @@
 
 /* 独处 */
 .rm-day { margin-bottom: 18px; }
-.rm-day-h { margin: 0 0 14px; display: flex; align-items: baseline; gap: 8px; font-weight: 400; }
+.rm-day-h { margin: 0 0 14px; display: flex; align-items: baseline; gap: 8px; font-weight: 500; }
 .rm-day-h .serif { font-size: 12px; letter-spacing: 0.32em; }
 .rm-day-h .hand { font-size: 21px; color: var(--accent); }
 .rm-line { list-style: none; margin: 0; padding: 0 0 0 50px; position: relative; }
@@ -78,7 +78,7 @@
 .rm-line li::before { content: ''; position: absolute; left: -20px; top: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--paper); border: 1.5px solid var(--print-c); }
 .rm-t { position: absolute; left: -62px; top: 3px; width: 36px; text-align: right; font-size: 13px; }
 .rm-entry { padding: 12px 14px; }
-.rm-entry b { font-weight: 400; font-size: 14px; letter-spacing: 0.08em; }
+.rm-entry b { font-weight: 500; font-size: 14px; letter-spacing: 0.08em; }
 .rm-entry p { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 20px; }
 .rm-entry blockquote { margin: 8px 0 0; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--print-c) 45%, transparent); font-size: 16px; line-height: 24px; white-space: pre-line; }
 .rm-thought { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 11.5px; line-height: 19px; }

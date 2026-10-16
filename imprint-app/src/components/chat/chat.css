@@ -105,7 +105,7 @@ svg.up { transform: rotate(180deg); }
 .cm-file { display: flex; align-items: center; gap: 12px; width: 230px; padding: 12px; border-radius: 18px; }
 .cm-file-i { width: 40px; height: 48px; border-radius: 4px; background: var(--sheet); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; color: var(--accent); flex: none; }
 .cm-file-t { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.cm-file-t b { font-weight: 400; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-file-t b { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cm-file-t em { font-style: normal; font-size: 10.5px; color: var(--muted); }
 
 .cm-fail { width: 262px; padding: 12px 16px; border-radius: 22px; border-top-left-radius: 8px; background: rgba(255, 255, 255, 0.35); border: 1.5px dashed color-mix(in srgb, var(--print-c) 60%, transparent); }

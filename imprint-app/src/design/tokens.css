@@ -5,22 +5,27 @@
  *                        东方既白 #8BA3C7 品月 #8AABCC 授蓝 #6E9BC5 孔雀蓝 #4994C4
  * 纸带用的是原色和白混浅后的值，整体清透。
  */
+/* 苹方四档粗细放进同一个字体族：页面要多粗就拿哪一档（苹果设备用本机自带的，其他设备只下载常规体） */
 @font-face {
-  font-family: 'Imprint PingFang TC';
-  /* 苹果设备自带苹方，先用本机的，省掉 5.6 MB 的下载；其他设备才下载 */
-  src: local('PingFangTC-Regular'), local('.PingFangTC-Regular'), local('PingFang TC'),
-       url('../assets/pingfang-tc-regular.woff2') format('woff2');
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
+  font-family: 'Imprint Sans';
+  src: local('PingFangTC-Light'), local('.PingFangTC-Light'), local('PingFang TC Light');
+  font-style: normal; font-weight: 300; font-display: swap;
 }
 @font-face {
-  font-family: 'Imprint PingFang TC Light';
-  src: local('PingFangTC-Light'), local('.PingFangTC-Light'),
-       local('PingFang TC Light');
-  font-style: normal;
-  font-weight: 300;
-  font-display: swap;
+  font-family: 'Imprint Sans';
+  src: local('PingFangTC-Regular'), local('.PingFangTC-Regular'), local('PingFang TC'),
+       url('../assets/pingfang-tc-regular.woff2') format('woff2');
+  font-style: normal; font-weight: 400; font-display: swap;
+}
+@font-face {
+  font-family: 'Imprint Sans';
+  src: local('PingFangTC-Medium'), local('.PingFangTC-Medium'), local('PingFang TC Medium');
+  font-style: normal; font-weight: 500; font-display: swap;
+}
+@font-face {
+  font-family: 'Imprint Sans';
+  src: local('PingFangTC-Semibold'), local('.PingFangTC-Semibold'), local('PingFang TC Semibold');
+  font-style: normal; font-weight: 600; font-display: swap;
 }
 
 :root {
@@ -45,7 +50,7 @@
   --serif: 'Cormorant Garamond', Georgia, serif;
   --hand: 'Mrs Saint Delafield', cursive;
   --hand-cn: 'Long Cang', cursive;
-  --sans: 'Imprint PingFang TC Light', 'PingFang TC', 'Imprint PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+  --sans: 'Imprint Sans', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
   --pad: 24px;
 }
 
@@ -70,7 +75,7 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--sans);
-  font-weight: 300;
+  font-weight: 400;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
@@ -78,8 +83,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 a { color: inherit; text-decoration: none; }
 input, textarea { font: inherit; color: inherit; }
 
-/* iPhone 优先使用系统自带的苹方繁细体；其他设备保留繁体字形兜底。 */
-body, button, input, textarea, select { font-family: var(--sans); font-weight: 300; font-synthesis: none; }
+/* 正文用苹方常规体（以前是细体，她觉得太细）；其他设备保留繁体字形兜底。 */
+body, button, input, textarea, select { font-family: var(--sans); font-weight: 400; font-synthesis: none; }
 
 /* 主屏幕 App 与 Safari 的本地登录存储彼此隔离，首次打开时只需重新连接一次。 */
 .auth-gate { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(229, 239, 246, 0.88); -webkit-backdrop-filter: blur(22px); backdrop-filter: blur(22px); }
@@ -159,14 +164,14 @@ mark { background: linear-gradient(transparent 55%, color-mix(in srgb, var(--pri
 /* 区块标题：英文手写 + 中文 + 右边入口 */
 .sec-head { display: flex; align-items: flex-end; gap: 8px; margin: 0 0 12px; }
 .sec-head .en { font-family: var(--hand); font-size: 28px; color: var(--accent); line-height: 0.9; }
-.sec-head .zh { font-size: 16px; letter-spacing: 0.14em; font-weight: 400; }
+.sec-head .zh { font-size: 16px; letter-spacing: 0.14em; font-weight: 500; }
 .sec-head .go { margin-left: auto; font-size: 11.5px; color: var(--muted); letter-spacing: 0.08em; display: inline-flex; align-items: center; gap: 3px; min-height: 32px; }
 
 /* 记录行：标签 …… 值 */
 .rec { display: flex; align-items: center; gap: 6px; font-size: 12px; letter-spacing: 0.06em; }
 .rec > span:first-child { color: var(--muted); flex: none; }
 .rec > i { flex: 1; border-bottom: 1px dotted rgba(47, 74, 102, 0.35); transform: translateY(3px); min-width: 12px; }
-.rec > b { font-weight: 400; flex: none; }
+.rec > b { font-weight: 500; flex: none; }
 
 /* ---- 纸张动效（八种，见 docs/00-设计系统.md） ---- */
 :root {

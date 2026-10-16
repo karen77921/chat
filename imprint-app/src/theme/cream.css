@@ -146,15 +146,15 @@
 /* 邮戳、火漆、回形针、邮票这些旧物件在这套里收起来，保持干净 */
 [data-theme='cream'] .deco { display: none; }
 /* 中文手写 → 现代宋体 */
-[data-theme='cream'] .hand-cn { font-family: 'Songti SC', 'STSong', 'Noto Serif SC', 'Source Han Serif SC', serif; font-weight: 400; letter-spacing: 0.04em; }
+[data-theme='cream'] .hand-cn { font-family: 'Songti SC', 'STSong', 'Noto Serif SC', 'Source Han Serif SC', serif; font-weight: 500; letter-spacing: 0.04em; }
 
 /* ---- 各页标题：杂志式大衬线 + 小字中文（首页之外的页面都是 <h1><span.hand>英文</span><span>中文</span></h1>） ---- */
 [data-theme='cream'] h1:has(> .hand) { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 [data-theme='cream'] h1 > .hand {
-  font-family: var(--serif); font-style: normal; font-weight: 400; font-size: 46px; line-height: 0.95;
+  font-family: var(--serif); font-style: normal; font-weight: 500; font-size: 46px; line-height: 0.95;
   letter-spacing: -0.01em; color: #4e4442; text-transform: capitalize;
 }
-[data-theme='cream'] h1 > .hand + span { font-size: 12.5px; font-weight: 400; letter-spacing: 0.32em; color: var(--muted); }
+[data-theme='cream'] h1 > .hand + span { font-size: 12.5px; font-weight: 500; letter-spacing: 0.32em; color: var(--muted); }
 
 /* 聊天列表：行底下藏着滑动按钮，玻璃太透会透出来，这里把行做得更实一点 */
 [data-theme='cream'] .cl-row.card { background: #fdf9f5; }

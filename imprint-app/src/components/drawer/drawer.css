@@ -7,7 +7,7 @@
   background: radial-gradient(circle at 35% 30%, #d99a92, #b06f6a 70%); box-shadow: 0 3px 8px rgba(176, 111, 106, 0.3); }
 .dr-env.revealed .dr-seal { color: #8d5f59; background: rgba(235, 205, 201, 0.6); box-shadow: none; }
 .dr-env-t { flex: 1; min-width: 0; display: grid; gap: 3px; }
-.dr-env-t b { font-weight: 400; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-env-t b { font-weight: 500; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-env-t small { font-size: 11px; color: var(--muted); }
 .dr-body { min-height: 140px; }
 .dr-text { white-space: pre-wrap; }

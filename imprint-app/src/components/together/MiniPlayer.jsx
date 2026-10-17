@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from '../../design/icons.jsx';
 import { Vinyl } from '../../design/paper.jsx';
-import { useListen, mmss } from '../../lib/listen.jsx';
+import { useListen, mmss, lineAt } from '../../lib/listen.jsx';
 import './together.css';
 
 const HIDE_ON = ['/together', '/chat/t'];
@@ -43,6 +43,8 @@ export default function MiniPlayer({ path, tabbar }) {
   };
   const close = () => { setOpen(false); if (s.playing) L.toggle(); setClosedFor(s.track.id); };
   const note = (s.notes || []).filter((n) => n.atS <= L.pos).pop();
+  const ly = L.lyrics;
+  const sung = ly?.lines?.length && !ly.preview ? ly.lines[lineAt(ly.lines, L.pos)]?.text : '';
 
   if (open) {
     return (
@@ -60,7 +62,7 @@ export default function MiniPlayer({ path, tabbar }) {
           <button type="button" className="mo-play" aria-label={s.playing ? '暂停' : '播放'} onClick={L.toggle}><Icon name={s.playing ? 'pause' : 'play'} size={20} stroke={2} /></button>
           <button type="button" aria-label="下一首" onClick={L.next}><Icon name="next" size={20} stroke={1} /></button>
         </div>
-        {note && <div className="hand-cn mo-note">{mmss(note.atS)}　{note.text}</div>}
+        {sung ? <div className="mo-lyric">{sung}</div> : note && <div className="hand-cn mo-note">{mmss(note.atS)}　{note.text}</div>}
         <button type="button" className="mo-fold" onClick={() => setOpen(false)}>收起</button>
       </div>
     );

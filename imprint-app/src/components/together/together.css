@@ -125,3 +125,17 @@
 .mo-play { width: 46px; height: 46px; }
 .mo-note { font-size: 14px; color: var(--accent); margin-top: 8px; text-align: center; }
 .mo-fold { display: block; margin: 8px auto 0; font-size: 11px; color: var(--muted); }
+
+/* 歌词 */
+.tp-lyrics { position: relative; height: 300px; margin: 18px var(--pad) 0; overflow-y: auto; scroll-behavior: smooth; -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent); mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent); padding: 110px 4px; scrollbar-width: none; }
+.tp-lyrics::-webkit-scrollbar { display: none; }
+.tp-ly { display: block; width: 100%; text-align: left; font-size: 21px; font-weight: 600; line-height: 1.35; padding: 7px 0; color: var(--ink); opacity: 0.28; transition: opacity 0.3s, scale 0.3s; transform-origin: left center; }
+.tp-ly.on { opacity: 1; }
+.tp-ly.past { opacity: 0.4; }
+.tp-lyrics.plain { padding: 20px 4px 60px; }
+.tp-lyrics.plain .tp-ly { opacity: 0.85; font-size: 17px; font-weight: 500; padding: 4px 0; }
+.tp-ly-note { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+.tp-ly-empty { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--muted); font-size: 13px; padding: 0 20px; }
+.tp-now .tp-ly-btn { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--muted); flex: none; }
+.tp-now .tp-ly-btn.on { color: #fff; background: var(--accent); }
+.mo-lyric { font-size: 14px; font-weight: 500; color: var(--accent); margin-top: 8px; text-align: center; }

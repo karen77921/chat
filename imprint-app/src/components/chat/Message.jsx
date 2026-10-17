@@ -72,7 +72,7 @@ function SongCard({ song }) {
   return (
     <button type="button" className="cm-song glass" onClick={play} aria-label={`放 ${song.title}`}>
       <span className="cm-song-i"><Icon name={playing ? 'pause' : 'play'} size={18} stroke={2} /></span>
-      <span className="cm-song-t"><b>{song.title}</b><em>{state || `${song.artist} · ${playing ? '正在放，点开一起听' : '点一下放'}`}</em></span>
+      <span className="cm-song-t"><span className="cm-song-k">{L?.state?.names?.him || '他'} 点的歌</span><b>{song.title}</b><em>{state || `${song.artist} · ${playing ? '正在放，点开一起听' : '点一下放'}`}</em></span>
     </button>
   );
 }

@@ -167,6 +167,19 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertIn("暂停", imprint_action(self.store, "listen_context")["text"])
         with self.assertRaises(HTTPException):
             self.call("POST", "/together/listen", Request({"mode": "loud"}))
+        # 歌词：整首歌他知道唱到哪一句；试听片段对不上时间轴，不说
+        self.assertEqual(imprint_store.parse_lrc("[00:01.50]第一句\n[00:10]作词：某某\n[01:02.3][00:05]副歌")[0], (1.5, "第一句"))
+        full = self.call("POST", "/together/tracks", Request({"title": "整首", "artist": "她", "url": "/uploads/a.mp3", "durationS": 200}))
+        full_id = [t for t in full["playlist"] if t["title"] == "整首"][0]["id"]
+        lrc = {"lrc": "[00:00]作词：某某\n[00:20]第一句\n[00:40]第二句", "plain": "第一句\n第二句"}
+        with mock.patch.object(imprint_store, "lyrics_fetch", return_value=lrc) as fetched:
+            got = self.call("GET", "/together/lyrics/{track_id}", full_id)
+            self.call("GET", "/together/lyrics/{track_id}", full_id)
+        self.assertEqual(fetched.call_count, 1)  # 存下来了，不重复去拿
+        self.assertFalse(got["preview"])
+        self.call("POST", "/together/listen", Request({"trackId": full_id, "playing": True, "positionS": 25}))
+        self.assertIn("正唱到：「第一句」", imprint_action(self.store, "listen_context")["text"])
+        self.assertIn("第二句", imprint_action(self.store, "music_him", {"action": "lyrics"})["lyrics"])
 
     def test_coupons_know_who_holds_them_and_get_used_once(self):
         gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))

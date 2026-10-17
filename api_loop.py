@@ -3589,7 +3589,8 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
         "name": "imprint_music",
-        "description": "Together listening, your side. now_playing: what she is playing, how far in, what is up next. "
+        "description": "Together listening, your side. now_playing: what she is playing, how far in, the line being sung, what is up next. "
+                       "lyrics: the full lyrics of the current song. "
                        "search: find songs by name / artist (each has a 30-second preview). play_now / play_next / queue_add: "
                        "put a song into her queue (song_id from search, or a real track id from inspect), optionally with a short "
                        "note she sees under the title. share: get a song card line to put alone in your reply. "
@@ -3597,7 +3598,7 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["now_playing", "search", "play_now", "play_next", "queue_add", "share"]},
+                "action": {"type": "string", "enum": ["now_playing", "lyrics", "search", "play_now", "play_next", "queue_add", "share"]},
                 "query": {"type": "string"},
                 "song_id": {"type": "string"},
                 "note": {"type": "string"},
@@ -4173,7 +4174,7 @@ class Turn:
             args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
         if public_name in imprint_actions:
             if self.dry and public_name not in {"imprint_inspect_home"} and not (public_name == "imprint_book" and args.get("operation") == "shelf") \
-                    and not (public_name == "imprint_music" and args.get("action") in {"now_playing", "search", "share"}):
+                    and not (public_name == "imprint_music" and args.get("action") in {"now_playing", "lyrics", "search", "share"}):
                 return "ERROR: Imprint writes are disabled for this dry/retry turn"
             try:
                 if public_name == "imprint_music":  # 搜歌要上网，别卡住别的请求

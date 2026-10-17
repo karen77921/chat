@@ -249,3 +249,4 @@ svg.up { transform: rotate(180deg); }
 .cm-song-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cm-song-t b { font-weight: 500; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cm-song-t em { font-style: normal; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-song-k { font-size: 10px; color: var(--accent); letter-spacing: 0.08em; }

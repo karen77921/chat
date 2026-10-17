@@ -1379,6 +1379,63 @@ def apple_song(raw: dict) -> dict | None:
     }
 
 
+# 歌词：LRCLIB（开放的歌词库，带时间轴，不用钥匙）。拿到一次就存在这首歌上
+LRCLIB = "https://lrclib.net/api"
+LRC_STAMP = re.compile(r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
+LRC_CREDIT = re.compile(r"^(作词|作曲|编曲|制作人|词|曲|Lyricist|Composer)\s*[:：]", re.I)
+
+
+def lyrics_fetch(title: str, artist: str, duration: float = 0) -> dict:
+    def get(path: str, params: dict):
+        req = urllib.request.Request(f"{LRCLIB}/{path}?{urllib.parse.urlencode(params)}",
+                                     headers={"User-Agent": "Imprint/1.0 (https://github.com/karen77921/chat)"})
+        try:
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                return json.loads(resp.read().decode("utf-8") or "null")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise ValueError("歌词库这会儿没连上") from exc
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            raise ValueError("歌词库这会儿没连上") from exc
+    params = {"track_name": title, "artist_name": artist}
+    if duration:
+        params["duration"] = int(duration)
+    found = get("get", params)
+    if not found or not (found.get("syncedLyrics") or found.get("plainLyrics")):
+        hits = get("search", {"track_name": title, "artist_name": artist}) or []
+        hits = [h for h in hits if isinstance(h, dict) and (h.get("syncedLyrics") or h.get("plainLyrics"))]
+        if duration:
+            hits.sort(key=lambda h: (not h.get("syncedLyrics"), abs(float(h.get("duration") or 0) - duration)))
+        found = hits[0] if hits else None
+    if not found:
+        return {"lrc": "", "plain": "", "none": True}
+    return {"lrc": str(found.get("syncedLyrics") or "")[:30000], "plain": str(found.get("plainLyrics") or "")[:30000],
+            "instrumental": bool(found.get("instrumental"))}
+
+
+def parse_lrc(text: str) -> list[tuple[float, str]]:
+    out = []
+    for line in str(text or "").splitlines():
+        stamps = list(LRC_STAMP.finditer(line))
+        words = LRC_STAMP.sub("", line).strip()
+        if not stamps or not words:
+            continue
+        for m in stamps:
+            frac = m.group(3) or "0"
+            out.append((int(m.group(1)) * 60 + int(m.group(2)) + int(frac) / (10 ** len(frac)), words))
+    return sorted(out)
+
+
+def lrc_line_at(lrc: str, pos: float) -> str:
+    line = ""
+    for at, words in parse_lrc(lrc):
+        if at > pos:
+            break
+        line = words
+    return "" if LRC_CREDIT.match(line) else line
+
+
 def song_card(track: dict) -> str:
     """聊天里的歌卡：单独一行，前端渲染成点一下就能放的卡片。"""
     clean = lambda s: re.sub(r"[｜\]\n]", " ", str(s or "")).strip()
@@ -1417,6 +1474,10 @@ def listen_context(conn: sqlite3.Connection) -> str:
     by = {"him": "你点的", "me": "她点的"}.get(str(track.get("by") or ""), "")
     line = f"【一起听】她这会儿在放 {name}" + (f"（{by}）" if by else "")
     line += "，试听版只有 30 秒。" if track.get("source") == "apple" else (f"，大约 {mmss(min(pos, duration))} / {mmss(duration)}。" if duration else "。")
+    # 试听片段是从歌中间截的，对不上时间轴：只有整首才说唱到哪一句
+    words = lrc_line_at(track.get("lrc") or "", pos) if track.get("source") != "apple" else ""
+    if words:
+        line += f"正唱到：「{words}」。"
     ids = [str(v) for v in setting("music_playlist").get("ids", [])]
     if track_id in ids and len(ids) > 1 and state.get("mode", "order") == "order":
         nxt = conn.execute("SELECT payload FROM records WHERE kind='music_track' AND id=?",
@@ -1624,6 +1685,21 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                     raise ValueError("找不到这首歌")
             return enqueue([track], at, "me")
 
+        def track_lyrics(track: dict) -> dict:
+            if "lyrics" not in track:
+                found = lyrics_fetch(track.get("title", ""), track.get("artist", ""), float(track.get("fullS") or track.get("durationS") or 0))
+                payload = {k: v for k, v in track.items() if k not in {"id", "at"}}
+                payload.update({"lyrics": True, "lrc": found["lrc"], "plain": found["plain"] or "\n".join(w for _, w in parse_lrc(found["lrc"]))})
+                conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(payload, ensure_ascii=False), track["id"]))
+                track = {**track, **payload}
+            return {"lrc": track.get("lrc", ""), "plain": track.get("plain", ""), "preview": track.get("source") == "apple"}
+
+        if action == "music_lyrics":
+            track = track_by_id(str(body.get("track_id") or ""))
+            if not track:
+                raise ValueError("找不到这首歌")
+            return track_lyrics(track)
+
         if action == "music_him":
             # 他的一起听：看在放什么、搜歌、点歌（现在放 / 下一首 / 排队）、把歌卡发进聊天。
             # 删歌、调顺序、换播放模式都是她的，这里没有。
@@ -1639,6 +1715,12 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                         "track": {k: track.get(k) for k in ("id", "title", "artist", "album", "by", "himNote", "source")},
                         "playing": snap["playing"], "mode": snap.get("mode"), "queue_len": len(ids),
                         "up_next": [{"title": t["title"], "artist": t["artist"], "by": t.get("by")} for t in snap["playlist"][i + 1:i + 6]]}
+            if op == "lyrics":
+                track = snap.get("track")
+                if not track:
+                    return {"text": "队列是空的"}
+                words = track_lyrics(track)
+                return {"title": track["title"], "lyrics": (words["plain"] or "（没找到这首的歌词）")[:4000]}
             if op == "search":
                 found = music_search(str(body.get("query") or ""), 8)
                 return {"results": [{"song_id": f"apple:{s['appleId']}", "title": s["title"], "artist": s["artist"], "album": s["album"]}
@@ -1670,7 +1752,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 after = enqueue([track], at, "him", str(body.get("note") or "").strip())
                 done = {"now": "已经切过去在放了", "next": "排在她下一首", "end": "排到队列最后了"}[at]
                 return {"ok": True, "text": f"《{track['title']}》{done}", "queue_len": len(after["playlist"])}
-            raise ValueError("action 只能是 now_playing / search / play_now / play_next / queue_add / share")
+            raise ValueError("action 只能是 now_playing / lyrics / search / play_now / play_next / queue_add / share")
 
         if action == "listen_context":
             return {"text": listen_context(conn)}
@@ -2883,6 +2965,13 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return listen_public()
+
+    @router.get("/together/lyrics/{track_id}")
+    async def music_lyrics_route(track_id: str):
+        try:
+            return await asyncio.to_thread(imprint_action, data_path, "music_lyrics", {"track_id": track_id})
+        except ValueError as exc:
+            raise HTTPException(502, str(exc))
 
     @router.get("/together/tracks")
     def search_tracks(q: str = ""):

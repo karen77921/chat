@@ -666,6 +666,7 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'POST /api/activity/read': state.activityRead = true; return { ok: true };
     case 'GET /api/together/listen': return listenState();
     case 'POST /api/together/listen': return listenControl(body);
+    case 'GET /api/together/lyrics/' + (p.split('/')[4] || ''): return { lrc: Array.from({ length: 40 }, (_, i) => `[00:${String(i * 4 % 60).padStart(2, '0')}.00]第 ${i + 1} 句歌词在这里`).slice(0, 15).join('\n'), plain: '', preview: tracks[p.split('/')[4]]?.source === 'apple' };
     case 'GET /api/music/find': { const q = (qs.get('q') || '').trim(); return { items: [1, 2, 3, 4].map((n) => ({ appleId: `a${n}`, title: `${q} ${n}`, artist: '示例歌手', album: '示例专辑', cover: '', preview: '', fullS: 240 })) }; }
     case 'POST /api/music/queue': { const t = body.song ? { id: body.song.appleId, title: body.song.title, artist: body.song.artist, durationS: 30, url: '', source: 'apple' } : tracks[body.track_id]; tracks[t.id] = t; listen.playlist = listen.playlist.filter((x) => x.trackId !== t.id); const i = listen.playlist.findIndex((x) => x.trackId === listen.trackId); listen.playlist.splice(body.at === 'end' ? listen.playlist.length : i + 1, 0, { trackId: t.id, by: 'me' }); if (body.at === 'now') { listen.trackId = t.id; listen.positionS = 0; listen.playing = true; } return listenState(); }
     case 'GET /api/music/search': { const q = (qs.get('q') || '').trim(); return { available: true, items: q ? Object.values(tracks).filter((t) => t.title.includes(q) || t.artist.includes(q)) : [] }; }

@@ -11,7 +11,7 @@ import Sheet from '../design/Sheet.jsx';
 import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
-import { useListen, mmss, fullLinks } from '../lib/listen.jsx';
+import { useListen, mmss, fullLinks, lineAt } from '../lib/listen.jsx';
 import { Avatar } from './Chat.jsx';
 import '../components/chat/chat.css';
 import '../components/chat/chatlist.css';
@@ -74,10 +74,41 @@ function Cover({ t, size, className = '' }) {
   return <img className={`tp-cover ${className}`} src={t.cover} alt="" width={size} height={size} loading="lazy" onError={() => setBad(true)} />;
 }
 
+// 滚动歌词：正在唱的那句亮着、停在中间；点一句跳过去。试听片段对不上时间轴，只给看词
+function Lyrics({ L }) {
+  const ly = L.lyrics;
+  const box = useRef(null);
+  const synced = Boolean(ly?.lines?.length) && !ly.preview;
+  const cur = synced ? lineAt(ly.lines, L.pos) : -1;
+  useEffect(() => {
+    const el = box.current?.querySelector(`[data-i="${Math.max(0, cur)}"]`);
+    if (el && box.current) box.current.scrollTop = el.offsetTop - box.current.clientHeight / 2 + el.clientHeight / 2;
+  }, [cur]);
+  if (!ly || ly.loading) return <div className="tp-lyrics"><div className="tp-ly-empty">在找歌词…</div></div>;
+  if (synced) {
+    return (
+      <div className="tp-lyrics" ref={box}>
+        {ly.lines.map((l, i) => (
+          <button key={`${l.t}-${i}`} type="button" data-i={i} className={`tp-ly ${i === cur ? 'on' : i < cur ? 'past' : ''}`} onClick={() => L.seek(l.t)}>{l.text}</button>
+        ))}
+      </div>
+    );
+  }
+  const plain = (ly.plain || ly.lines?.map((l) => l.text).join('\n') || '').split('\n').filter((x) => x.trim());
+  if (!plain.length) return <div className="tp-lyrics"><div className="tp-ly-empty">没找到这首的歌词</div></div>;
+  return (
+    <div className="tp-lyrics plain">
+      {ly.preview && <p className="tp-ly-note">试听是从歌中间截的一段，对不上时间，先看词</p>}
+      {plain.map((x, i) => <div key={i} className="tp-ly">{x}</div>)}
+    </div>
+  );
+}
+
 function Listen({ onList }) {
   const L = useListen();
   const s = L?.state;
   const bar = useRef(null);
+  const [showLy, setShowLy] = useState(false);
   const [q, setQ] = useState('');
   const [qd, setQd] = useState('');
   const [found, setFound] = useState(null);
@@ -160,12 +191,15 @@ function Listen({ onList }) {
   return (
     <>
       {search}
-      <div className={`tp-art ${s.playing ? 'on' : ''}`}><Cover t={t} size={264} /></div>
+      {showLy ? <Lyrics L={L} /> : (
+        <button type="button" className={`tp-art ${s.playing ? 'on' : ''}`} onClick={() => setShowLy(true)} aria-label="看歌词"><Cover t={t} size={264} /></button>
+      )}
       <div className="tp-now">
         <div className="tp-now-t">
           <b className="serif">{t.title}</b>
-          <span>{t.artist}{t.by === 'him' ? ' · 他点的' : ''}{t.source === 'apple' ? ' · 试听' : ''}</span>
+          <span>{t.artist}{t.by === 'him' ? ` · ${s.names?.him || '他'}点的` : ''}{t.source === 'apple' ? ' · 试听' : ''}</span>
         </div>
+        <button type="button" className={`tp-ly-btn ${showLy ? 'on' : ''}`} aria-label={showLy ? '收起歌词' : '看歌词'} aria-pressed={showLy} onClick={() => setShowLy((x) => !x)}><Icon name="quote" size={17} stroke={1.5} /></button>
       </div>
       {t.himNote?.text && <div className="tp-himnote hand-cn">{s.names?.him || '他'}：{t.himNote.text}</div>}
       <div className="tp-bar" ref={bar} role="slider" tabIndex={0} aria-label="进度" aria-valuemin={0} aria-valuemax={dur} aria-valuenow={Math.round(L.pos)} onClick={seek}

@@ -506,6 +506,7 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/music/search') return loop(`imprint/together/tracks${query}`).then((data) => ({ ...data, items: (data.items || []).map((item) => ({ ...item, url: attachmentUrl(item) })) }));
   if (method === 'POST' && p === '/api/music/tracks') return loop('imprint/together/tracks', opts).then(listenPayload);
   if (method === 'GET' && p === '/api/music/find') return loop(`imprint/together/music/search${query}`, { timeout: 20000 });
+  if (method === 'GET' && (m = /^\/api\/together\/lyrics\/([^/]+)$/.exec(p))) return loop(`imprint/together/lyrics/${m[1]}`, { timeout: 20000 });
   if (method === 'POST' && p === '/api/music/queue') return loop('imprint/together/music/queue', opts).then(listenPayload);
   if (method === 'GET' && p === '/api/together/listen') return loop('imprint/together/listen').then(listenPayload);
   if (method === 'POST' && p === '/api/together/listen') return loop('imprint/together/listen', opts).then(listenPayload);

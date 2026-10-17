@@ -14,6 +14,7 @@ export function ListenProvider({ children }) {
   const [s, setS] = useState(null);
   const [pos, setPos] = useState(0);
   const [error, setError] = useState('');
+  const [lyrics, setLyrics] = useState(null); // { id, lines: [{ t, text }], plain, preview } | { id, loading } | { id, none }
   const audio = useRef(null);
   const sRef = useRef(null);
   sRef.current = s;
@@ -86,6 +87,18 @@ export function ListenProvider({ children }) {
     return () => clearInterval(t);
   }, [s?.playing, s?.track?.id, s?.track?.url]);
 
+  // 歌词：换歌就去拿（后端会存在这首歌上，他那边「唱到哪一句」也靠这个）
+  useEffect(() => {
+    const id = s?.track?.id;
+    if (!id) { setLyrics(null); return undefined; }
+    let live = true;
+    setLyrics({ id, loading: true });
+    api(`/api/together/lyrics/${id}`)
+      .then((d) => { if (live) setLyrics({ id, lines: parseLrc(d.lrc), plain: d.plain || '', preview: Boolean(d.preview) }); })
+      .catch(() => { if (live) setLyrics({ id, none: true }); });
+    return () => { live = false; };
+  }, [s?.track?.id]);
+
   // 锁屏界面：封面、歌名，上一首 / 下一首
   useEffect(() => {
     const ms = navigator.mediaSession;
@@ -107,7 +120,7 @@ export function ListenProvider({ children }) {
   };
 
   const value = {
-    state: s, pos, error,
+    state: s, pos, error, lyrics: lyrics?.id === s?.track?.id ? lyrics : null,
     toggle,
     next: () => control({ action: 'next' }),
     prev: () => control({ action: 'prev' }),
@@ -127,6 +140,20 @@ export function ListenProvider({ children }) {
 }
 
 export const useListen = () => useContext(Ctx);
+
+const STAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+const CREDIT = /^(作词|作曲|编曲|制作人|词|曲|Lyricist|Composer)\s*[:：]/i;
+export function parseLrc(text) {
+  const out = [];
+  for (const line of String(text || '').split('\n')) {
+    const words = line.replace(STAMP, '').trim();
+    if (!words || CREDIT.test(words)) continue;
+    for (const m of line.matchAll(STAMP)) out.push({ t: Number(m[1]) * 60 + Number(m[2]) + Number(`0.${m[3] || 0}`), text: words });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+/** 正在唱的那一句的下标；还没开唱是 -1 */
+export const lineAt = (lines, pos) => { let i = -1; for (let k = 0; k < (lines || []).length && lines[k].t <= pos + 0.3; k += 1) i = k; return i; };
 
 export const mmss = (s) => `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, '0')}`;
 

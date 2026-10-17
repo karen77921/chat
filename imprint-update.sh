@@ -57,6 +57,10 @@ install_command() {
   printf '#!/usr/bin/env bash\nset -euo pipefail\ncurl -fsSL -H "Cache-Control: no-cache" "%s/tools/reply_timing.py?t=$(date +%%s)" | sudo python3 - "$@"\n' "${RAW}" \
     | sudo tee /usr/local/bin/imprint-timing >/dev/null
   sudo chmod 755 /usr/local/bin/imprint-timing
+  # 一个词装好檐廊（engawa MCP）并接给他；可以跟纬度经度：imprint-engawa 30.66 104.06
+  printf '#!/usr/bin/env bash\nset -euo pipefail\ncurl -fsSL -H "Cache-Control: no-cache" "%s/tools/install_engawa.sh?t=$(date +%%s)" | bash -s -- "$@"\n' "${RAW}" \
+    | sudo tee /usr/local/bin/imprint-engawa >/dev/null
+  sudo chmod 755 /usr/local/bin/imprint-engawa
 }
 if [[ "${API_LIVE}" == "${API_NEW}" && "${STORE_LIVE}" == "${STORE_NEW}" && "${INDEX_LIVE}" == "${INDEX_NEW}" ]]; then
   install_command

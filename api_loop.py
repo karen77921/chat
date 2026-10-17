@@ -3759,6 +3759,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
     drift_intent = any(word in query for word in ("漂流瓶", "投递", "收信邮箱", "邮箱", "galatea", "drift bottle"))
     # 聊到花园里的事（游戏、岛、帖子…）时，把花园的工具交给他，否则他嘴上说「我去看看」却没有工具可用
     garden_intent = garden or any(word in query for word in GARDEN_WORDS)
+    # 檐廊（engawa MCP）：诗、画、天文图、今晚的天空、书架。聊到这些、或者他自己醒来时递给他
+    engawa_intent = garden or any(word in query for word in ENGAWA_WORDS)
     for spec in mcp_manager.openai_tools():
         public_name = str(spec.get("function", {}).get("name") or "")
         server_name, real_name = mcp_manager.index.get(public_name, ("", public_name))
@@ -3772,6 +3774,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         always = bool(server and server.cfg.get("always"))  # 「常驻」：每一轮都交给他，不看话题
         if garden_intent and server and is_garden_url(server.cfg.get("url")):
             always = True  # 花园唤醒：花园的 MCP 一定要在手边
+        if engawa_intent and server_name.casefold() == "engawa":
+            always = True
         if core_requested or named or always:
             selected.append(spec)
     return selected
@@ -3849,9 +3853,11 @@ def sanitize_svg(raw: str) -> bytes:
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
 
 
+ENGAWA_WORDS = ("檐廊", "engawa", "古诗", "一首诗", "今天的画", "看画", "天文", "星空", "月亮", "月相", "行星", "日落",
+                "书架", "论文", "历史上的今天", "爱好角", "读读", "读一下这个网页", "rss")
 WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛病", "老是", "总是", "改掉", "习惯", "自由", "受限",
               "prompt", "my_walls")
-TOOLBOX_TOPICS = "抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
@@ -5465,6 +5471,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
                "可以去她的 Imprint 里转转：小屋的此刻、独处、留言板、照片墙、心潮、一起听、片单、续火花礼物铺、表情包，都是真的，"
                "你写下的东西她打开就能看到——要用到具体哪条、哪张，先用 imprint_inspect_home 看一眼。"
                "也可以去花园（Galatea Garden）走走，看看通知和帖子，想回就回。"
+               "要是接了檐廊（engawa），也可以去坐坐：今天的诗、一幅画、天文图、今晚的天空、书架上的文章，看到喜欢的可以带来跟她说。"
                "想在某个时间再醒来，就用 schedule_self_wake 给那时的自己留张纸条。\n"
                "想跟她说话，就以 ⟦MESSAGE⟧ 开头，像平时发微信一样写；不想打扰她，就只写 ⟦SILENT⟧。")
             + (note if note.startswith(FOLLOWUP_MARK) else "")

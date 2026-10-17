@@ -1675,5 +1675,10 @@ class DrawerTest(unittest.TestCase):
         line = self.act("her_status")["text"]
         self.assertIn("心情：累", line)
         self.assertIn("在：上班", line)
-        self.act("her_status_set", {})
+        self.act("her_status_set", {"place": "大理"})
+        self.assertIn("心情：累", self.act("her_status")["text"])  # 只改城市不动心情
+        self.assertIn("【她在哪】大理", self.act("her_status")["text"])
+        self.act("her_status_set", {"mood": "", "doing": ""})
+        self.assertTrue(self.act("her_status")["text"].startswith("【她在哪】大理"))  # 清空心情不清城市
+        self.act("her_status_set", {"place": ""})
         self.assertEqual(self.act("her_status")["text"], "")

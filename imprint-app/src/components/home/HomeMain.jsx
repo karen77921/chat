@@ -246,7 +246,21 @@ function HerStatus({ names: raw, now }) {
     setBusy(false);
   };
   const pick = (key, v) => set({ mood: st.mood || '', doing: st.doing || '', [key]: st[key] === v ? '' : v });
-  const shown = [st.mood, st.doing].filter(Boolean).join(' · ');
+  const shown = [st.mood, st.doing, st.place && `在${st.place}`].filter(Boolean).join(' · ');
+  const [place, setPlace] = useState(st.place || '');
+  const [placeNote, setPlaceNote] = useState('');
+  useEffect(() => { setPlace(st.place || ''); }, [st.place]);
+  const savePlace = async () => {
+    const next = place.trim();
+    setBusy(true); setPlaceNote('');
+    try {
+      setData(await api('/api/her-status', { method: 'POST', body: { place: next } }));
+      // 檐廊的「今晚的天空」也跟着换（没装檐廊就只是让他知道你在哪）
+      const r = await api('/api/engawa-place', { method: 'POST', body: { place: next } }).catch(() => null);
+      setPlaceNote(r?.ok ? `记下了${next ? `：${r.place}` : ''}，${names.him}看的天空也换过去了` : r?.reason === '檐廊还没装' || !r ? '记下了' : `记下了，不过${r.reason}`);
+    } catch (e) { setPlaceNote(e?.message || '没存上，再试一次'); }
+    setBusy(false);
+  };
   return (
     <>
       <button type="button" className="card hm-her" onClick={() => setOpen(true)}>
@@ -262,7 +276,13 @@ function HerStatus({ names: raw, now }) {
             <div className="hm-chips">{MOODS.map((m) => <button key={m} type="button" disabled={busy} className={`chip ${st.mood === m ? 'on' : ''}`} onClick={() => pick('mood', m)}>{m}</button>)}</div>
             <h4>在干嘛</h4>
             <div className="hm-chips">{DOINGS.map((m) => <button key={m} type="button" disabled={busy} className={`chip ${st.doing === m ? 'on' : ''}`} onClick={() => pick('doing', m)}>{m}</button>)}</div>
-            {shown && <button type="button" className="cl-link" disabled={busy} onClick={() => set({})}>清空</button>}
+            <h4>我在哪</h4>
+            <div className="hm-place">
+              <input value={place} maxLength={30} onChange={(e) => setPlace(e.target.value)} placeholder="城市，比如 成都、大理、东京" />
+              <button type="button" className="chip on" disabled={busy || place.trim() === (st.place || '')} onClick={savePlace}>好</button>
+            </div>
+            {placeNote && <p className="hm-empty">{placeNote}</p>}
+            {(st.mood || st.doing) && <button type="button" className="cl-link" disabled={busy} onClick={() => set({})}>清空心情和在干嘛</button>}
           </div>
         </Sheet>
       )}

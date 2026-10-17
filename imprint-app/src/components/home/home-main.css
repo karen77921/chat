@@ -126,3 +126,5 @@
 .hm-her-sheet { display: grid; gap: 10px; padding-bottom: 8px; }
 .hm-her-sheet h4 { margin: 6px 0 0; font-weight: 500; font-size: 13px; letter-spacing: 0.14em; color: var(--muted); }
 .hm-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.hm-place { display: flex; gap: 8px; align-items: center; }
+.hm-place input { flex: 1; min-width: 0; height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid rgba(120, 110, 104, 0.18); background: rgba(255, 255, 255, 0.7); font: inherit; outline: 0; }

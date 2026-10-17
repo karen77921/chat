@@ -6421,6 +6421,63 @@ async def loop_reply_options_set(session_id: str, request: Request):
     return {"mode": reply_options_mode(session_id)}
 
 
+# —— 她在哪：檐廊的「今晚的天空」跟着她的城市走（旅行时在首页改一下就行） ——
+ENGAWA_DROPIN = Path("/etc/systemd/system/engawa-mcp.service.d/place.conf")
+CITY_COORDS = {  # 地理编码服务连不上时的兜底
+    "北京": (39.90, 116.40, 8), "上海": (31.23, 121.47, 8), "广州": (23.13, 113.26, 8), "深圳": (22.54, 114.06, 8),
+    "成都": (30.66, 104.06, 8), "重庆": (29.56, 106.55, 8), "杭州": (30.27, 120.15, 8), "南京": (32.06, 118.80, 8),
+    "武汉": (30.59, 114.31, 8), "西安": (34.34, 108.94, 8), "长沙": (28.23, 112.94, 8), "昆明": (25.04, 102.71, 8),
+    "大理": (25.61, 100.27, 8), "丽江": (26.87, 100.23, 8), "厦门": (24.48, 118.09, 8), "三亚": (18.25, 109.51, 8),
+    "拉萨": (29.65, 91.14, 8), "天津": (39.13, 117.20, 8), "苏州": (31.30, 120.62, 8), "青岛": (36.07, 120.38, 8),
+    "哈尔滨": (45.80, 126.53, 8), "乌鲁木齐": (43.83, 87.62, 8), "香港": (22.32, 114.17, 8), "台北": (25.03, 121.57, 8),
+    "东京": (35.68, 139.69, 9), "大阪": (34.69, 135.50, 9), "首尔": (37.57, 126.98, 9), "曼谷": (13.76, 100.50, 7),
+    "新加坡": (1.35, 103.82, 8), "伦敦": (51.51, -0.13, 0), "巴黎": (48.86, 2.35, 1), "纽约": (40.71, -74.01, -5),
+}
+
+
+async def geocode_place(place: str) -> tuple[float, float, float, str] | None:
+    name = re.sub(r"^(在|人在|我在)|(市|县|区)$", "", place.strip())
+    for key, (lat, lon, tz) in CITY_COORDS.items():
+        if key in name or name in key:
+            return lat, lon, tz, key
+    with contextlib.suppress(Exception):
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get("https://geocoding-api.open-meteo.com/v1/search",
+                                    params={"name": name, "count": 1, "language": "zh", "format": "json"})
+            hit = (resp.json().get("results") or [None])[0]
+            if hit:
+                offset = dt.datetime.now(ZoneInfo(hit.get("timezone") or "Asia/Shanghai")).utcoffset()
+                return float(hit["latitude"]), float(hit["longitude"]), (offset.total_seconds() / 3600 if offset else 8), str(hit.get("name") or name)
+    return None
+
+
+@app.post("/loop/engawa/place")
+async def loop_engawa_place(request: Request):
+    body = await request.json()
+    place = str(body.get("place") or "").strip()[:30]
+    if "engawa" not in getattr(mcp_manager, "servers", {}):
+        return {"ok": False, "reason": "檐廊还没装"}
+    found = await geocode_place(place) if place else (31.23, 121.47, 8, "上海")
+    if not found:
+        return {"ok": False, "reason": f"找不到「{place}」在哪，换个写法试试（比如只写城市名）"}
+    lat, lon, tz, name = found
+    try:
+        ENGAWA_DROPIN.parent.mkdir(parents=True, exist_ok=True)
+        ENGAWA_DROPIN.write_text(f"[Service]\nEnvironment=ENGAWA_LAT={lat}\nEnvironment=ENGAWA_LON={lon}\nEnvironment=ENGAWA_TZ_OFFSET={tz:g}\n",
+                                 encoding="utf-8")
+        for cmd in (["systemctl", "daemon-reload"], ["systemctl", "restart", "engawa-mcp"]):
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+            _, err = await proc.communicate()
+            if proc.returncode:
+                return {"ok": False, "reason": f"檐廊没能换位置：{err.decode(errors='replace')[:200]}"}
+    except OSError as exc:
+        return {"ok": False, "reason": f"檐廊没能换位置：{exc}"}
+    await asyncio.sleep(3)
+    with contextlib.suppress(Exception):
+        await mcp_manager.restart("engawa")
+    return {"ok": True, "place": name, "lat": lat, "lon": lon}
+
+
 @app.get("/loop/walls")
 async def loop_walls():
     return {"notes": self_notes(), "proposals": list(reversed(wall_proposals()))}

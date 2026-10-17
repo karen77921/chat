@@ -1328,15 +1328,18 @@ HER_STATUS_STALE_H = 6
 
 
 def her_status_line(status: dict) -> str:
+    place = str((status or {}).get("place") or "").strip()
+    place_line = f"【她在哪】{place}（她自己在首页填的；旅行时会改。说到天气、时间、出门这些就照这个来）。" if place else ""
     if not status or not (status.get("mood") or status.get("doing")):
-        return ""
+        return place_line
     with contextlib.suppress(ValueError, TypeError):
         hours = (dt.datetime.now(ZONE) - dt.datetime.fromisoformat(status["at"])).total_seconds() / 3600
         when = "刚刚" if hours < 0.25 else f"{hours:.0f} 小时前" if hours >= 1 else f"{hours * 60:.0f} 分钟前"
         bits = [f"心情：{status['mood']}" if status.get("mood") else "", f"在：{status['doing']}" if status.get("doing") else ""]
         line = f"【她的此刻】{'；'.join(b for b in bits if b)}（{when}在首页点的"
-        return line + ("，有点久了，可能已经变了）。" if hours >= HER_STATUS_STALE_H else "）。不用再问她一遍，接着这个关心就好。")
-    return ""
+        line += "，有点久了，可能已经变了）。" if hours >= HER_STATUS_STALE_H else "）。不用再问她一遍，接着这个关心就好。"
+        return "\n".join(x for x in (line, place_line) if x)
+    return place_line
 
 
 def imprint_action(data_path: Path, action: str, payload: dict | None = None, relay_path: Path | None = None) -> dict:
@@ -1384,8 +1387,16 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
         if action == "her_status":
             return {"text": her_status_line(setting("her_status")), "status": setting("her_status")}
         if action == "her_status_set":
+            current = setting("her_status")
             mood, doing = str(body.get("mood") or "").strip()[:20], str(body.get("doing") or "").strip()[:40]
-            return {"status": save_setting("her_status", {"mood": mood, "doing": doing, "at": iso_now()} if mood or doing else {})}
+            # 「我在哪」单独存：清空心情和在干嘛不会把城市也清掉；只传城市也不会动心情
+            place = str(body["place"]).strip()[:30] if "place" in body else str(current.get("place") or "")
+            if "place" in body and not ("mood" in body or "doing" in body):
+                mood, doing = str(current.get("mood") or ""), str(current.get("doing") or "")
+            value = {"mood": mood, "doing": doing, "at": iso_now() if ("mood" in body or "doing" in body) else current.get("at", iso_now())} if mood or doing else {}
+            if place:
+                value["place"] = place
+            return {"status": save_setting("her_status", value)}
 
         def listen_snapshot() -> dict:
             tracks = recent("music_track", 100)

@@ -57,6 +57,8 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
+# 给了经纬度就以命令为准：去掉首页「我在哪」写的位置覆盖
+if [[ $# -ge 2 ]]; then sudo rm -f /etc/systemd/system/engawa-mcp.service.d/place.conf; fi
 sudo systemctl daemon-reload
 sudo systemctl enable --now engawa-mcp >/dev/null
 sudo systemctl restart engawa-mcp

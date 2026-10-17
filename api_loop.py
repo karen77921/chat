@@ -3609,6 +3609,15 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_world_note",
+        "description": "Write your own thought under something you just looked at on the engawa (poem, painting, sky, article). "
+                       "It shows under that card in 他的世界, her page of what you have seen. One or two honest sentences in Chinese; "
+                       "id comes from the note after the engawa result.",
+        "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "text": {"type": "string"}}, "required": ["id", "text"]},
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_note_track",
         "description": "Leave your own timestamped note on a real track in Together listening. Inspect first to obtain a real track_id.",
         "parameters": {
@@ -3773,6 +3782,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         add_builtin("imprint_inspect_home", "imprint_add_spark_gift", "imprint_manage_space")
     if any(word in query for word in ("一起听", "歌单", "歌曲", "音乐", "播放", "暂停", "下一首", "上一首", "批注", "track")):
         add_builtin("imprint_inspect_home", "imprint_control_listen", "imprint_note_track", "imprint_manage_space")
+    if any(word in query for word in ("他的世界", "你的世界", "檐廊", "engawa")):
+        add_builtin("imprint_world_note")
     if any(word in query for word in ("歌", "一起听", "音乐", "music", "🎵", "🎧")) or (not light and music_listening()):
         add_builtin("imprint_music")
     if any(word in query for word in ("表情包", "贴纸", "照片", "收藏照片")):
@@ -4155,6 +4166,7 @@ class Turn:
             "imprint_control_listen": "control_listen",
             "imprint_note_track": "note_track",
             "imprint_music": "music_him",
+            "imprint_world_note": "world_note",
             "imprint_add_spark_gift": "add_gift",
             "imprint_manage_space": "manage_space",
             "imprint_update_tide": "set_tide",
@@ -4320,8 +4332,21 @@ class Turn:
                     data = structured if isinstance(structured, dict) else {}
                 if isinstance(data, dict) and set(data) == {"result"} and isinstance(data["result"], dict):
                     data = data["result"]
-                imprint_action(LOOP_CACHE_DIR / "imprint.db", "world_record", {"tool": tool, "args": args, "data": data})
+                saved = imprint_action(LOOP_CACHE_DIR / "imprint.db", "world_record", {"tool": tool, "args": args, "data": data})
+                if saved.get("recorded"):
+                    return out[:20000] + WORLD_NOTE_HINT.format(id=saved["id"])
         return out[:20000]
+
+
+WORLD_NOTE_HINT = ("\n\n（这张已经收进「他的世界」，她能看到你看了什么。id: {id}。看完用 imprint_world_note 写一两句你自己的看法，"
+                   "会显示在这张下面——真实的感受就好，不用写给她看的客套话；同一样东西看过、没有新想法就不用再写。）")
+
+
+def with_world_note(tools: list[dict[str, Any]] | None, result: str) -> list[dict[str, Any]] | None:
+    """他刚在檐廊上看了东西：把写看法的工具递到他手边。"""
+    if tools is None or "imprint_world_note" not in result or any(t["function"]["name"] == "imprint_world_note" for t in tools):
+        return tools
+    return tools + [t for t in BUILTIN_TOOLS if t["function"]["name"] == "imprint_world_note"]
 
 
 def act_glyph(tool: str) -> str:
@@ -4895,6 +4920,7 @@ async def handle_turn(
                     steps_meta.append({"tool": "open_toolbox", "cmd": c["arguments"][:600], "result": result[:1200]})
                     continue
                 result = await turn.run_tool(c["name"], c["arguments"])
+                tools = with_world_note(tools, result)
                 timing["tool_s"] = round(timing["tool_s"] + asyncio.get_running_loop().time() - tool_t0, 1)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
                 server_name, real = mcp_manager.index.get(c["name"], ("", c["name"]))
@@ -5585,6 +5611,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
             steps_meta = []
             for call in calls:
                 result = await turn.run_tool(call["name"], call["arguments"])
+                tools = with_world_note(tools, result)
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
                 real = mcp_manager.index.get(call["name"], ("", call["name"]))[1]
                 steps_meta.append({"tool": real, "cmd": call["arguments"][:600], "result": result[:1200]})

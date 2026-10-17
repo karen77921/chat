@@ -196,6 +196,18 @@ class ImprintStoreTest(unittest.TestCase):
         poems = self.call("GET", "/world", cat="poem")["items"]
         self.assertEqual((poems[0]["title"], poems[0]["times"], poems[0]["sub"]), ("春晓", 2, "唐 · 孟浩然"))
         self.assertEqual(self.call("GET", "/world", cat="read")["items"][0]["sub"], "aeon.co")
+        # 他看完写看法：挂在那张下面；同一句不重复；他的工具在看完檐廊之后才递到手边
+        imprint_action(self.store, "world_note", {"id": poems[0]["id"], "text": "春天睡不醒，像她。"})
+        imprint_action(self.store, "world_note", {"id": poems[0]["id"], "text": "春天睡不醒，像她。"})
+        notes = self.call("GET", "/world", cat="poem")["items"][0]["notes"]
+        self.assertEqual([n["text"] for n in notes], ["春天睡不醒，像她。"])
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "world_note", {"id": "world_nope", "text": "x"})
+        hint = api_loop.WORLD_NOTE_HINT.format(id=poems[0]["id"])
+        tools = api_loop.with_world_note([], "poem..." + hint)
+        self.assertEqual([t["function"]["name"] for t in tools], ["imprint_world_note"])
+        self.assertEqual(api_loop.with_world_note(tools, hint), tools)
+        self.assertIsNone(api_loop.with_world_note(None, hint))
 
     def test_coupons_know_who_holds_them_and_get_used_once(self):
         gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))

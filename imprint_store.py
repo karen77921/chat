@@ -1826,6 +1826,22 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                          (rec_id, "world", iso_now(), json.dumps(item, ensure_ascii=False)))
             return {"recorded": True, "id": rec_id}
 
+        if action == "world_note":
+            # 他看完写的看法：挂在那张卡片下面，她在「他的世界」里看得到
+            rec_id, text = str(body.get("id") or "").strip(), str(body.get("text") or "").strip()
+            if not text or len(text) > 300:
+                raise ValueError("看法写 1–300 字")
+            row = conn.execute("SELECT payload FROM records WHERE kind='world' AND id=?", (rec_id,)).fetchone()
+            if not row:
+                raise ValueError("找不到这张；id 用檐廊结果后面给的那个")
+            item = json.loads(row["payload"])
+            notes = [n for n in item.get("notes") or [] if isinstance(n, dict)]
+            if notes and notes[-1].get("text") == text:
+                return {"ok": True, "id": rec_id, "notes": len(notes)}
+            item["notes"] = (notes + [{"text": text, "at": iso_now()}])[-10:]
+            conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(item, ensure_ascii=False), rec_id))
+            return {"ok": True, "id": rec_id, "notes": len(item["notes"])}
+
         if action == "inspect":
             current = conn.execute(
                 "SELECT payload FROM records WHERE id='setting_room_current' AND kind='setting'"

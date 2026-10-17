@@ -1,6 +1,6 @@
 /**
  * 他的世界：他在檐廊上看过的东西——诗、画、星空、读到的文章、历史上的今天，按类放好给她看。
- * 他每用一次檐廊，后端就自动收一张（同一样东西只收一张，再看就记次数）。
+ * 他每用一次檐廊，后端就自动收一张（同一样东西只收一张，再看就记次数）；他看完写的看法挂在那张下面。
  * 网址：#/world    数据：GET /api/world?cat=
  */
 import { useState } from 'react';
@@ -32,6 +32,13 @@ function Card({ it, him }) {
             ))}
           </ul>
         )}
+        {!!it.notes?.length && (
+          <div className="wd-notes">
+            {it.notes.map((n, i) => (
+              <div key={i} className="wd-note"><b>{him}：</b><span>{n.text}</span><em>{when(n.at)}</em></div>
+            ))}
+          </div>
+        )}
         <div className="wd-foot">{him} {when(it.at)} 看的{it.times > 1 ? ` · 看了 ${it.times} 次` : ''}</div>
       </div>
     </article>
@@ -48,7 +55,7 @@ export default function World() {
       <header className="pg-head">
         <a href="#/" className="rbtn" aria-label="返回"><Icon name="back" size={18} stroke={1.5} /></a>
         <h1><span className="hand">his world</span><span>他的世界</span></h1>
-        <p>{him}在檐廊上看过的东西都收在这里：每天的诗、画、天文图和夜空，还有他读到的文章。同一样东西只收一张。</p>
+        <p>{him}在檐廊上看过的东西都收在这里：每天的诗、画、天文图和夜空，还有他读到的文章。每张下面是他看完写的话。</p>
       </header>
       <nav className="wd-tabs" aria-label="分类">
         <button type="button" className={!cat ? 'on' : ''} aria-pressed={!cat} onClick={() => setCat('')}>全部{total ? ` ${total}` : ''}</button>

@@ -1,17 +1,17 @@
 /**
- * 05 一起：一起听 / 一起看 / 一起读（书房）三个分页，加一份两个人一起攒的歌单。
+ * 05 一起：一起听 / 一起看 / 一起读（书房）三个分页。一起听能直接搜歌（30 秒试听），队列两个人一起攒。
  * 网址：#/together   ?tab=listen|watch   ?playlist=1 打开歌单
  * 一起听的状态在 src/lib/listen.jsx（和悬浮小窗共用）；一起看：GET /api/together/watch。
  * 一起看的同步播放用「共影」，前端只放共影房间的入口，见 docs/05-一起.md。
  */
 import { useEffect, useRef, useState } from 'react';
 import Icon from '../design/icons.jsx';
-import { Band, Cyanotype, TornBox, Tape, Vinyl } from '../design/paper.jsx';
+import { Band, Cyanotype, TornBox, Vinyl } from '../design/paper.jsx';
 import Sheet from '../design/Sheet.jsx';
 import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
-import { useListen, mmss } from '../lib/listen.jsx';
+import { useListen, mmss, fullLinks } from '../lib/listen.jsx';
 import { Avatar } from './Chat.jsx';
 import '../components/chat/chat.css';
 import '../components/chat/chatlist.css';
@@ -54,43 +54,142 @@ function Sync({ text, him }) {
 }
 
 /* ---------- 一起听 ---------- */
+// 播放模式：顺序 → 随机 → 单曲循环
+const MODES = { order: '顺序播放', shuffle: '随机播放', one: '单曲循环' };
+const NEXT_MODE = { order: 'shuffle', shuffle: 'one', one: 'order' };
+function ModeIcon({ mode }) {
+  const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  if (mode === 'shuffle') return <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path {...p} d="M3 7h3.5c2 0 3.2 1 4.3 2.7l2.4 4.6c1.1 1.7 2.3 2.7 4.3 2.7H21M3 17h3.5c1.4 0 2.4-.5 3.2-1.4M14.3 8.4C15.1 7.5 16.1 7 17.5 7H21M18.5 4.5 21 7l-2.5 2.5M18.5 14.5 21 17l-2.5 2.5" /></svg>;
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+      <path {...p} d="M4 11V9a3 3 0 0 1 3-3h13M17 3l3 3-3 3M20 13v2a3 3 0 0 1-3 3H4M7 21l-3-3 3-3" />
+      {mode === 'one' && <text x="12" y="14.5" textAnchor="middle" fontSize="7" fill="currentColor" stroke="none">1</text>}
+    </svg>
+  );
+}
+
+function Cover({ t, size, className = '' }) {
+  const [bad, setBad] = useState(false);
+  if (!t?.cover || bad) return <span className={`tp-cover none ${className}`} style={{ width: size, height: size }}><Vinyl size={Math.round(size * 0.7)} /></span>;
+  return <img className={`tp-cover ${className}`} src={t.cover} alt="" width={size} height={size} loading="lazy" onError={() => setBad(true)} />;
+}
+
 function Listen({ onList }) {
   const L = useListen();
   const s = L?.state;
   const bar = useRef(null);
+  const [q, setQ] = useState('');
+  const [qd, setQd] = useState('');
+  const [found, setFound] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => { const t = setTimeout(() => setQd(q.trim()), 450); return () => clearTimeout(t); }, [q]);
+  useEffect(() => {
+    if (!qd) { setFound(null); return undefined; }
+    let live = true;
+    setFound({ loading: true, items: [] });
+    api(`/api/music/find?q=${encodeURIComponent(qd)}`)
+      .then((d) => { if (live) setFound({ items: d.items || [] }); })
+      .catch((e) => { if (live) setFound({ items: [], error: e?.message || '没搜到' }); });
+    return () => { live = false; };
+  }, [qd]);
+  useEffect(() => { if (!msg) return undefined; const t = setTimeout(() => setMsg(''), 2200); return () => clearTimeout(t); }, [msg]);
+
   if (!s) return <div className="card cl-empty tp-pad">正在找歌…</div>;
   if (s.available === false) return <div className="card cl-empty tp-pad">一起听暂时连不上后端。</div>;
-  if (!s.track) return <div className="card cl-empty tp-pad">歌单还是空的。<br /><button type="button" className="btn-main" style={{ marginTop: 16 }} onClick={onList}>上传第一首歌</button></div>;
+
+  const put = async (song, at) => {
+    setBusy(`${song.appleId}:${at}`);
+    try {
+      await L.queue({ song, at });
+      setMsg(at === 'now' ? '在放了' : at === 'next' ? '排在下一首' : '加到队列了');
+      if (at === 'now') setQ('');
+    } catch (e) { setMsg(e?.message || '没加上'); } finally { setBusy(''); }
+  };
+
+  const search = (
+    <label className="pill tp-search"><Icon name="search" size={16} /><span className="sr">搜歌</span>
+      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜歌名、歌手" enterKeyHint="search" />
+      {q && <button type="button" className="tp-search-x" aria-label="清空" onClick={() => setQ('')}><Icon name="close" size={13} stroke={1.5} /></button>}
+    </label>
+  );
+  const toast = msg && <div className="tp-toast glass" role="status">{msg}</div>;
+
+  if (qd) {
+    return (
+      <>
+        {search}
+        <div className="tp-results">
+          {found?.loading && <div className="card cl-empty">在搜…</div>}
+          {found?.error && <div className="card cl-empty">{found.error}</div>}
+          {found && !found.loading && !found.error && !found.items.length && <div className="card cl-empty">没搜到，换个写法试试</div>}
+          {(found?.items || []).map((t) => (
+            <div key={t.appleId} className="tp-res">
+              <button type="button" className="tp-res-main" onClick={() => put(t, 'now')} aria-label={`现在放 ${t.title}`}>
+                <Cover t={t} size={48} /><span className="pl-t"><b>{t.title}</b><em>{t.artist}{t.album ? ` · ${t.album}` : ''}</em></span>
+              </button>
+              <button type="button" className="tp-res-b" disabled={!!busy} onClick={() => put(t, 'next')} aria-label={`下一首放 ${t.title}`}><Icon name="next" size={16} stroke={1.4} /></button>
+              <button type="button" className="tp-res-b" disabled={!!busy} onClick={() => put(t, 'end')} aria-label={`把 ${t.title} 加到队列`}><Icon name="plus" size={16} stroke={1.6} /></button>
+            </div>
+          ))}
+          {!!found?.items?.length && <p className="tp-fine">搜到的歌能试听 30 秒；想听整首，放的时候点下面「听整首」去别的 App，或者在队列里上传自己的音频。</p>}
+        </div>
+        {toast}
+      </>
+    );
+  }
+
+  if (!s.track) {
+    return (
+      <>
+        {search}
+        <div className="card cl-empty tp-pad">搜一首歌开始，或者上传自己的音频。<br /><button type="button" className="btn-main" style={{ marginTop: 16 }} onClick={onList}>打开队列</button></div>
+        {toast}
+      </>
+    );
+  }
+
+  const t = s.track;
   const him = { id: 'him', name: s.names?.him };
-  const dur = s.track.durationS || 1;
+  const dur = t.durationS || 1;
+  const mode = s.mode || 'order';
   const seek = (e) => {
     const r = bar.current.getBoundingClientRect();
     L.seek(Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * dur));
   };
   return (
     <>
-      <div className="tp-deck">
-        <Vinyl size={200} spinning={s.playing} className="tp-disc" />
-        <div className="tp-sleeve drop2"><Cyanotype w={196} h={196} seed={21} /></div>
-        <Tape w={66} h={20} seed={131} className="m-breeze-tape" style={{ left: 64, top: -10, rotate: '-8deg' }} />
+      {search}
+      <div className={`tp-art ${s.playing ? 'on' : ''}`}><Cover t={t} size={264} /></div>
+      <div className="tp-now">
+        <div className="tp-now-t">
+          <b className="serif">{t.title}</b>
+          <span>{t.artist}{t.by === 'him' ? ' · 他点的' : ''}{t.source === 'apple' ? ' · 试听' : ''}</span>
+        </div>
       </div>
-      <Sync text={s.synced ? '同步中 · 你们听到同一秒' : '只有你在听'} him={him} />
-      <div className="tp-title"><div className="serif">{s.track.title}</div><span>{s.track.artist} · {s.track.by === 'him' ? '他选的' : '你选的'}</span></div>
+      {t.himNote?.text && <div className="tp-himnote hand-cn">{s.names?.him || '他'}：{t.himNote.text}</div>}
       <div className="tp-bar" ref={bar} role="slider" tabIndex={0} aria-label="进度" aria-valuemin={0} aria-valuemax={dur} aria-valuenow={Math.round(L.pos)} onClick={seek}
         onKeyDown={(e) => { if (e.key === 'ArrowRight') L.seek(Math.min(dur, L.pos + 10)); if (e.key === 'ArrowLeft') L.seek(Math.max(0, L.pos - 10)); }}>
-        <i className="fill" style={{ width: `${(L.pos / dur) * 100}%` }} />
-        <i className="knob" style={{ left: `${(L.pos / dur) * 100}%` }} />
+        <i className="fill" style={{ width: `${Math.min(100, (L.pos / dur) * 100)}%` }} />
+        <i className="knob" style={{ left: `${Math.min(100, (L.pos / dur) * 100)}%` }} />
         {(s.notes || []).map((n) => <i key={n.atS} className="tick" style={{ left: `${(n.atS / dur) * 100}%` }} title={n.text} />)}
       </div>
       <div className="tp-time serif"><span>{mmss(L.pos)}</span><span>{mmss(dur)}</span></div>
       <div className="tp-ctl">
+        <button type="button" className={`tp-side ${mode !== 'order' ? 'lit' : ''}`} aria-label={`${MODES[mode]}，点一下换`} onClick={() => { L.setMode(NEXT_MODE[mode]); setMsg(MODES[NEXT_MODE[mode]]); }}><ModeIcon mode={mode} /></button>
         <button type="button" aria-label="上一首" onClick={L.prev}><Icon name="prev" size={24} stroke={1} /></button>
         <button type="button" className="tp-play" aria-label={s.playing ? '暂停' : '播放'} onClick={L.toggle}><Icon name={s.playing ? 'pause' : 'play'} size={26} stroke={2.2} /></button>
         <button type="button" aria-label="下一首" onClick={L.next}><Icon name="next" size={24} stroke={1} /></button>
+        <button type="button" className="tp-side" aria-label={`队列 · ${s.playlist.length} 首`} onClick={onList}><Icon name="more" size={20} stroke={1.5} /></button>
       </div>
+      {L.error && <div className="tp-err" role="alert">{L.error}</div>}
+      {t.source === 'apple' && (
+        <div className="tp-full"><span>听整首</span>{fullLinks(t).map((x) => <a key={x.name} href={x.href} target="_blank" rel="noreferrer">{x.name}</a>)}</div>
+      )}
+      <Sync text={s.playing ? `${s.names?.him || '他'}知道你在听这首` : '放起来他就知道你在听什么'} him={him} />
       <Band tone="l1" seed={61} className="tp-band">
         <div className="sec-head"><span className="en" style={{ fontSize: 22 }}>his notes</span><h2 className="zh" style={{ margin: 0, fontSize: 13.5 }}>他边听边写</h2>
-          <button type="button" className="go" onClick={onList}>歌单 · {s.playlist.length} 首<Icon name="arrow" size={13} /></button></div>
+          <button type="button" className="go" onClick={onList}>队列 · {s.playlist.length} 首<Icon name="arrow" size={13} /></button></div>
         <div className="tp-notes">
           {(s.notes || []).map((n, i) => (
             <button key={n.atS} type="button" className={`tp-note ${n.atS <= L.pos ? 'past' : ''}`} style={{ rotate: `${i % 2 ? 1.6 : -2}deg` }} onClick={() => L.seek(n.atS)} aria-label={`跳到 ${mmss(n.atS)}：${n.text}`}>
@@ -102,18 +201,15 @@ function Listen({ onList }) {
           {!s.notes?.length && <div className="card cl-empty">这首他还没写什么</div>}
         </div>
       </Band>
+      {toast}
     </>
   );
 }
 
-/* ---------- 歌单 ---------- */
+/* ---------- 队列 ---------- */
 function Playlist({ onClose }) {
   const L = useListen();
   const s = L.state;
-  const [q, setQ] = useState('');
-  const [qd, setQd] = useState('');
-  useEffect(() => { const t = setTimeout(() => setQd(q.trim()), 300); return () => clearTimeout(t); }, [q]);
-  const { data: found } = useLoad(qd ? `/api/music/search?q=${encodeURIComponent(qd)}` : null);
   const [dragIdx, setDragIdx] = useState(null);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -122,7 +218,6 @@ function Playlist({ onClose }) {
   const dragY = useRef(0);
   const list = s?.playlist || [];
 
-  const add = async (t) => L.apply(await api('/api/together/playlist', { method: 'POST', body: { trackId: t.id } }));
   const remove = async (t) => L.apply(await api(`/api/together/playlist/${t.id}`, { method: 'DELETE' }));
   const save = async (next) => { L.setPlaylist(next); L.apply(await api('/api/together/playlist', { method: 'PUT', body: { ids: next.map((t) => t.id) } })); };
   const onDown = (i, e) => { setDragIdx(i); dragY.current = e.clientY; e.currentTarget.setPointerCapture(e.pointerId); };
@@ -162,48 +257,34 @@ function Playlist({ onClose }) {
       setDraft(null);
     } catch (e) { setError(e?.message || '音频没有上传成功'); } finally { setBusy(false); }
   };
+  const nowId = s?.track?.id;
 
   return (
-    <Sheet open onClose={onClose} label="歌单" seed={63}>
-      <div className="sec-head"><span className="en">playlist</span><h2 className="zh" style={{ margin: 0 }}>歌单</h2><button type="button" className="go" onClick={onClose}>收起</button></div>
-      <button type="button" className="btn-main" style={{ width: '100%', marginBottom: 12 }} onClick={() => audioIn.current?.click()}>＋ 上传本地音频</button>
+    <Sheet open onClose={onClose} label="队列" seed={63}>
+      <div className="sec-head"><span className="en">up next</span><h2 className="zh" style={{ margin: 0 }}>队列</h2><button type="button" className="go" onClick={onClose}>收起</button></div>
+      <button type="button" className="btn-main" style={{ width: '100%', marginBottom: 12 }} onClick={() => audioIn.current?.click()}>＋ 上传整首（本地音频）</button>
       <input ref={audioIn} hidden type="file" accept="audio/*" onChange={(e) => { pickAudio(e.target.files?.[0]); e.target.value = ''; }} />
       {draft && <div className="card" style={{ padding: 14, marginBottom: 14 }}>
         <label className="pill nc-in"><span className="sr">歌名</span><input value={draft.title} onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} placeholder="歌名" /></label>
         <label className="pill nc-in" style={{ marginTop: 8 }}><span className="sr">歌手</span><input value={draft.artist} onChange={(e) => setDraft((d) => ({ ...d, artist: e.target.value }))} placeholder="歌手（可以不填）" /></label>
-        <button type="button" className="btn-main" style={{ width: '100%', marginTop: 10 }} disabled={busy || !draft.title.trim()} onClick={uploadTrack}>{busy ? '正在上传…' : '放进歌单'}</button>
+        <button type="button" className="btn-main" style={{ width: '100%', marginTop: 10 }} disabled={busy || !draft.title.trim()} onClick={uploadTrack}>{busy ? '正在上传…' : '放进队列'}</button>
       </div>}
       {error && <div className="ws-err" role="alert">{error}</div>}
-      <label className="pill pl-search"><Icon name="search" size={16} /><span className="sr">搜歌</span>
-        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜歌名、歌手，加进歌单" />
-      </label>
-      {qd && (
-        <>
-          <div className="nc-k">搜到的</div>
-          {(found?.items || []).map((t) => {
-            const inList = list.some((x) => x.id === t.id);
-            return (
-              <div key={t.id} className="card pl-row">
-                <Vinyl size={34} /><span className="pl-t"><b>{t.title}</b><em>{t.artist}</em></span>
-                <button type="button" className="pl-add" disabled={inList} aria-label={inList ? '已经在歌单里' : `把 ${t.title} 加进歌单`} onClick={() => add(t)}><Icon name={inList ? 'check' : 'plus'} size={15} stroke={1.6} /></button>
-              </div>
-            );
-          })}
-          {found && !found.items?.length && <div className="card cl-empty">没搜到</div>}
-        </>
-      )}
-      <div className="nc-k">我们的歌单 · {list.length} 首 · 拖动换顺序</div>
+      <div className="nc-k">{list.length} 首 · {MODES[s?.mode || 'order']} · 拖右边换顺序</div>
       <ol className="pl-list" onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         {list.map((t, i) => (
-          <li key={t.id} className={`card pl-row ${dragIdx === i ? 'drag' : ''} ${s.track.id === t.id ? 'now' : ''}`}>
-            <span className="serif pl-n">{s.track.id === t.id ? <span className="dots"><i /><i /><i /></span> : i + 1}</span>
-            <button type="button" className="pl-t" onClick={() => L.playTrack(t.id)} aria-label={`放 ${t.title}`}><b>{t.title}</b><em>{t.artist} · {t.by === 'him' ? '他加的' : '我加的'}</em></button>
-            <button type="button" className="pl-x" aria-label={`从歌单拿掉 ${t.title}`} onClick={() => remove(t)}><Icon name="close" size={13} stroke={1.5} /></button>
+          <li key={t.id} className={`card pl-row ${dragIdx === i ? 'drag' : ''} ${nowId === t.id ? 'now' : ''}`}>
+            <Cover t={t} size={40} />
+            <button type="button" className="pl-t" onClick={() => L.playTrack(t.id)} aria-label={`放 ${t.title}`}>
+              <b>{nowId === t.id && <span className="dots"><i /><i /><i /></span>}{t.title}</b>
+              <em>{t.artist} · {t.by === 'him' ? '他点的' : '我点的'}{t.source === 'apple' ? ' · 试听' : ''}</em>
+            </button>
+            <button type="button" className="pl-x" aria-label={`从队列拿掉 ${t.title}`} onClick={() => remove(t)}><Icon name="close" size={13} stroke={1.5} /></button>
             <span className="pl-drag" aria-label="拖动换顺序" onPointerDown={(e) => onDown(i, e)}><i /><i /><i /></span>
           </li>
         ))}
       </ol>
-      {!list.length && <div className="card cl-empty">还没有歌，上传音频后会真实保存到 VPS。</div>}
+      {!list.length && <div className="card cl-empty">队列是空的，回去搜一首吧。</div>}
     </Sheet>
   );
 }

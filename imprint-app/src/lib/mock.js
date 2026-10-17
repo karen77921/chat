@@ -105,6 +105,7 @@ const chats = {
       { id: 'c4', from: 'him', type: 'command', thinking: '她说云很低，先看看今晚会不会下雪。', command: { title: '查了一下天气', cmd: 'weather --city 苏州 --hours 6', output: '23:00  阴    12°\n02:00  小雪  ☁ 40%', exitCode: 0, ms: 400 }, at: C('22:53') },
       { id: 'c4t', from: 'him', type: 'thinking', thinking: 'The weather says light snow around 2am. She is probably still standing outside taking photos — remind her gently.', at: C('22:54') },
       { id: 'c4s', from: 'him', type: 'text', text: '先给你盖个章⟦气泡⟧[表情：paw]', at: C('22:54') },
+      { id: 'c4m', from: 'him', type: 'text', text: '睡前听这个\n[歌：t2｜Gymnopédie No.1｜Satie]', at: C('22:54') },
       { id: 'c5', from: 'him', type: 'text', text: '凌晨真的可能下雪。\n拍照又站在路中间了吧？', at: C('22:54'), replyOptions: ['才没有，我很小心的', '你管我～', '我把刚拍的那张发给你'] },
       { id: 'c6', from: 'me', type: 'text', text: '没有！站在路边的！', quote: { id: 'c5', from: 'him', text: '拍照又站在路中间了吧？' }, status: 'queued', at: C('22:57') },
       { id: 'c7', from: 'me', type: 'voice', voice: { url: '', durationS: 6, transcript: '周六的电影订好位置了，第七排中间' }, status: 'queued', at: C('22:58') },
@@ -319,7 +320,7 @@ function sparkRedeem(body) {
 
 // ---------------- 一起（听 · 歌单 · 看） ----------------
 const tracks = {
-  t1: { id: 't1', title: 'Clair de Lune', artist: 'Debussy', durationS: 303, url: '' },
+  t1: { id: 't1', title: 'Clair de Lune', artist: 'Debussy', durationS: 30, url: '', source: 'apple', appleUrl: 'https://music.apple.com/', himNote: { text: '这首适合你睡前听' } },
   t2: { id: 't2', title: 'Gymnopédie No.1', artist: 'Satie', durationS: 196, url: '' },
   t3: { id: 't3', title: '雨的声音', artist: '白噪音', durationS: 600, url: '' },
   t4: { id: 't4', title: '晚安曲', artist: '某某', durationS: 214, url: '' },
@@ -338,13 +339,14 @@ function listenState() {
     available: true, names: { me: 'Lumi', him: 'Ash' },
     track: { ...t, by: listen.by }, playing: listen.playing, positionS: Math.round(listenPos()), updatedAt: new Date().toISOString(),
     synced: true, notes: listen.notes[listen.trackId] || [],
-    playlist: listen.playlist.map((p) => ({ ...tracks[p.trackId], by: p.by })),
+    playlist: listen.playlist.map((p) => ({ ...tracks[p.trackId], by: p.by })), mode: listen.mode || 'order',
   };
 }
 function listenControl(body) {
   listen.positionS = listenPos(); listen.at = Date.now();
   if (typeof body?.playing === 'boolean') listen.playing = body.playing;
   if (typeof body?.positionS === 'number') listen.positionS = body.positionS;
+  if (body?.mode) listen.mode = body.mode;
   const ids = listen.playlist.map((p) => p.trackId);
   const go = (id) => { listen.trackId = id; listen.positionS = 0; listen.playing = true; listen.by = listen.playlist.find((p) => p.trackId === id)?.by || 'me'; };
   if (body?.action === 'next') go(ids[(ids.indexOf(listen.trackId) + 1) % ids.length]);
@@ -664,6 +666,8 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'POST /api/activity/read': state.activityRead = true; return { ok: true };
     case 'GET /api/together/listen': return listenState();
     case 'POST /api/together/listen': return listenControl(body);
+    case 'GET /api/music/find': { const q = (qs.get('q') || '').trim(); return { items: [1, 2, 3, 4].map((n) => ({ appleId: `a${n}`, title: `${q} ${n}`, artist: '示例歌手', album: '示例专辑', cover: '', preview: '', fullS: 240 })) }; }
+    case 'POST /api/music/queue': { const t = body.song ? { id: body.song.appleId, title: body.song.title, artist: body.song.artist, durationS: 30, url: '', source: 'apple' } : tracks[body.track_id]; tracks[t.id] = t; listen.playlist = listen.playlist.filter((x) => x.trackId !== t.id); const i = listen.playlist.findIndex((x) => x.trackId === listen.trackId); listen.playlist.splice(body.at === 'end' ? listen.playlist.length : i + 1, 0, { trackId: t.id, by: 'me' }); if (body.at === 'now') { listen.trackId = t.id; listen.positionS = 0; listen.playing = true; } return listenState(); }
     case 'GET /api/music/search': { const q = (qs.get('q') || '').trim(); return { available: true, items: q ? Object.values(tracks).filter((t) => t.title.includes(q) || t.artist.includes(q)) : [] }; }
     case 'POST /api/together/playlist': if (!listen.playlist.some((p) => p.trackId === body.trackId)) listen.playlist.push({ trackId: body.trackId, by: 'me' }); return listenState();
     case 'PUT /api/together/playlist': listen.playlist = body.ids.map((id) => listen.playlist.find((p) => p.trackId === id)).filter(Boolean); return listenState();

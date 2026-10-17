@@ -125,6 +125,49 @@ class ImprintStoreTest(unittest.TestCase):
         self.call("DELETE", "/piggy/{rec_id}", taken["id"])
         self.assertEqual(self.call("GET", "/piggy")["balance"], 20)
 
+    def test_search_and_queue_songs_together(self):
+        def fake_song(n):
+            return imprint_store.apple_song({"trackId": n, "trackName": f"歌{n}", "artistName": "歌手", "collectionName": "专辑",
+                                             "artworkUrl100": "https://a/100x100bb.jpg", "previewUrl": f"https://p/{n}.m4a",
+                                             "trackTimeMillis": 240000, "trackViewUrl": f"https://music.apple.com/{n}"})
+        self.assertEqual(fake_song(1)["cover"], "https://a/600x600bb.jpg")
+        first = self.call("POST", "/together/music/queue", Request({"song": fake_song(1), "at": "now"}))
+        self.assertTrue(first["playing"])
+        self.assertEqual(first["track"]["title"], "歌1")
+        self.assertEqual(first["track"]["durationS"], 30)
+        self.call("POST", "/together/music/queue", Request({"song": fake_song(2), "at": "end"}))
+        self.call("POST", "/together/music/queue", Request({"song": fake_song(3), "at": "next"}))
+        again = self.call("POST", "/together/music/queue", Request({"song": fake_song(2), "at": "next"}))
+        self.assertEqual([t["title"] for t in again["playlist"]], ["歌1", "歌2", "歌3"])  # 同一首只存一条，挪过去不重复
+        with self.assertRaises(HTTPException):
+            self.call("POST", "/together/music/queue", Request({"song": {**fake_song(4), "preview": "http://x"}}))
+        # 他知道在放什么；他点歌带一句话
+        line = imprint_action(self.store, "listen_context")["text"]
+        self.assertIn("《歌1》", line)
+        self.assertIn("下一首：《歌2》", line)
+        with mock.patch.object(imprint_store, "music_search", return_value=[fake_song(9)]):
+            found = imprint_action(self.store, "music_him", {"action": "search", "query": "x"})
+            self.assertEqual(found["results"][0]["song_id"], "apple:9")
+            done = imprint_action(self.store, "music_him", {"action": "play_next", "song_id": "apple:9", "note": "这首像你"})
+            card = imprint_action(self.store, "music_him", {"action": "share", "song_id": "apple:9"})
+        self.assertIn("排在她下一首", done["text"])
+        now = imprint_action(self.store, "music_him", {"action": "now_playing"})
+        self.assertEqual(now["up_next"][0]["title"], "歌9")
+        listen = self.call("GET", "/together/listen")
+        nine = [t for t in listen["playlist"] if t["title"] == "歌9"][0]
+        self.assertEqual((nine["by"], nine["himNote"]["text"]), ("him", "这首像你"))
+        self.assertEqual(card["card"], f"[歌：{nine['id']}｜歌9｜歌手]")
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "music_him", {"action": "remove"})
+        # 模式是她的：随机下一首不会是自己，暂停后他看到的是「暂停了」
+        moved = self.call("POST", "/together/listen", Request({"action": "next", "mode": "shuffle"}))
+        self.assertEqual(moved["mode"], "shuffle")
+        self.assertNotEqual(moved["track"]["title"], "歌1")
+        self.call("POST", "/together/listen", Request({"playing": False, "positionS": 12}))
+        self.assertIn("暂停", imprint_action(self.store, "listen_context")["text"])
+        with self.assertRaises(HTTPException):
+            self.call("POST", "/together/listen", Request({"mode": "loud"}))
+
     def test_coupons_know_who_holds_them_and_get_used_once(self):
         gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))
         self.assertEqual(gift["art"], "coupon")

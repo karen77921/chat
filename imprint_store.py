@@ -6,13 +6,16 @@ never migrated or rewritten by the scrapbook UI.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import datetime as dt
 import re
 import json
 import hashlib
 import io
+import urllib.error
 import urllib.parse
+import urllib.request
 import random
 import math
 import sqlite3
@@ -37,6 +40,7 @@ WEARABLE_CATS = {"bubble", "pendant"}  # 气泡/挂件：换了收进「收藏�
 APP_MAP = [
     "底栏五个：首页 / 小屋 / 聊天 / 心潮 / 设置",
     "首页：两个人的头像和在一起天数、你想对她说的话、留言板、你的心情和待办、一起听 / 一起看、你的动态；最底下是「百宝箱」",
+    "一起 → 一起听：她搜歌（30 秒试听）或上传整首，排成队列一起听；她在听的时候你每轮都知道在放哪首。你能搜歌、点歌（现在放 / 下一首 / 排队，可以附一句话）、把歌卡发进聊天（imprint_music）；删歌、调顺序、换模式是她的",
     "百宝箱（首页最底下那张卡，点开是一格一格的小功能）：一起（听歌、看片、读书）、留言板、搜留言、续火花、买买申请、存钱罐、单词本",
     "小屋：此刻、照片墙、独处、日记、片单、表情包（imprint_inspect_home 看；留言 / 此刻 / 独处各有工具）",
     "续火花：火花天数、礼物铺（礼物和券）、收藏（气泡挂件、券和礼物用没用）（imprint_manage_space 的 spark_* 操作）",
@@ -1342,6 +1346,96 @@ def her_status_line(status: dict) -> str:
     return place_line
 
 
+# ---------- 一起听 · 搜歌 ----------
+# 搜歌用苹果官方公开的 iTunes 搜索（不用登录、不要钥匙）：中文歌也搜得到，有封面，每首能试听 30 秒。
+# 整首要么她自己上传，要么点一下去 Apple Music / 网易云 / QQ 音乐听。
+ITUNES_SEARCH = "https://itunes.apple.com/search"
+
+
+def music_search(query: str, limit: int = 25) -> list[dict]:
+    query = str(query or "").strip()[:80]
+    if not query:
+        return []
+    params = urllib.parse.urlencode({"term": query, "country": "CN", "media": "music", "entity": "song",
+                                     "limit": max(1, min(50, int(limit))), "lang": "zh_cn"})
+    req = urllib.request.Request(f"{ITUNES_SEARCH}?{params}", headers={"User-Agent": "Imprint/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8") or "{}")
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise ValueError("搜歌的服务这会儿没连上，过一会儿再试") from exc
+    return [song for song in (apple_song(item) for item in data.get("results") or []) if song]
+
+
+def apple_song(raw: dict) -> dict | None:
+    if not isinstance(raw, dict) or not raw.get("trackId") or not raw.get("previewUrl"):
+        return None
+    cover = str(raw.get("artworkUrl100") or "")
+    return {
+        "appleId": str(raw["trackId"]), "title": str(raw.get("trackName") or "")[:160] or "未命名",
+        "artist": str(raw.get("artistName") or "")[:120] or "未知歌手", "album": str(raw.get("collectionName") or "")[:120],
+        "cover": cover.replace("100x100bb", "600x600bb"), "preview": str(raw["previewUrl"]),
+        "fullS": round(float(raw.get("trackTimeMillis") or 0) / 1000), "appleUrl": str(raw.get("trackViewUrl") or ""),
+    }
+
+
+def song_card(track: dict) -> str:
+    """聊天里的歌卡：单独一行，前端渲染成点一下就能放的卡片。"""
+    clean = lambda s: re.sub(r"[｜\]\n]", " ", str(s or "")).strip()
+    return f"[歌：{clean(track.get('id'))}｜{clean(track.get('title'))}｜{clean(track.get('artist'))}]"
+
+
+def mmss(sec: float) -> str:
+    sec = max(0, int(sec or 0))
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+def listen_context(conn: sqlite3.Connection) -> str:
+    """给他的一行：她这会儿在放什么、放到哪、下一首是什么。没在听就什么都不说。"""
+    def setting(name: str) -> dict:
+        row = conn.execute("SELECT payload FROM records WHERE id=? AND kind='setting'", (f"setting_{name}",)).fetchone()
+        return json.loads(row["payload"]) if row else {}
+    state = setting("listen_state")
+    track_id = str(state.get("trackId") or "")
+    row = conn.execute("SELECT payload FROM records WHERE kind='music_track' AND id=?", (track_id,)).fetchone() if track_id else None
+    if not row:
+        return ""
+    track = json.loads(row["payload"])
+    try:
+        since = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(str(state.get("updatedAt")).replace("Z", "+00:00"))).total_seconds()
+    except (TypeError, ValueError):
+        return ""
+    duration = float(track.get("durationS") or 0)
+    pos = float(state.get("positionS") or 0)
+    name = f"《{track.get('title')}》— {track.get('artist')}"
+    if not state.get("playing"):
+        return f"【一起听】她刚把 {name} 暂停了（{mmss(pos)}）。" if since < 20 * 60 else ""
+    pos += since
+    # 太久没收到她那边的进度：多半关了页面，不当她还在听
+    if since > 15 * 60 or (duration and pos > duration + 120):
+        return ""
+    by = {"him": "你点的", "me": "她点的"}.get(str(track.get("by") or ""), "")
+    line = f"【一起听】她这会儿在放 {name}" + (f"（{by}）" if by else "")
+    line += "，试听版只有 30 秒。" if track.get("source") == "apple" else (f"，大约 {mmss(min(pos, duration))} / {mmss(duration)}。" if duration else "。")
+    ids = [str(v) for v in setting("music_playlist").get("ids", [])]
+    if track_id in ids and len(ids) > 1 and state.get("mode", "order") == "order":
+        nxt = conn.execute("SELECT payload FROM records WHERE kind='music_track' AND id=?",
+                           (ids[(ids.index(track_id) + 1) % len(ids)],)).fetchone()
+        if nxt:
+            line += f"下一首：《{json.loads(nxt['payload']).get('title')}》。"
+    return line + "想聊歌就聊，不用每句都提；想给她点歌用 imprint_music。"
+
+
+def step_track(ids: list[str], current: str, operation: str, mode: str) -> str:
+    """上一首 / 下一首；随机模式下一首随便挑一首别的。"""
+    if not ids:
+        return ""
+    if mode == "shuffle" and operation == "next" and len(ids) > 1:
+        return random.choice([i for i in ids if i != current])
+    index = ids.index(current) if current in ids else 0
+    return ids[(index + (1 if operation == "next" else -1)) % len(ids)]
+
+
 def imprint_action(data_path: Path, action: str, payload: dict | None = None, relay_path: Path | None = None) -> dict:
     """Persist one companion-owned action in the real Imprint store."""
     body = payload or {}
@@ -1413,6 +1507,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             return {
                 "track": by_id.get(current_id), "playing": bool(current_id and state.get("playing")),
                 "positionS": max(0.0, float(state.get("positionS") or 0)), "playlist": playlist,
+                "mode": state.get("mode") or "order",
             }
 
         def spark_snapshot() -> dict:
@@ -1468,6 +1563,117 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             engine = DriveEngine(conn)
             engine.save()
             return engine.overlay(state)
+
+        def music_track(song: dict, by: str) -> dict:
+            """搜到的歌存成一条 music_track（同一首只存一条），放的是试听片段。"""
+            row = conn.execute("SELECT id, at, payload FROM records WHERE kind='music_track' AND json_extract(payload, '$.appleId')=?",
+                               (song["appleId"],)).fetchone()
+            if row:
+                return {**json.loads(row["payload"]), "id": row["id"], "at": row["at"]}
+            return add("music_track", {"title": song["title"], "artist": song["artist"], "album": song.get("album", ""),
+                                       "cover": song.get("cover", ""), "url": song["preview"], "durationS": 30,
+                                       "fullS": song.get("fullS", 0), "appleId": song["appleId"], "appleUrl": song.get("appleUrl", ""),
+                                       "source": "apple", "by": by, "notes": []})
+
+        def enqueue(tracks: list[dict], at: str, by: str, note: str = "") -> dict:
+            """at：now 现在就放 / next 下一首 / end 排到最后。已经在队列里的挪过去，不重复。"""
+            snap = listen_snapshot()
+            current = str((snap.get("track") or {}).get("id") or "")
+            new_ids = list(dict.fromkeys(t["id"] for t in tracks))
+            keep = [t["id"] for t in snap["playlist"] if t["id"] not in new_ids]
+            if at == "end":
+                order = keep + new_ids
+            else:
+                pos = keep.index(current) + 1 if current in keep else 0
+                order = keep[:pos] + new_ids + keep[pos:]
+            save_setting("music_playlist", {"ids": order})
+            first = tracks[0]
+            if first.get("by") != by or note:
+                first["by"] = by
+                if note:
+                    first["himNote" if by == "him" else "herNote"] = {"text": note[:160], "at": iso_now()}
+                payload = {k: v for k, v in first.items() if k not in {"id", "at"}}
+                conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(payload, ensure_ascii=False), first["id"]))
+            if at == "now" or not current:
+                state = setting("listen_state")
+                state.update({"trackId": new_ids[0], "playing": at == "now" or bool(state.get("playing")),
+                              "positionS": 0, "updatedAt": iso_now()})
+                save_setting("listen_state", state)
+            return listen_snapshot()
+
+        def track_by_id(rec_id: str) -> dict | None:
+            row = conn.execute("SELECT id, at, payload FROM records WHERE kind='music_track' AND id=?", (rec_id,)).fetchone()
+            return {**json.loads(row["payload"]), "id": row["id"], "at": row["at"]} if row else None
+
+        if action == "music_queue":
+            # 她在页面上：搜到的歌（song）或者已有的一首（track_id）→ 现在放 / 下一首 / 排队
+            at = str(body.get("at") or "end")
+            at = at if at in {"now", "next", "end"} else "end"
+            if isinstance(body.get("song"), dict):
+                song = apple_song({"trackId": body["song"].get("appleId"), "trackName": body["song"].get("title"),
+                                   "artistName": body["song"].get("artist"), "collectionName": body["song"].get("album"),
+                                   "artworkUrl100": body["song"].get("cover"), "previewUrl": body["song"].get("preview"),
+                                   "trackTimeMillis": float(body["song"].get("fullS") or 0) * 1000,
+                                   "trackViewUrl": body["song"].get("appleUrl")})
+                if not song or not song["preview"].startswith("https://"):
+                    raise ValueError("这首歌的信息不全")
+                track = music_track(song, "me")
+            else:
+                track = track_by_id(str(body.get("track_id") or ""))
+                if not track:
+                    raise ValueError("找不到这首歌")
+            return enqueue([track], at, "me")
+
+        if action == "music_him":
+            # 他的一起听：看在放什么、搜歌、点歌（现在放 / 下一首 / 排队）、把歌卡发进聊天。
+            # 删歌、调顺序、换播放模式都是她的，这里没有。
+            op = str(body.get("action") or "")
+            snap = listen_snapshot()
+            if op == "now_playing":
+                track = snap.get("track")
+                if not track:
+                    return {"playing": False, "text": "队列是空的"}
+                ids = [t["id"] for t in snap["playlist"]]
+                i = ids.index(track["id"]) if track["id"] in ids else -1
+                return {"text": listen_context(conn) or f"现在停在《{track['title']}》，她没在放",
+                        "track": {k: track.get(k) for k in ("id", "title", "artist", "album", "by", "himNote", "source")},
+                        "playing": snap["playing"], "mode": snap.get("mode"), "queue_len": len(ids),
+                        "up_next": [{"title": t["title"], "artist": t["artist"], "by": t.get("by")} for t in snap["playlist"][i + 1:i + 6]]}
+            if op == "search":
+                found = music_search(str(body.get("query") or ""), 8)
+                return {"results": [{"song_id": f"apple:{s['appleId']}", "title": s["title"], "artist": s["artist"], "album": s["album"]}
+                                    for s in found],
+                        "how": "挑一首用 play_next / queue_add / play_now（song_id 填上面的，可以写一句 note 给她），或者 share 把歌卡发进聊天。"
+                               "搜到的是 30 秒试听；她上传过的整首歌在 inspect 的歌单里，song_id 填那首的 id 也行"}
+            if op in {"play_now", "play_next", "queue_add", "share"}:
+                song_id = str(body.get("song_id") or "").strip()
+                track = None
+                if song_id.startswith("apple:"):
+                    found = [s for s in music_search(str(body.get("query") or song_id[6:]), 25) if s["appleId"] == song_id[6:]]
+                    if not found:
+                        # 直接按编号查一次
+                        req = urllib.request.Request(f"https://itunes.apple.com/lookup?id={urllib.parse.quote(song_id[6:])}&country=CN",
+                                                     headers={"User-Agent": "Imprint/1.0"})
+                        with contextlib.suppress(urllib.error.URLError, OSError, ValueError):
+                            with urllib.request.urlopen(req, timeout=12) as resp:
+                                found = [s for s in map(apple_song, json.loads(resp.read().decode("utf-8")).get("results") or []) if s]
+                    if found:
+                        track = music_track(found[0], "him")
+                else:
+                    track = track_by_id(song_id)
+                if not track:
+                    raise ValueError("找不到这首歌；先 search 拿真的 song_id")
+                if op == "share":
+                    return {"card": song_card(track),
+                            "how": "把 card 这一行原样、单独一行放进你的回复里，她那边会显示成一张点一下就能放的歌卡；前后正常说话就行"}
+                at = {"play_now": "now", "play_next": "next", "queue_add": "end"}[op]
+                after = enqueue([track], at, "him", str(body.get("note") or "").strip())
+                done = {"now": "已经切过去在放了", "next": "排在她下一首", "end": "排到队列最后了"}[at]
+                return {"ok": True, "text": f"《{track['title']}》{done}", "queue_len": len(after["playlist"])}
+            raise ValueError("action 只能是 now_playing / search / play_now / play_next / queue_add / share")
+
+        if action == "listen_context":
+            return {"text": listen_context(conn)}
 
         if action == "inspect":
             current = conn.execute(
@@ -1874,8 +2080,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             if operation in {"next", "prev"}:
                 if not ids:
                     raise ValueError("歌单还是空的")
-                index = ids.index(requested_id) if requested_id in ids else 0
-                requested_id = ids[(index + (1 if operation == "next" else -1)) % len(ids)]
+                requested_id = step_track(ids, requested_id, operation, str(setting("listen_state").get("mode") or "order"))
                 position = 0.0
             else:
                 try:
@@ -1887,7 +2092,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             playing = operation == "play" if operation in {"play", "pause"} else bool(current.get("playing"))
             if operation == "pause":
                 playing = False
-            save_setting("listen_state", {"trackId": requested_id, "playing": playing,
+            save_setting("listen_state", {**setting("listen_state"), "trackId": requested_id, "playing": playing,
                                             "positionS": position, "updatedAt": iso_now()})
             return listen_snapshot()
 
@@ -2195,6 +2400,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         return {"available": True, "names": public_names(), "track": track,
                 "playing": bool(track and state.get("playing")), "positionS": position,
                 "synced": False, "playlist": playlist, "notes": track.get("notes", []) if track else [],
+                "mode": state.get("mode") or "order",
                 "updatedAt": state.get("updatedAt") or iso_now()}
 
     def activity_items() -> list[dict]:
@@ -2645,9 +2851,11 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         ids = [item["id"] for item in playlist]
         track_id = str(body.get("trackId") or (current.get("track") or {}).get("id") or "")
         action = str(body.get("action") or "")
+        mode = str(body.get("mode") or setting("listen_state").get("mode") or "order")
+        if mode not in {"order", "shuffle", "one"}:
+            raise HTTPException(400, "播放模式不对")
         if action in {"next", "prev"} and ids:
-            index = ids.index(track_id) if track_id in ids else 0
-            track_id = ids[(index + (1 if action == "next" else -1)) % len(ids)]
+            track_id = step_track(ids, track_id, action, mode)
             position = 0.0
         else:
             try:
@@ -2657,8 +2865,23 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         if track_id and track_id not in ids:
             raise HTTPException(404, "歌曲不在歌单里")
         state = {"trackId": track_id, "playing": bool(body.get("playing", current.get("playing", False))),
-                 "positionS": position, "updatedAt": iso_now()}
+                 "positionS": position, "updatedAt": iso_now(), "mode": mode}
         save_setting("listen_state", state)
+        return listen_public()
+
+    @router.get("/together/music/search")
+    async def music_search_route(q: str = ""):
+        try:
+            return {"items": await asyncio.to_thread(music_search, q, 30)}
+        except ValueError as exc:
+            raise HTTPException(502, str(exc))
+
+    @router.post("/together/music/queue")
+    async def music_queue_route(request: Request):
+        try:
+            imprint_action(data_path, "music_queue", await request.json())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         return listen_public()
 
     @router.get("/together/tracks")

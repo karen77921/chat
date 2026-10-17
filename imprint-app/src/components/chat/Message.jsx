@@ -2,7 +2,7 @@
  * 一条消息。只有文字类的句子用气泡；图片、表情、命令行、语音各有自己的样子。
  * 长按（电脑上右键）弹出菜单。
  */
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import Icon from '../../design/icons.jsx';
 import { Cyanotype } from '../../design/paper.jsx';
 import { Sticker } from './stickers.jsx';
@@ -10,6 +10,7 @@ import { fileSize } from '../../lib/chat.js';
 import { splitByQuery } from '../../lib/notes.js';
 import { stickerToken } from '../../lib/stickerUrls.js';
 import AuthImg from '../../design/AuthImg.jsx';
+import { useListen } from '../../lib/listen.jsx';
 
 function useLongPress(onLong) {
   const t = useRef(null);
@@ -51,6 +52,29 @@ function Marked({ text, q }) {
 /** 他偶尔会写 **加粗**：画成粗体，不把星号原样露出来 */
 function Text({ text, q }) {
   return <>{String(text || '').split(/\*\*([^*\n]+)\*\*/).map((t, i) => (i % 2 ? <b key={i}><Marked text={t} q={q} /></b> : <Marked key={i} text={t} q={q} />))}</>;
+}
+
+// 他发的歌卡：[歌：曲目id｜歌名｜歌手]，单独一行；点一下就在一起听里放
+const SONG = /\[歌：([^｜\]\n]+)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
+const songsIn = (text) => [...String(text || '').matchAll(SONG)].map((m) => ({ id: m[1].trim(), title: m[2].trim(), artist: m[3].trim() }));
+const withoutSongs = (text) => String(text || '').replace(SONG, '').replace(/\n{3,}/g, '\n\n').trim();
+
+function SongCard({ song }) {
+  const L = useListen();
+  const [state, setState] = useState('');
+  const playing = L?.state?.track?.id === song.id && L.state.playing;
+  const play = async (e) => {
+    e.stopPropagation();
+    if (playing) { location.hash = '#/together?tab=listen'; return; }
+    setState('…');
+    try { await L.queue({ track_id: song.id, at: 'now' }); setState(''); } catch (err) { setState(err?.message || '放不了'); }
+  };
+  return (
+    <button type="button" className="cm-song glass" onClick={play} aria-label={`放 ${song.title}`}>
+      <span className="cm-song-i"><Icon name={playing ? 'pause' : 'play'} size={18} stroke={2} /></span>
+      <span className="cm-song-t"><b>{song.title}</b><em>{state || `${song.artist} · ${playing ? '正在放，点开一起听' : '点一下放'}`}</em></span>
+    </button>
+  );
 }
 
 function bubbleParts(text) {
@@ -186,11 +210,16 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
           {parts.map((part, index) => (stickerToken(part) && !(index === 0 && m.quote) ? (
             <div key={index} className="cm-sticker"><Sticker sticker={{ id: stickerToken(part) }} size={88} /></div>
           ) : (
-            <div key={index} data-part={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
-              {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
-              <Text text={part} q={q} />
-              {index === parts.length - 1 && m.edited && <span className="cm-edited">（改过）</span>}
-            </div>
+            <Fragment key={index}>
+              {(withoutSongs(part) || (index === 0 && m.quote) || !songsIn(part).length) && (
+                <div data-part={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
+                  {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
+                  <Text text={withoutSongs(part)} q={q} />
+                  {index === parts.length - 1 && m.edited && <span className="cm-edited">（改过）</span>}
+                </div>
+              )}
+              {songsIn(part).map((song) => <SongCard key={song.id} song={song} />)}
+            </Fragment>
           )))}
         </div>
       );

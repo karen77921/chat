@@ -48,8 +48,8 @@ export default function MiniPlayer({ path, tabbar }) {
     return (
       <div className="mini-open glass m-settle" role="dialog" aria-label="一起听小播放器">
         <div className="mo-top">
-          <Vinyl size={60} spinning={s.playing} />
-          <div className="mo-t"><b className="serif">{s.track.title}</b><span>{s.track.artist} · {s.synced ? '同步中' : '只有你在听'}</span></div>
+          {s.track.cover ? <img className="tp-cover" src={s.track.cover} alt="" width={60} height={60} /> : <Vinyl size={60} spinning={s.playing} />}
+          <div className="mo-t"><b className="serif">{s.track.title}</b><span>{s.track.artist}{s.track.source === 'apple' ? ' · 试听' : ''}</span></div>
           <a href="#/together" className="mo-ic" aria-label="回到一起"><Icon name="expand" size={18} stroke={1.4} /></a>
           <button type="button" className="mo-ic" aria-label="关掉小窗" onClick={close}><Icon name="close" size={18} stroke={1.4} /></button>
         </div>
@@ -68,7 +68,7 @@ export default function MiniPlayer({ path, tabbar }) {
   return (
     <div className="mini glass" style={style} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} role="button" tabIndex={0}
       aria-label={`一起听：${s.track.title}，点一下展开`} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(true); }}>
-      <Vinyl size={40} spinning={s.playing} />
+      {s.track.cover ? <img className="tp-cover" src={s.track.cover} alt="" width={40} height={40} draggable={false} /> : <Vinyl size={40} spinning={s.playing} />}
       <span className="mini-t"><b className="serif">{s.track.title}</b><span>一起听 · {mmss(L.pos)}</span></span>
       <button type="button" className="mini-play" aria-label={s.playing ? '暂停' : '播放'} onPointerDown={(e) => e.stopPropagation()} onPointerUp={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); L.toggle(); }}>
         <Icon name={s.playing ? 'pause' : 'play'} size={14} stroke={2} />

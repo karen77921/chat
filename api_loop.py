@@ -676,6 +676,13 @@ def book_reading() -> bool:
     return False
 
 
+def music_listening() -> bool:
+    """她正在一起听：点歌的工具放在他手边。"""
+    with contextlib.suppress(Exception):
+        return bool(imprint_action(LOOP_CACHE_DIR / "imprint.db", "listen_context").get("text"))
+    return False
+
+
 def gifts_context_text() -> str:
     """券和礼物：没用掉的、最近两天用掉的，每一轮都让他知道（手里有什么、她手里有什么）。"""
     with contextlib.suppress(Exception):
@@ -2487,7 +2494,7 @@ async def build_messages(
     diary = recent_diary_text()
     if diary:
         volatile_parts.append(diary)
-    for action in ("her_status", "drawer_context"):
+    for action in ("her_status", "drawer_context", "listen_context"):
         with contextlib.suppress(Exception):
             line = imprint_action(LOOP_CACHE_DIR / "imprint.db", action)["text"]
             if line:
@@ -3581,6 +3588,26 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_music",
+        "description": "Together listening, your side. now_playing: what she is playing, how far in, what is up next. "
+                       "search: find songs by name / artist (each has a 30-second preview). play_now / play_next / queue_add: "
+                       "put a song into her queue (song_id from search, or a real track id from inspect), optionally with a short "
+                       "note she sees under the title. share: get a song card line to put alone in your reply. "
+                       "Removing songs, reordering and play modes are hers, not yours.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["now_playing", "search", "play_now", "play_next", "queue_add", "share"]},
+                "query": {"type": "string"},
+                "song_id": {"type": "string"},
+                "note": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_note_track",
         "description": "Leave your own timestamped note on a real track in Together listening. Inspect first to obtain a real track_id.",
         "parameters": {
@@ -3745,6 +3772,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         add_builtin("imprint_inspect_home", "imprint_add_spark_gift", "imprint_manage_space")
     if any(word in query for word in ("一起听", "歌单", "歌曲", "音乐", "播放", "暂停", "下一首", "上一首", "批注", "track")):
         add_builtin("imprint_inspect_home", "imprint_control_listen", "imprint_note_track", "imprint_manage_space")
+    if any(word in query for word in ("歌", "一起听", "音乐", "music", "🎵", "🎧")) or (not light and music_listening()):
+        add_builtin("imprint_music")
     if any(word in query for word in ("表情包", "贴纸", "照片", "收藏照片")):
         add_builtin("imprint_inspect_home", "imprint_comment_photo", "imprint_favorite_photo", "imprint_manage_space")
     if any(word in query for word in ("设置", "功能开关", "模型线路", "模型 api", "api key", "密钥", "用量", "日志", "缓存", "美化", "主题", "头像", "背景", "昵称")):
@@ -3857,7 +3886,7 @@ ENGAWA_WORDS = ("檐廊", "engawa", "古诗", "一首诗", "今天的画", "看�
                 "书架", "论文", "历史上的今天", "爱好角", "读读", "读一下这个网页", "rss")
 WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛病", "老是", "总是", "改掉", "习惯", "自由", "受限",
               "prompt", "my_walls")
-TOOLBOX_TOPICS = "檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
@@ -4124,6 +4153,7 @@ class Turn:
             "imprint_add_watch": "add_watch",
             "imprint_control_listen": "control_listen",
             "imprint_note_track": "note_track",
+            "imprint_music": "music_him",
             "imprint_add_spark_gift": "add_gift",
             "imprint_manage_space": "manage_space",
             "imprint_update_tide": "set_tide",
@@ -4142,9 +4172,13 @@ class Turn:
                 return "ERROR: 单词本你只能看、抽查记录和帮她录词；删改让她自己在页面上做"
             args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
         if public_name in imprint_actions:
-            if self.dry and public_name not in {"imprint_inspect_home"} and not (public_name == "imprint_book" and args.get("operation") == "shelf"):
+            if self.dry and public_name not in {"imprint_inspect_home"} and not (public_name == "imprint_book" and args.get("operation") == "shelf") \
+                    and not (public_name == "imprint_music" and args.get("action") in {"now_playing", "search", "share"}):
                 return "ERROR: Imprint writes are disabled for this dry/retry turn"
             try:
+                if public_name == "imprint_music":  # 搜歌要上网，别卡住别的请求
+                    result = await asyncio.to_thread(imprint_action, LOOP_CACHE_DIR / "imprint.db", "music_him", args, Path(RELAY_DB))
+                    return json.dumps(result, ensure_ascii=False)[:30_000]
                 result = imprint_action(LOOP_CACHE_DIR / "imprint.db", imprint_actions[public_name], args, Path(RELAY_DB))
                 return json.dumps(result, ensure_ascii=False)[:30_000]
             except (TypeError, ValueError, sqlite3.Error) as exc:

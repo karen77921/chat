@@ -38,7 +38,7 @@ const KIND = {
 const TREASURES = [
   ['一起', 'play', '#/together', '听歌 · 看片 · 读书'], ['留言板', 'feather', '#/notes', '写给彼此'], ['搜留言', 'search', '#/notes?search=1', '翻以前的'],
   ['续火花', 'flame', '#/spark', '礼物铺 · 券'], ['买买申请', 'gift', '#/approvals', '他来批'], ['存钱罐', 'heart', '#/piggy', '他只能看'],
-  ['单词本', 'pen', '#/words', '他会抽查'], ['抽屉', 'gift', '#/drawer', '封好的纸条'],
+  ['单词本', 'pen', '#/words', '他会抽查'], ['抽屉', 'gift', '#/drawer', '封好的纸条'], ['他的世界', 'sparkle', '#/world', '他看过的诗和画'],
 ];
 const ACT_SHOWN = 4;
 

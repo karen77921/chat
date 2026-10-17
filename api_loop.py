@@ -4311,6 +4311,16 @@ class Turn:
         out = "\n".join(t for t in texts if t).strip() or "(empty result)"
         if getattr(result, "isError", False):
             out = "ERROR: " + out
+        elif server_name.lower() == "engawa":
+            # 他的世界：檐廊上看过的东西收起来，按类放好给她看
+            with contextlib.suppress(Exception):
+                try:
+                    data = json.loads(out)
+                except ValueError:
+                    data = structured if isinstance(structured, dict) else {}
+                if isinstance(data, dict) and set(data) == {"result"} and isinstance(data["result"], dict):
+                    data = data["result"]
+                imprint_action(LOOP_CACHE_DIR / "imprint.db", "world_record", {"tool": tool, "args": args, "data": data})
         return out[:20000]
 
 

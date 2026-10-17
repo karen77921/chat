@@ -501,6 +501,7 @@ async function compat(path, opts) {
   if (method === 'POST' && p === '/api/spark/shop') return loop('imprint/spark/shop', opts);
   if (method === 'POST' && p === '/api/spark/redeem') return loop('imprint/spark/redeem', opts);
   if (method === 'POST' && (m = /^\/api\/spark\/kept\/([^/]+)\/active$/.exec(p))) return loop(`imprint/spark/kept/${m[1]}/active`, opts);
+  if (method === 'GET' && p === '/api/world') return loop(`imprint/world${query}`);
   if (method === 'GET' && p === '/api/together/watch') return loop('imprint/together/watch');
   if (method === 'POST' && p === '/api/together/watch/list') return loop('imprint/together/watch/list', opts);
   if (method === 'GET' && p === '/api/music/search') return loop(`imprint/together/tracks${query}`).then((data) => ({ ...data, items: (data.items || []).map((item) => ({ ...item, url: attachmentUrl(item) })) }));

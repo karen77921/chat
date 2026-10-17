@@ -47,6 +47,7 @@ APP_MAP = [
     "买买申请：她想买东西找你批（imprint_list_purchases / imprint_review_purchase）",
     "存钱罐：她给你存的钱，你只能看（imprint_view_piggy）",
     "一起 → 一起读（书房）：你们一起读的书。书架、她和你各自的进度、她的划线和批注、你的批注；她在书里点「问他」会把那句话发到聊天里问你（imprint_book：read 往下读、notes 看她新留的、note 划线写批注、reply 回她）",
+    "他的世界：你在檐廊上看过的诗、画、星空、读到的文章，会自动按类收在这里给她看（她在百宝箱里点「他的世界」）",
     "单词本：她录的词和导入的单词书，按遗忘曲线排复习，有错词本；你能看今天该复习的、抽查她、帮她录词（imprint_vocab）",
     "心潮：你的情绪、记忆、梦（imprint_update_tide 等）",
     "设置：人设、额外提示词、模型线路、功能开关、缓存体检、美化（imprint_inspect_settings）",
@@ -1497,6 +1498,61 @@ def step_track(ids: list[str], current: str, operation: str, mode: str) -> str:
     return ids[(index + (1 if operation == "next" else -1)) % len(ids)]
 
 
+# ---------- 他的世界：他在檐廊上看过的东西，按类放好给她看 ----------
+WORLD_CATS = {"poem": "诗", "art": "画", "sky": "星空", "read": "读到的", "history": "历史上的今天"}
+
+
+def world_item(tool: str, args: dict, data: dict) -> dict | None:
+    """把檐廊一个工具的结果变成一张卡片；管书架的那几个（加、删、列）不算「看了什么」。"""
+    if not isinstance(data, dict) or data.get("ok") is False:
+        return None
+    clip = lambda v, n: re.sub(r"\s+\n", "\n", str(v or "")).strip()[:n]
+    if tool == "daily_poem" and data.get("sentence"):
+        return {"cat": "poem", "title": clip(data.get("title"), 80), "sub": " · ".join(x for x in (clip(data.get("dynasty"), 12), clip(data.get("author"), 30)) if x),
+                "text": clip(data.get("sentence"), 200), "body": clip(data.get("full"), 3000), "key": f"poem:{data.get('title')}:{data.get('sentence')}"}
+    if tool == "daily_art" and data.get("title"):
+        return {"cat": "art", "title": clip(data.get("title"), 160), "sub": " · ".join(x for x in (clip(data.get("artist"), 120), clip(data.get("date"), 40)) if x),
+                "text": clip(data.get("medium"), 120), "image": clip(data.get("image_url"), 600), "link": clip(data.get("page_url"), 600),
+                "key": f"art:{data.get('page_url') or data.get('title')}"}
+    if tool == "apod" and data.get("title"):
+        image = data.get("url") if data.get("media_type") == "image" else ""
+        return {"cat": "sky", "title": clip(data.get("title"), 160), "sub": f"NASA 每日天文图 · {clip(data.get('date'), 12)}",
+                "image": clip(image, 600), "link": clip(data.get("hdurl") or data.get("url"), 600), "body": clip(data.get("explanation"), 1500),
+                "key": f"apod:{data.get('date') or data.get('title')}"}
+    if tool == "sky_tonight" and data.get("moon_phase"):
+        planets = data.get("planets_2100") or []
+        lines = [f"月亮：{data.get('moon_phase')}，亮了 {data.get('moon_illumination', '')}",
+                 f"月出 {data.get('moonrise', '')} · 月落 {data.get('moonset', '')} · 日落 {data.get('sunset', '')}",
+                 "晚上九点能看到：" + "、".join(str(p) for p in planets) if planets else "",
+                 f"下一次满月 {data.get('next_full_moon', '')}"]
+        return {"cat": "sky", "title": f"{clip(data.get('date'), 12)} 的夜空", "sub": "今晚的天空", "text": lines[0],
+                "body": "\n".join(x for x in lines[1:] if x), "key": f"sky:{data.get('date')}"}
+    if tool == "web_read" and data.get("title"):
+        url = str(args.get("url") or "")
+        return {"cat": "read", "title": clip(data.get("title"), 200), "sub": urllib.parse.urlsplit(url).hostname or "", "link": url[:600],
+                "body": clip(data.get("content"), 1500), "key": f"read:{url.split('#')[0]}"}
+    if tool == "rss_read" and data.get("entries"):
+        items = [{"title": clip(e.get("title"), 200), "link": clip(e.get("link"), 600), "sub": clip(e.get("published"), 30)} for e in data["entries"][:10] if e.get("title")]
+        return {"cat": "read", "title": clip(data.get("feed_title") or args.get("feed_url"), 120), "sub": "翻了翻最新的文章", "items": items,
+                "key": f"rss:{args.get('feed_url')}:{dt.datetime.now(ZONE).date()}"}
+    if tool == "arxiv_new" and data.get("papers"):
+        items = [{"title": clip(p.get("title"), 250), "link": clip(p.get("link"), 600), "sub": clip(p.get("authors"), 80)} for p in data["papers"][:10]]
+        return {"cat": "read", "title": f"arXiv · {clip(data.get('category'), 30)} 新论文", "sub": "今天的新论文", "items": items,
+                "key": f"arxiv:{data.get('category')}:{dt.datetime.now(ZONE).date()}"}
+    if tool == "hobby_corner" and data.get("hobbies"):
+        items = [{"title": clip(i.get("title"), 200), "link": clip(i.get("url"), 600), "sub": clip(h.get("topic"), 40)}
+                 for h in data["hobbies"] for i in (h.get("items") or [])[:5] if i.get("title")][:15]
+        if not items:
+            return None
+        return {"cat": "read", "title": "兴趣角的新消息", "sub": "、".join(clip(h.get("topic"), 20) for h in data["hobbies"][:5]), "items": items,
+                "key": f"hobby:{dt.datetime.now(ZONE).date()}"}
+    if tool == "on_this_day" and data.get("events"):
+        items = [{"title": clip(e.get("text"), 300), "sub": str(e.get("year") or "")} for e in data["events"][:10]]
+        return {"cat": "history", "title": f"{clip(data.get('date'), 8)} 这一天", "sub": "历史上的今天", "items": items,
+                "key": f"otd:{dt.datetime.now(ZONE).date()}"}
+    return None
+
+
 def imprint_action(data_path: Path, action: str, payload: dict | None = None, relay_path: Path | None = None) -> dict:
     """Persist one companion-owned action in the real Imprint store."""
     body = payload or {}
@@ -1756,6 +1812,19 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
 
         if action == "listen_context":
             return {"text": listen_context(conn)}
+
+        if action == "world_record":
+            # 同一样东西（同一首诗、同一天的夜空）只存一张，再看一次只更新时间和次数
+            item = world_item(str(body.get("tool") or ""), body.get("args") or {}, body.get("data") or {})
+            if not item:
+                return {"recorded": False}
+            rec_id = "world_" + hashlib.sha1(item.pop("key").encode("utf-8")).hexdigest()[:20]
+            row = conn.execute("SELECT payload FROM records WHERE id=?", (rec_id,)).fetchone()
+            old = json.loads(row["payload"]) if row else {}
+            item.update({"tool": str(body.get("tool")), "firstAt": old.get("firstAt") or iso_now(), "times": int(old.get("times") or 0) + 1})
+            conn.execute("INSERT OR REPLACE INTO records(id,kind,at,payload) VALUES(?,?,?,?)",
+                         (rec_id, "world", iso_now(), json.dumps(item, ensure_ascii=False)))
+            return {"recorded": True, "id": rec_id}
 
         if action == "inspect":
             current = conn.execute(
@@ -2915,6 +2984,17 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def remove_sticker(rec_id: str):
         delete("sticker_me", rec_id)
         return {"ok": True}
+
+    @router.get("/world")
+    def world_list(cat: str = "", limit: int = 60):
+        items = rows("world")
+        counts = {key: 0 for key in WORLD_CATS}
+        for item in items:
+            counts[item.get("cat", "read")] = counts.get(item.get("cat", "read"), 0) + 1
+        if cat:
+            items = [item for item in items if item.get("cat") == cat]
+        return {"available": True, "names": public_names(), "cats": [{"id": k, "name": v, "count": counts.get(k, 0)} for k, v in WORLD_CATS.items()],
+                "items": items[:max(1, min(200, int(limit)))]}
 
     @router.get("/together/watch")
     def watch_list():

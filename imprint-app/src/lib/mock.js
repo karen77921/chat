@@ -667,6 +667,13 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/together/listen': return listenState();
     case 'POST /api/together/listen': return listenControl(body);
     case 'GET /api/together/lyrics/' + (p.split('/')[4] || ''): return { lrc: Array.from({ length: 40 }, (_, i) => `[00:${String(i * 4 % 60).padStart(2, '0')}.00]第 ${i + 1} 句歌词在这里`).slice(0, 15).join('\n'), plain: '', preview: tracks[p.split('/')[4]]?.source === 'apple' };
+    case 'GET /api/world': { const all = [
+      { id: 'w1', cat: 'poem', title: '春晓', sub: '唐 · 孟浩然', text: '春眠不觉晓，处处闻啼鸟。', body: '春眠不觉晓，处处闻啼鸟。\n夜来风雨声，花落知多少。', at: NOW, times: 1 },
+      { id: 'w2', cat: 'art', title: 'Water Lilies', sub: 'Claude Monet · 1915', text: 'oil on canvas', image: '', link: 'https://www.clevelandart.org/', at: NOW, times: 2 },
+      { id: 'w3', cat: 'sky', title: '10-17 的夜空', sub: '今晚的天空', text: '月亮：峨眉月，亮了 12%', body: '月出 07:10 · 月落 18:40 · 日落 17:28\n晚上九点能看到：木星、土星', at: NOW, times: 1 },
+      { id: 'w4', cat: 'read', title: 'Why the sea is salty', sub: 'aeon.co', body: '一段他读到的文字……', link: 'https://aeon.co', at: NOW, times: 1 },
+      { id: 'w5', cat: 'history', title: '10-17 这一天', sub: '历史上的今天', items: [{ title: 'Something happened', sub: '1979' }], at: NOW, times: 1 },
+    ]; const c = qs.get('cat'); return { available: true, names: { me: 'Lumi', him: 'Ash' }, cats: [['poem', '诗'], ['art', '画'], ['sky', '星空'], ['read', '读到的'], ['history', '历史上的今天']].map(([id, name]) => ({ id, name, count: all.filter((x) => x.cat === id).length })), items: c ? all.filter((x) => x.cat === c) : all }; }
     case 'GET /api/music/find': { const q = (qs.get('q') || '').trim(); return { items: [1, 2, 3, 4].map((n) => ({ appleId: `a${n}`, title: `${q} ${n}`, artist: '示例歌手', album: '示例专辑', cover: '', preview: '', fullS: 240 })) }; }
     case 'POST /api/music/queue': { const t = body.song ? { id: body.song.appleId, title: body.song.title, artist: body.song.artist, durationS: 30, url: '', source: 'apple' } : tracks[body.track_id]; tracks[t.id] = t; listen.playlist = listen.playlist.filter((x) => x.trackId !== t.id); const i = listen.playlist.findIndex((x) => x.trackId === listen.trackId); listen.playlist.splice(body.at === 'end' ? listen.playlist.length : i + 1, 0, { trackId: t.id, by: 'me' }); if (body.at === 'now') { listen.trackId = t.id; listen.positionS = 0; listen.playing = true; } return listenState(); }
     case 'GET /api/music/search': { const q = (qs.get('q') || '').trim(); return { available: true, items: q ? Object.values(tracks).filter((t) => t.title.includes(q) || t.artist.includes(q)) : [] }; }

@@ -181,6 +181,22 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertIn("正唱到：「第一句」", imprint_action(self.store, "listen_context")["text"])
         self.assertIn("第二句", imprint_action(self.store, "music_him", {"action": "lyrics"})["lyrics"])
 
+    def test_his_world_keeps_what_he_saw_by_kind(self):
+        poem = {"ok": True, "sentence": "春眠不觉晓", "title": "春晓", "dynasty": "唐", "author": "孟浩然", "full": "春眠不觉晓\n处处闻啼鸟"}
+        self.assertTrue(imprint_action(self.store, "world_record", {"tool": "daily_poem", "data": poem})["recorded"])
+        imprint_action(self.store, "world_record", {"tool": "daily_poem", "data": poem})  # 同一首再看一次：不重复
+        imprint_action(self.store, "world_record", {"tool": "daily_art", "data": {"ok": True, "title": "Water Lilies", "artist": "Monet",
+                                                                               "image_url": "https://img/x.jpg", "page_url": "https://cma/1"}})
+        imprint_action(self.store, "world_record", {"tool": "web_read", "args": {"url": "https://aeon.co/a"}, "data": {"ok": True, "title": "On wind", "content": "text"}})
+        self.assertFalse(imprint_action(self.store, "world_record", {"tool": "shelf_add", "data": {"ok": True}})["recorded"])
+        self.assertFalse(imprint_action(self.store, "world_record", {"tool": "apod", "data": {"ok": False, "title": "x"}})["recorded"])
+        world = self.call("GET", "/world")
+        counts = {c["id"]: c["count"] for c in world["cats"]}
+        self.assertEqual((counts["poem"], counts["art"], counts["read"], counts["sky"]), (1, 1, 1, 0))
+        poems = self.call("GET", "/world", cat="poem")["items"]
+        self.assertEqual((poems[0]["title"], poems[0]["times"], poems[0]["sub"]), ("春晓", 2, "唐 · 孟浩然"))
+        self.assertEqual(self.call("GET", "/world", cat="read")["items"][0]["sub"], "aeon.co")
+
     def test_coupons_know_who_holds_them_and_get_used_once(self):
         gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))
         self.assertEqual(gift["art"], "coupon")

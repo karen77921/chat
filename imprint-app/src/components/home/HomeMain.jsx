@@ -1,9 +1,10 @@
 /**
- * 首页（按她画的草图）：
- *   日期 · 花体标题 · 名字 / 在一起 N 天的邮票
- *   他此刻想说的话（明信片，可以换一句）
- *   往下全是纸做的小东西：留言板是信笺，他的心情 + 待办是节目单，我此刻是缎带，
- *   一起听 / 一起看是票根，他的动态是日记，百宝箱是摊开的首饰盒
+ * 首页（雾粉芭蕾）：
+ *   头图：浅灰白的窗纱背景，标题 Imprint 是哑光浅银的花体字，两条很淡的白纱带绕着；下面两个人的名字（中间一条心跳线，点一下改昵称）、在一起的天数
+ *   他想对你说：一张雾面玻璃卡
+ *   往下不排格子：留言板（斜放的信纸）叠着他的心情（拱门窗），答应你的事（不装盒子），我此刻，
+ *   一起听（圆唱片）｜ 一起看（拱门票），他的动态（细时间线），百宝箱（小画直接摆出来，三列错开）
+ *   芭蕾小画是她给的素材抠出来的（design/ballet/stickers）
  */
 import { useEffect, useState } from 'react';
 import Icon from '../../design/icons.jsx';
@@ -11,9 +12,8 @@ import Sheet from '../../design/Sheet.jsx';
 import { api } from '../../lib/api.js';
 import { useLoad } from '../../lib/useLoad.js';
 import { useListen } from '../../lib/listen.jsx';
-import { daysTogether, ago, clock } from '../../lib/home.js';
+import { daysTogether, ago } from '../../lib/home.js';
 import laceBow from '../../design/ballet/lace-bow.png';
-import laceBowPink from '../../design/ballet/lace-bow-pink.png';
 import './home-main.css';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -35,11 +35,35 @@ const KIND = {
 };
 /** 百宝箱：底栏已经有的（首页 / 小屋 / 聊天 / 心潮 / 设置）不再重复，其余的小功能都收在这里，以后加新的也往这里放 */
 const TREASURES = [
-  ['一起', 'play', '#/together', '听歌 · 看片 · 读书'], ['留言板', 'feather', '#/notes', '写给彼此'], ['搜留言', 'search', '#/notes?search=1', '翻以前的'],
-  ['续火花', 'flame', '#/spark', '礼物铺 · 券'], ['买买申请', 'gift', '#/approvals', '他来批'], ['存钱罐', 'heart', '#/piggy', '他只能看'],
-  ['单词本', 'pen', '#/words', '他会抽查'], ['抽屉', 'archive', '#/drawer', '封好的纸条'], ['他的世界', 'sparkle', '#/world', '他看过的诗和画'],
+  ['一起', 'musicbox', '#/together'], ['留言板', 'feather', '#/notes'], ['搜留言', 'mirror', '#/notes?search=1'], ['续火花', 'perfume', '#/spark'],
+  ['买买申请', 'tiara', '#/approvals'], ['存钱罐', 'pearls', '#/piggy'], ['单词本', 'menuet', '#/words'], ['抽屉', 'jewelbox', '#/drawer'],
+  ['他的世界', 'swan', '#/world'],
 ];
+/** 芭蕾小画贴纸（她给的素材抠出来的） */
+const STK = Object.fromEntries(Object.entries(import.meta.glob('../../design/ballet/stickers/*.webp', { eager: true, import: 'default' }))
+  .map(([k, v]) => [k.split('/').pop().replace('.webp', ''), v]));
 const ACT_SHOWN = 4;
+/** 标题 Imprint：哑光浅银的花体字，不要珠光、不要粉；外面只绕两条很淡的白纱带和两颗小星 */
+function GlowTitle({ text }) {
+  const star = (x, y, r) => <path key={`${x}-${y}`} d={`M${x} ${y - r}C${x + r * 0.15} ${y - r * 0.15} ${x + r * 0.15} ${y - r * 0.15} ${x + r} ${y}C${x + r * 0.15} ${y + r * 0.15} ${x + r * 0.15} ${y + r * 0.15} ${x} ${y + r}C${x - r * 0.15} ${y + r * 0.15} ${x - r * 0.15} ${y + r * 0.15} ${x - r} ${y}C${x - r * 0.15} ${y - r * 0.15} ${x - r * 0.15} ${y - r * 0.15} ${x} ${y - r}z`} fill="#fff" />;
+  return (
+    <h1 className="gl-title" aria-label={text}>
+      <svg viewBox="0 0 360 180" aria-hidden="true">
+        <defs>
+          <linearGradient id="gl-veil" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#fff" stopOpacity="0" /><stop offset=".5" stopColor="#fff" stopOpacity=".5" /><stop offset="1" stopColor="#fff" stopOpacity="0" /></linearGradient>
+          <filter id="gl-ink-sh" x="-10%" y="-20%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation=".8" floodColor="#7A6A70" floodOpacity=".5" /></filter>
+        </defs>
+        <g fill="none" strokeLinecap="round">
+          <path d="M6 140C40 60 120 30 172 62S262 160 332 100 344 22 300 34" stroke="url(#gl-veil)" strokeWidth="14" />
+          <path d="M6 140C40 60 120 30 172 62S262 160 332 100 344 22 300 34" stroke="#fff" strokeOpacity=".75" strokeWidth=".7" transform="translate(0 -7)" />
+          <path d="M352 156C300 176 220 140 160 150S60 182 18 164" stroke="url(#gl-veil)" strokeWidth="9" />
+        </g>
+        <text x="180" y="116" textAnchor="middle" className="gl-title-t" fill="#FBFBFC" stroke="#B9B6BC" strokeWidth=".6" filter="url(#gl-ink-sh)">{text}</text>
+        {star(304, 118, 7)}{star(58, 70, 4.5)}
+      </svg>
+    </h1>
+  );
+}
 
 /** 连着好几条「他回复了你」（同一个窗口、同一类）合成一条，动态就不会一长串 */
 function groupActivity(list) {
@@ -60,7 +84,6 @@ function groupActivity(list) {
 export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, onNamesSaved }) {
   const names = d?.names || { me: '', him: '' };
   const days = daysTogether(d?.together, now);
-  const since = d?.together?.since ? d.together.since.slice(5).replace('-', '.') : '';
   const whisper = useLoad('/api/home/whisper');
   const plans = useLoad('/api/home/plans');
   const [asking, setAsking] = useState(false);
@@ -81,161 +104,118 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
   };
 
   return (
-    <main className="home hm ballet">
-      {/* 芭蕾 · 缎面 · 蕾丝：明信片版 */}
-      <div className="bl-lace top" aria-hidden="true" />
-      <button type="button" className="bl-bell" aria-label={unread ? `他的动态，${unread} 条没看` : '他的动态'}
-        onClick={() => latelyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
-        <Icon name="bell" size={17} stroke={1.3} />{unread > 0 && <i className="dot" />}
-      </button>
-      <header className="bl-head">
-        <p className="bl-date">{now.getMonth() + 1}月{now.getDate()}日 周{'日一二三四五六'[now.getDay()]}{days != null ? ` · 在一起第 ${days} 天` : ''}</p>
-        <h1 className="bl-title">Ballet in silk and satin</h1>
-        <button type="button" className="bl-names" onClick={() => setNaming(true)} aria-label="改昵称">
-          <span>{names.him || '他'}</span><i /><span>{names.me || '我'}</span>
+    <main className="home hm ballet gl">
+      {/* 头图：雾粉的窗纱背景，标题是发光的粉色花体字，珍珠串和半透明的纱带绕着它 */}
+      <section className="gl-hero" aria-label={days != null ? `在一起第 ${days} 天` : '在一起的天数'}>
+        <div className="gl-meta"><span>BALLET MEMOIR</span><span>{now.getMonth() + 1}.{pad(now.getDate())} · 周{'日一二三四五六'[now.getDay()]}</span></div>
+        <button type="button" className="bl-bell" aria-label={unread ? `他的动态，${unread} 条没看` : '他的动态'}
+          onClick={() => latelyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+          <Icon name="bell" size={17} stroke={1.3} />{unread > 0 && <i className="dot" />}
         </button>
-      </header>
+        <GlowTitle text="Imprint" />
+        <button type="button" className="gl-names" onClick={() => setNaming(true)} aria-label="改昵称">
+          <span>{names.him || '他'}</span>
+          <svg viewBox="0 0 96 20" aria-hidden="true"><path d="M0 10h30l4-7 5 14 5-12 3 5h10" fill="none" stroke="#fff" strokeWidth="1.2" strokeLinejoin="round" /><path d="M66 15.5s-6-3.7-6-7.7a3 3 0 0 1 6-1 3 3 0 0 1 6 1c0 4-6 7.7-6 7.7z" fill="#F7C9D5" stroke="#fff" strokeWidth=".8" /><path d="M76 10h20" stroke="#fff" strokeWidth="1.2" /></svg>
+          <span>{names.me || '我'}</span>
+        </button>
+        <div className="gl-day"><b>{days ?? '—'}</b><span>DAYS TOGETHER</span></div>
+        <div className="gl-rule" aria-hidden="true"><i />✿ ✿ ✿<i /></div>
+        <p className="gl-para">Every ordinary day with you is a quiet pas de deux — two hearts, one music, since {d?.together?.since ? d.together.since.slice(0, 10).replaceAll('-', '.') : '—'}.</p>
+      </section>
 
       {data?.available === false && <div className="card hm-pad muted">暂时连不上他那边，过一会儿再来看看。</div>}
       {!data && <div className="card hm-skeleton" aria-label="加载中" />}
 
-      <section className="bl-stamp-wrap" aria-label={days != null ? `在一起第 ${days} 天` : '在一起的天数'}>
-        <div className="bl-stamp">
-          <div className="bl-stamp-in">
-            <span className="bl-stamp-k">BALLET MEMOIR</span>
-            <img src={laceBow} alt="" className="bl-stamp-bow" />
-            <b className="bl-stamp-n">{days ?? '—'}</b>
-            <em className="bl-stamp-d">days together</em>
-            <span className="bl-stamp-no">N° {days ?? '—'}</span>
-          </div>
-        </div>
-      </section>
-
-      <p className="bl-poem">Ballet is the poetry of movement<br />and the music of the soul.</p>
-
-      <section className="bl-card" aria-label="他想对你说">
-        <img src={laceBowPink} alt="" className="bl-card-bow" />
-        <div className="bl-card-h">
-          <div><div className="bl-card-t">Post Card</div><div className="bl-card-k">他想对你说</div></div>
-          <div className="bl-mark" aria-hidden="true">
-            <svg width="46" height="22" viewBox="0 0 46 22" fill="none" stroke="#D4A9B1" strokeWidth="1"><path d="M0 4c4-3 7-3 11 0s7 3 11 0 7-3 11 0 7 3 13 0M0 11c4-3 7-3 11 0s7 3 11 0 7-3 11 0 7 3 13 0M0 18c4-3 7-3 11 0s7 3 11 0 7-3 11 0 7 3 13 0" /></svg>
-            <span className="bl-mark-c"><small>SINCE</small>{since}</span>
-          </div>
-        </div>
-        <div className={`bl-card-body ${asking ? 'fading' : ''}`}>
-          <span className="bl-to">To {names.me || '你'}：</span>{whisper.data?.text || (whisper.data ? '他还在想…' : '…')}
-        </div>
-        <div className="bl-card-f">
-          <em>— from {names.him || '他'}{whisper.data?.at ? ` · ${ago(whisper.data.at, now)}` : ''}</em>
+      {/* 他想对你说：一张雾面玻璃卡，角上一根白羽毛 */}
+      <section className="gl-note" aria-label="他想对你说">
+        <img src={laceBow} alt="" className="gl-note-bow" />
+        <img src={STK.feather} alt="" className="gl-note-stk" />
+        <div className="gl-note-h"><b>他想对你说</b><span>a note from {names.him || '他'}</span></div>
+        <p className={`gl-note-body ${asking ? 'fading' : ''}`}>{whisper.data?.text || (whisper.data ? '他还在想…' : '…')}</p>
+        <div className="gl-note-f">
+          <em>{whisper.data?.at ? ago(whisper.data.at, now) : ''}</em>
           <button type="button" onClick={another} disabled={asking}>{asking ? '他在想…' : '换一句'}</button>
         </div>
       </section>
 
-      {/* 信笺：留言板 */}
-      <Sec en="Letters" zh="留言板" href="#/notes" more={d?.note ? `共 ${d.note.total} 封` : ''} />
-      <section className="bl-letter">
-        <i className="bl-tape" aria-hidden="true" />
-        {d?.note ? (
-          <a href="#/notes" className="bl-letter-a">
-            <p>{d.note.text}</p>
-            <small>— {d.note.from === 'him' ? names.him : names.me}</small>
-          </a>
-        ) : <p className="bl-empty">信纸还空着，先给{names.him || '他'}写一封吧。</p>}
-        <a href="#/notes?new=1" className="bl-pen"><Icon name="feather" size={14} stroke={1.3} />写一封</a>
+      {/* 往下不排格子：大小不一、错开叠着，芭蕾小画从边上探出来 */}
+      <section className="gx-pair">
+        <a href="#/notes" className="gx-card gx-letter">
+          <img src={STK.menuet} alt="" className="gx-stk menuet" />
+          <span className="gx-k"><em>Letters</em>留言板{d?.note ? ` · ${d.note.total}` : ''}</span>
+          {d?.note ? <><p className="gx-p clamp4">{d.note.text}</p><small className="gx-s">— {d.note.from === 'him' ? names.him : names.me}</small></>
+            : <p className="gx-p muted">信纸还空着，先给{names.him || '他'}写一封吧。</p>}
+        </a>
+        <a href="#/tide" className="gx-card gx-mood">
+          <img src={STK.musicbox} alt="" className="gx-stk musicbox" />
+          <span className="gx-k"><em>Mood</em>{names.him || '他'}的心情</span>
+          {s ? <><p className="gx-p clamp3">{s.mood}</p>{top3.length > 0 && <div className="gx-tags">{top3.map((n) => <span key={n}>{n}</span>)}</div>}</>
+            : <p className="gx-p muted">他今天还没写心潮。</p>}
+        </a>
       </section>
 
-      {/* 节目单：他的心情 + 待办 */}
-      <Sec en="Programme" zh="今日节目单" href="#/tide" />
-      <section className="bl-prog">
-        <div className="bl-prog-h"><span>ACT I</span><b>{names.him || '他'}的心情</b></div>
-        {s ? (
-          <a href="#/tide" className="bl-mood">
-            <p>{s.mood}</p>
-            {top3.length > 0 && <div className="bl-ribbons">{top3.map((n) => <span key={n}>{n}</span>)}</div>}
-          </a>
-        ) : <p className="bl-empty">他今天还没写心潮。</p>}
-        <div className="bl-prog-h"><span>ACT II</span><b>答应你的事</b></div>
+      <section className="gx-promise">
+        <img src={STK.bow} alt="" className="gx-stk bow" />
+        <h2 className="gx-h"><em>Promises</em><span>答应你的事</span></h2>
         {upcoming.length ? (
-          <ul className="bl-todo">
-            {upcoming.map((p) => <li key={p.id}><span>{p.text}</span><i aria-hidden="true" /><time>{when(p.at, now)}</time></li>)}
+          <ul className="gx-todo">
+            {upcoming.map((p) => <li key={p.id}><span>{p.text}</span><time>{when(p.at, now)}</time></li>)}
           </ul>
-        ) : <p className="bl-empty">他现在没有答应你、还没做的事。</p>}
-        <span className="bl-prog-fin" aria-hidden="true">fin.</span>
+        ) : <p className="gx-p muted">他现在没有答应你、还没做的事。</p>}
       </section>
 
       <HerStatus names={names} now={now} />
 
-      {/* 票根：一起听 / 一起看 */}
-      {(listen || d?.watch) && <Sec en="Together" zh="一起" href="#/together" />}
-      {listen && (
-        <div className="bl-ticket listen">
-          <a href="#/together" className="bl-ticket-a" aria-label={`一起听：${listen.title}`}>
-            <span className={`bl-disc ${playing ? 'spin' : ''}`} aria-hidden="true"><i /></span>
-            <span className="bl-ticket-t"><em>NOW PLAYING · 一起听</em><b>{listen.title}</b><small>{listen.artist}{listen.durationS ? ` · ${clock(listen.positionS)} / ${clock(listen.durationS)}` : ''}</small></span>
-          </a>
-          <span className="bl-stub">
-            <button type="button" onClick={() => L?.toggle()} aria-label={playing ? '暂停' : '播放'}><Icon name={playing ? 'pause' : 'play'} size={15} stroke={1.5} /></button>
-          </span>
-        </div>
-      )}
-      {d?.watch && (
-        <a href="#/together?tab=watch" className="bl-ticket watch" aria-label={`一起看：${d.watch.title}`}>
-          <span className="bl-ticket-a">
-            <span className="bl-ticket-t"><em>ADMIT TWO · 一起看</em><b>《{d.watch.title}》</b><small>{weekday(d.watch.at)} {hm(d.watch.at)} 见</small></span>
-          </span>
-          <span className="bl-stub"><b>{new Date(d.watch.at).getDate()}</b><small>{new Date(d.watch.at).getMonth() + 1}月</small></span>
-        </a>
+      {(listen || d?.watch) && (
+        <section className={`gx-together ${listen && d?.watch ? 'two' : ''}`}>
+          {listen && (
+            <div className="gx-disc">
+              <img src={STK.pointe} alt="" className="gx-stk pointe" />
+              <a href="#/together" className="gx-disc-a" aria-label={`一起听：${listen.title}`}>
+                <em>Now playing</em><b>{listen.title}</b><small>{listen.artist}</small>
+              </a>
+              <button type="button" className="gx-play" onClick={() => L?.toggle()} aria-label={playing ? '暂停' : '播放'}><Icon name={playing ? 'pause' : 'play'} size={14} stroke={1.5} /></button>
+            </div>
+          )}
+          {d?.watch && (
+            <a href="#/together?tab=watch" className="gx-arch" aria-label={`一起看：${d.watch.title}`}>
+              <img src={STK.curtain} alt="" className="gx-stk curtain" />
+              <em>Admit two</em><b>《{d.watch.title}》</b><small>{weekday(d.watch.at)} {hm(d.watch.at)} 见</small>
+            </a>
+          )}
+        </section>
       )}
 
-      {/* 日记：他的动态 */}
+      {/* 他的动态：不装盒子，一条细细的时间线 */}
       <div ref={latelyRef} className="anchor" />
-      <div className="bl-sec">
-        <span><em>Lately</em><b>他的动态</b></span>
+      <div className="gx-sec">
+        <h2 className="gx-h"><em>Lately</em><span>他的动态</span></h2>
         {unread ? <button type="button" onClick={onReadAll}>全部已读</button> : <a href="#/room">去小屋</a>}
       </div>
       {acts.length ? (
-        <section className="bl-diary">
+        <section className="gx-line">
           {acts.slice(0, actOpen ? acts.length : ACT_SHOWN).map((a) => (
-            <a key={a.id} href={a.kind === 'reply' && a.sessionId ? `#/chat/t?id=${encodeURIComponent(a.sessionId)}` : KIND[a.kind]?.href || '#/room'} className="bl-entry">
+            <a key={a.id} href={a.kind === 'reply' && a.sessionId ? `#/chat/t?id=${encodeURIComponent(a.sessionId)}` : KIND[a.kind]?.href || '#/room'} className="gx-act">
               <time>{ago(a.at, now)}</time>
-              <span className="bl-entry-t">
-                <b>{a.title}{a.count > 1 ? <small> · {a.count} 条</small> : null}{a.unread > 0 && <i className="bl-new">{a.unread}</i>}</b>
-                <em>{a.kind === 'tool' && a.count > 1 ? a.tools.join('、') : a.text}</em>
-              </span>
+              <span><b>{a.title}{a.count > 1 ? <small> · {a.count} 条</small> : null}{a.unread > 0 && <i className="gl-new">{a.unread}</i>}</b><em>{a.kind === 'tool' && a.count > 1 ? a.tools.join('、') : a.text}</em></span>
             </a>
           ))}
           {acts.length > ACT_SHOWN && (
-            <button type="button" className="bl-entry-more" onClick={() => setActOpen((v) => !v)}>
-              {actOpen ? '收起' : `还有 ${acts.length - ACT_SHOWN} 条`}
-            </button>
+            <button type="button" className="gx-more" onClick={() => setActOpen((v) => !v)}>{actOpen ? '收起' : `还有 ${acts.length - ACT_SHOWN} 条`}</button>
           )}
         </section>
-      ) : <p className="bl-empty center">还没有可记录的动态</p>}
+      ) : <p className="gx-p muted center">还没有可记录的动态</p>}
 
-      {/* 首饰盒：百宝箱，直接摊开 */}
-      <Sec en="Treasure box" zh="百宝箱" />
-      <nav className="bl-box" aria-label="百宝箱">
-        {TREASURES.map(([zh, icon, href, sub]) => (
-          <a key={href} href={href}>
-            <span className="bl-box-ic"><Icon name={icon} size={19} stroke={1.2} /></span>
-            <b>{zh}</b><em>{sub}</em>
-          </a>
+      {/* 百宝箱：不放格子，小画直接摆出来，三列错开 */}
+      <div className="gx-sec"><h2 className="gx-h"><em>Treasure box</em><span>百宝箱</span></h2></div>
+      <nav className="gx-apps" aria-label="百宝箱">
+        {TREASURES.map(([zh, stk, href]) => (
+          <a key={href} href={href}><img src={STK[stk]} alt="" /><b>{zh}</b></a>
         ))}
       </nav>
 
       {naming && <Names names={names} onClose={() => setNaming(false)} onSaved={() => { setNaming(false); onNamesSaved?.(); }} />}
-      <div className="bl-lace bottom" aria-hidden="true" />
     </main>
-  );
-}
-
-/** 每一段的小标题：花体英文 + 中文，右边可选一个入口 */
-function Sec({ en, zh, href, more }) {
-  return (
-    <div className="bl-sec">
-      <span><em>{en}</em><b>{zh}</b></span>
-      {href && <a href={href}>{more || '去看看'}</a>}
-    </div>
   );
 }
 

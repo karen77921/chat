@@ -3,87 +3,7 @@
 .hm-pad { padding: 18px; font-size: 13px; margin-bottom: 16px; }
 .hm-skeleton { height: 120px; margin-bottom: 16px; }
 
-/* ---- 头像 · 名字 · 天数 ---- */
-.hm-top { position: relative; text-align: center; padding-top: 18px; }
-.hm-bell { position: absolute; right: 0; top: -6px; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); }
-.hm-bell .dot { position: absolute; right: 8px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--dot); }
-.hm-pair { display: flex; align-items: center; justify-content: center; gap: 12px; }
-.hm-face { flex: none; width: 58px; height: 58px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
-  background: linear-gradient(150deg, #e2ecf3, #f1dfda); border: 2px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 0 1.5px rgba(159, 190, 219, 0.7), 0 8px 18px rgba(120, 100, 90, 0.12); color: var(--accent); font-family: var(--serif); font-size: 22px; }
-.hm-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.hm-names { min-width: 0; display: flex; align-items: baseline; justify-content: center; gap: 8px; flex-wrap: wrap;
-  font-size: 25px; letter-spacing: 0.06em; color: #6f8fae; font-weight: 500; line-height: 1.25; }
-.hm-names em { font-style: normal; font-family: var(--serif); font-size: 24px; color: rgba(111, 143, 174, 0.65); }
-.hm-days { margin: 10px 0 0; font-size: 13.5px; letter-spacing: 0.3em; color: #8aa3bb; }
-.hm-days b { font-family: var(--serif); font-weight: 500; font-size: 26px; letter-spacing: 0.02em; color: #6f8fae; margin: 0 4px; }
-
-/* ---- 会动的年糕（坐在「他想说的话」卡片上） ---- */
-.hm-say-wrap { position: relative; margin-top: 54px; }
-.hm-mochi { position: absolute; z-index: 2; right: 6px; top: -62px; width: 190px; height: 92px; pointer-events: none; }
-.hm-mochi img { position: absolute; bottom: 0; pointer-events: auto; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-user-drag: none;
-  filter: drop-shadow(0 6px 8px rgba(160, 120, 100, 0.18)); transform-origin: 50% 100%; }
-.m-him { right: 76px; width: 100px; animation: mochi-breathe 3.6s ease-in-out infinite; }
-.m-her { right: 0; width: 96px; bottom: -4px !important; animation: mochi-wiggle 4.2s ease-in-out infinite 0.6s; }
-.hm-mochi img.poke { animation: mochi-poke 0.55s cubic-bezier(0.3, 1.5, 0.5, 1); }
-@keyframes mochi-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.04, 0.96); } }
-@keyframes mochi-wiggle { 0%, 100% { transform: translateX(0) rotate(0); } 25% { transform: translateX(-2px) rotate(-2deg); } 50% { transform: scale(1.03, 0.97); } 75% { transform: translateX(2px) rotate(1.5deg); } }
-@keyframes mochi-poke { 0% { transform: scale(1, 1); } 30% { transform: scale(1.18, 0.78); } 60% { transform: scale(0.94, 1.08); } 100% { transform: scale(1, 1); } }
-@media (prefers-reduced-motion: reduce) { .m-him, .m-her { animation: none; } }
-
-.hm-say { position: relative; padding: 22px 20px 14px; border-radius: 28px !important; }
-.hm-k { font-size: 11px; letter-spacing: 0.3em; color: var(--accent); }
-.hm-say p { margin: 10px 0 12px; font-size: 18px; line-height: 1.65; letter-spacing: 0.04em; color: var(--ink); font-weight: 500; transition: opacity 0.3s; min-height: 2.4em; }
-.hm-say p.fading { opacity: 0.4; }
-.hm-say-f { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--muted); }
-.hm-say-f button { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px; border-radius: 15px; color: var(--accent);
-  background: rgba(255, 255, 255, 0.55); border: 1px solid rgba(255, 255, 255, 0.85); font-size: 12px; }
-
-/* ---- 留言板 ｜ 心情 + 待办 ---- */
-.hm-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; align-items: stretch; }
-.hm-box { padding: 14px 14px 12px; border-radius: 26px !important; display: flex; flex-direction: column; min-width: 0; }
-.hm-box-h { display: flex; align-items: center; justify-content: space-between; color: var(--ink); }
-.hm-box-h b { font-weight: 500; font-size: 15px; letter-spacing: 0.12em; color: #8d5f59; }
-.hm-box-h svg { color: var(--muted); }
-.hm-box-h.sub { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(120, 110, 104, 0.12); }
-.hm-note, .hm-mood { display: block; color: var(--ink); margin-top: 8px; }
-.hm-note p, .hm-mood p { margin: 0; font-size: 13px; line-height: 1.65; white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; }
-.hm-note p { -webkit-line-clamp: 5; }
-.hm-mood p { -webkit-line-clamp: 2; }
-.hm-note small, .hm-mood small { display: block; margin-top: 6px; font-size: 11px; color: var(--muted); }
-.hm-add { margin-top: auto; padding-top: 10px; align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--accent); }
 .hm-empty { margin: 8px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
-.hm-todo { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
-.hm-todo li { display: grid; grid-template-columns: 8px 1fr; column-gap: 7px; font-size: 12px; line-height: 1.5; color: var(--ink); }
-.hm-todo li i { width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; border: 1.3px solid var(--accent); }
-.hm-todo li span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.hm-todo li time { grid-column: 2; font-size: 10.5px; color: var(--muted); }
-
-/* ---- 往下的内容 ---- */
-.hm-wide { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; margin-bottom: 10px; border-radius: 26px !important; color: var(--ink); }
-.hm-wide-a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; }
-.hm-ico { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--accent); background: rgba(235, 205, 201, 0.45); }
-.hm-wide-t { flex: 1; min-width: 0; display: grid; gap: 2px; }
-.hm-wide-t em { font-style: normal; font-size: 10.5px; letter-spacing: 0.2em; color: var(--muted); }
-.hm-wide-t b { font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hm-wide-t small { font-size: 11px; color: var(--muted); }
-.hm-round { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--muted);
-  background: rgba(255, 255, 255, 0.55); border: 1px solid rgba(255, 255, 255, 0.85); }
-
-.hm-sec { display: flex; align-items: center; justify-content: space-between; margin: 24px 4px 10px; }
-.hm-sec h2 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: 0.16em; color: #8d5f59; }
-.hm-sec a, .hm-sec button { font-size: 12px; color: var(--muted); }
-.hm-list { padding: 2px 14px; }
-.hm-act { display: flex; align-items: center; gap: 11px; min-height: 58px; color: var(--ink); }
-.hm-act + .hm-act { border-top: 1px solid rgba(120, 110, 104, 0.1); }
-.hm-act-t { flex: 1; min-width: 0; display: grid; gap: 2px; }
-.hm-act-t b { font-weight: 500; font-size: 13.5px; }
-.hm-act-t em { font-style: normal; font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hm-act-m { flex: none; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
-
-.hm-entries { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 24px; }
-.hm-entries a { display: grid; justify-items: center; gap: 5px; padding: 14px 4px 12px; border-radius: 20px !important; color: var(--accent); font-size: 12px; }
-.hm-entries a span { color: var(--ink); letter-spacing: 0.06em; }
 
 .hm-names-sheet { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding-bottom: 8px; }
 .hm-names-sheet h3 { margin: 0 0 4px; font-weight: 500; font-size: 16px; letter-spacing: 0.12em; }
@@ -95,136 +15,32 @@
 .hm > *:nth-child(2), .hm > *:nth-child(3) { animation-delay: 0.06s; }
 .hm > *:nth-child(n + 4) { animation-delay: 0.12s; }
 @keyframes hm-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@media (max-width: 350px) { .hm-two { grid-template-columns: 1fr; } .hm-names { font-size: 21px; } .hm-face { width: 48px; height: 48px; } }
+
 .anchor { position: relative; top: -40px; }
 
-/* 动态：同一个窗口连着的回复合成一条，只露 4 条，其余点开 */
-.hm-act-t b small { font-size: 11px; color: var(--muted); }
-.hm-act-more { width: 100%; display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 42px; font-size: 12px; color: var(--muted); letter-spacing: .08em; border-top: 1px solid rgba(120, 110, 104, 0.1); }
-.hm-act-more svg { transform: rotate(90deg); }
-
-/* 百宝箱：一张卡收着所有小功能 */
-.hm-box.hm-tbox { width: 100%; display: flex !important; flex-direction: row !important; justify-items: initial; align-items: center; gap: 12px; padding: 14px 16px; margin-top: 24px; text-align: left; color: var(--ink); }
-.hm-box-ic { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; flex: none; color: var(--accent);
-  background: linear-gradient(135deg, #f8e1d8, #f3ead6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .7); }
-.hm-box-t { flex: 1; min-width: 0; display: grid; gap: 3px; }
-.hm-box-t b { font-weight: 500; font-size: 15px; letter-spacing: .12em; }
-.hm-box-t em { font-style: normal; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hm-box-sheet h3 { display: flex; flex-direction: column; margin: 0 0 14px; font-weight: 500; font-size: 18px; letter-spacing: .12em; }
-.hm-box-sheet h3 .hand { font-size: 26px; letter-spacing: 0; color: var(--accent); }
-.hm-treasures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.hm-treasures a { display: grid; justify-items: center; gap: 4px; padding: 14px 6px 12px; border-radius: 18px; color: var(--ink); text-align: center;
-  background: rgba(255, 255, 255, .55); box-shadow: inset 0 0 0 1px rgba(160, 140, 130, .14); }
-.hm-tr-ic { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; color: var(--accent); background: linear-gradient(135deg, #fbe9e2, #f4efe2); }
-.hm-treasures b { font-weight: 500; font-size: 13px; letter-spacing: .06em; }
-.hm-treasures em { font-style: normal; font-size: 10.5px; color: var(--muted); }
-
-/* 我此刻 */
-.hm-her { width: 100%; display: flex; align-items: baseline; gap: 12px; padding: 14px 18px; margin: -4px 0 16px; border-radius: 22px !important; text-align: left; color: var(--ink); }
-.hm-her b { flex: 1; min-width: 0; font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hm-her small { flex: none; font-size: 11px; color: var(--muted); }
+/* 我此刻：点开的面板 */
 .hm-her-sheet { display: grid; gap: 10px; padding-bottom: 8px; }
 .hm-her-sheet h4 { margin: 6px 0 0; font-weight: 500; font-size: 13px; letter-spacing: 0.14em; color: var(--muted); }
 .hm-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .hm-place { display: flex; gap: 8px; align-items: center; }
 .hm-place input { flex: 1; min-width: 0; height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid rgba(120, 110, 104, 0.18); background: rgba(255, 255, 255, 0.7); font: inherit; outline: 0; }
 
-/* ———— 芭蕾 · 缎面 · 蕾丝（明信片版） ———— */
+/* ———— 芭蕾底子：颜色变量、卡片、铃铛 ———— */
 .hm.ballet {
   --bl-bg: #FBF8F6; --bl-ink: #6E5A55; --bl-sub: #A08E89; --bl-faint: #B3A19C;
   --bl-pink: #E2B4BA; --bl-mark: #D4A9B1; --bl-card: #FFFDFB; --bl-stampbg: #FBF2F2; --bl-line: #EADCD8; --bl-btn: #F5EEEC;
   --ink: var(--bl-ink); --muted: var(--bl-sub); --accent: #B8848D;
   position: relative; min-height: 100vh; color: var(--bl-ink);
   background-color: var(--bl-bg);
-  background-image: radial-gradient(circle, rgba(226, 180, 186, 0.35) 1.5px, transparent 1.6px);
-  background-size: 26px 26px;
+  background-image: radial-gradient(circle, rgba(226, 180, 186, 0.4) 2px, transparent 2.4px), radial-gradient(circle, rgba(226, 180, 186, 0.4) 2px, transparent 2.4px);
+  background-size: 28px 28px; background-position: 0 0, 14px 14px;
   font-family: 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', serif;
 }
 .hm.ballet .card { background: var(--bl-card); border: 1px solid var(--bl-line); box-shadow: 0 6px 18px rgba(150, 128, 120, 0.08); }
-.bl-lace { height: 23px; margin: 0 -18px; background: url('../../design/ballet/lace-strip-fan-h.png') repeat-x 0 0 / auto 23px; filter: drop-shadow(0 1px 1px rgba(150, 128, 120, 0.5)); }
-.bl-lace.top { margin-top: calc(-1 * env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); background-image: url('../../design/ballet/lace-strip-fan-down.png'); background-position: 0 bottom; }
-.bl-lace.bottom { margin-top: 28px; }
 .bl-bell { position: absolute; right: 16px; top: calc(env(safe-area-inset-top, 0px) + 34px); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bl-sub); background: rgba(255, 253, 251, 0.8); }
 .bl-bell .dot { position: absolute; top: 9px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--bl-pink); }
-.bl-head { text-align: center; padding-top: 30px; }
-.bl-date { margin: 0; font-size: 12px; letter-spacing: 2px; color: var(--bl-sub); }
-.bl-title { margin: 8px 0 0; font-family: 'Pinyon Script', 'Great Vibes', cursive; font-weight: 400; font-size: 30px; color: #9C8580; line-height: 1.3; }
-.bl-names { display: inline-flex; align-items: center; gap: 12px; margin-top: 6px; min-height: 44px; font-size: 15px; letter-spacing: 6px; color: var(--bl-ink); }
-.bl-names i { width: 5px; height: 5px; border-radius: 50%; background: var(--bl-pink); }
-.bl-stamp-wrap { display: flex; justify-content: center; margin: 14px 0 0; }
-.bl-stamp { position: relative; width: 224px; height: 280px; rotate: -2deg; filter: drop-shadow(0 8px 16px rgba(150, 128, 120, 0.16));
-  background: radial-gradient(circle, transparent 4.5px, #fff 4.6px) -7px -7px / 14px 14px; }
-.bl-stamp::before { content: ''; position: absolute; inset: 7px; background: #fff; }
-.bl-stamp-in { position: absolute; inset: 17px; border: 1px solid var(--bl-line); background: var(--bl-stampbg); display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.bl-stamp-k { position: absolute; left: 10px; top: 9px; font-size: 9px; letter-spacing: 2px; color: var(--bl-faint); }
-.bl-stamp-bow { width: 64px; height: auto; filter: drop-shadow(0 1px 1px rgba(150, 128, 120, 0.5)) drop-shadow(0 0 1px rgba(150, 128, 120, 0.45)); margin-bottom: 2px; }
-.bl-stamp-n { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500; font-size: 78px; line-height: 1; color: var(--bl-ink); }
-.bl-stamp-d { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; color: var(--bl-sub); margin-top: 2px; }
-.bl-stamp-no { position: absolute; right: 10px; bottom: 8px; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 12px; color: var(--bl-mark); }
-.bl-poem { margin: 22px 0 0; text-align: center; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 13px; line-height: 1.7; color: var(--bl-faint); }
-.bl-card { position: relative; margin: 26px 8px 8px; padding: 20px 20px 16px; rotate: 1deg; background: var(--bl-card); border: 1px solid var(--bl-line); border-radius: 4px; box-shadow: 0 10px 24px rgba(150, 128, 120, 0.12); }
-.bl-card-bow { position: absolute; left: -12px; top: -28px; width: 50px; height: auto; rotate: -24deg; filter: drop-shadow(0 1px 1px rgba(150, 128, 120, 0.5)) drop-shadow(0 0 1px rgba(150, 128, 120, 0.45)); }
-.bl-card-h { display: flex; justify-content: space-between; align-items: flex-start; }
-.bl-card-t { font-family: 'Pinyon Script', 'Great Vibes', cursive; font-size: 20px; color: #9C8580; line-height: 1.2; }
-.bl-card-k { font-size: 11px; letter-spacing: 6px; color: var(--bl-sub); margin-top: 2px; }
-.bl-mark { display: flex; align-items: center; gap: 0; }
-.bl-mark svg { margin-right: -8px; }
-.bl-mark-c { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--bl-mark); display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Cormorant Garamond', serif; font-size: 11px; color: var(--bl-mark); line-height: 1.1; rotate: -10deg; background: var(--bl-card); }
-.bl-mark-c small { font-size: 7.5px; letter-spacing: 1px; }
-.bl-card-body { margin-top: 12px; font-size: 16px; line-height: 34px; color: var(--bl-ink); min-height: 102px; transition: opacity 0.3s;
-  background-image: repeating-linear-gradient(transparent 0 33px, #EFE2DE 33px 34px); background-position: 0 0; }
-.bl-card-body.fading { opacity: 0.4; }
-.bl-to { color: var(--bl-sub); margin-right: 2px; }
-.bl-card-f { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
-.bl-card-f em { font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 13px; color: var(--bl-sub); min-width: 0; }
-.bl-card-f button { flex: none; height: 44px; padding: 0 20px; border-radius: 22px; border: 0; background: var(--bl-btn); color: var(--bl-ink); font-size: 13px; letter-spacing: 2px; }
-.bl-card-f button:disabled { opacity: 0.6; }
 
-/* ———— 往下：信笺 · 节目单 · 缎带 · 票根 · 日记 · 首饰盒 ———— */
-.hm.ballet { --bl-paper: #FFFDFB; --bl-sh: 0 8px 20px rgba(150, 128, 120, 0.1); }
-.bl-sec { display: flex; align-items: flex-end; justify-content: space-between; margin: 40px 6px 14px; }
-.bl-sec > span { display: flex; align-items: baseline; gap: 10px; }
-.bl-sec em { font-family: 'Pinyon Script', 'Great Vibes', cursive; font-style: normal; font-size: 24px; line-height: 1; color: #9C8580; }
-.bl-sec b { font-weight: 500; font-size: 12px; letter-spacing: 4px; color: var(--bl-sub); }
-.bl-sec a, .bl-sec button { font-size: 11.5px; letter-spacing: 1px; color: var(--bl-faint); border-bottom: 1px solid var(--bl-line); padding: 6px 0 2px; }
-.bl-empty { margin: 6px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--bl-faint); }
-.bl-empty.center { text-align: center; }
-
-/* 信笺：留言板 —— 一张斜放的信纸，顶上一条半透明胶带 */
-.bl-letter { position: relative; margin: 0 14px; padding: 30px 22px 16px; rotate: -1.2deg; background: var(--bl-paper);
-  border: 1px solid var(--bl-line); box-shadow: var(--bl-sh);
-  background-image: linear-gradient(90deg, transparent 30px, rgba(226, 180, 186, 0.35) 30px 31px, transparent 31px),
-    repeating-linear-gradient(transparent 0 29px, #F1E5E1 29px 30px); background-position: 0 0, 0 14px; }
-.bl-tape { position: absolute; left: 50%; top: -11px; width: 92px; height: 24px; translate: -50% 0; rotate: 3deg;
-  background: repeating-linear-gradient(90deg, rgba(240, 214, 218, 0.78) 0 6px, rgba(248, 230, 232, 0.78) 6px 12px);
-  box-shadow: 0 1px 2px rgba(150, 128, 120, 0.15); clip-path: polygon(3% 0, 97% 0, 100% 50%, 97% 100%, 3% 100%, 0 50%); }
-.bl-letter-a { display: block; padding-left: 20px; color: var(--bl-ink); }
-.bl-letter-a p { margin: 0; font-size: 14.5px; line-height: 30px; white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
-.bl-letter-a small { display: block; text-align: right; margin-top: 4px; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 13px; color: var(--bl-sub); line-height: 30px; }
-.bl-letter .bl-empty { padding-left: 20px; line-height: 30px; margin: 0; }
-.bl-pen { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; margin: 4px 0 0 20px; font-size: 12.5px; letter-spacing: 2px; color: var(--accent); }
-
-/* 节目单：他的心情 + 答应你的事 */
-.bl-prog { position: relative; margin: 0 4px; padding: 22px 22px 34px; background: var(--bl-paper); border: 1px solid var(--bl-line); box-shadow: var(--bl-sh); }
-.bl-prog::before { content: ''; position: absolute; inset: 5px; border: 1px solid #F1E5E1; pointer-events: none; }
-.bl-prog-h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.bl-prog-h + * + .bl-prog-h, .bl-prog .bl-empty + .bl-prog-h { margin-top: 22px; }
-.bl-prog-h span { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 12px; letter-spacing: 2px; color: var(--bl-mark); }
-.bl-prog-h b { font-weight: 500; font-size: 13.5px; letter-spacing: 3px; color: var(--bl-ink); }
-.bl-prog-h::after { content: ''; flex: 1; height: 1px; background: var(--bl-line); }
-.bl-mood { display: block; color: var(--bl-ink); }
-.bl-mood p { margin: 0; font-size: 15px; line-height: 1.8; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-.bl-ribbons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.bl-ribbons span { position: relative; height: 24px; padding: 0 16px 0 10px; display: inline-flex; align-items: center; font-size: 11.5px; letter-spacing: 1px; color: #8E6E6E;
-  background: linear-gradient(180deg, #FAEDEE, #F3DDE0 55%, #F8E8EA); clip-path: polygon(0 0, 100% 0, calc(100% - 7px) 50%, 100% 100%, 0 100%); }
-.bl-todo { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.bl-todo li { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; line-height: 1.6; color: var(--bl-ink); }
-.bl-todo li span { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.bl-todo li i { flex: 1; min-width: 14px; border-bottom: 1px dotted var(--bl-pink); translate: 0 -4px; }
-.bl-todo li time { flex: none; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 12.5px; color: var(--bl-sub); }
-.bl-prog-fin { position: absolute; right: 18px; bottom: 10px; font-family: 'Pinyon Script', cursive; font-size: 16px; color: var(--bl-mark); }
-
-/* 缎带：我此刻 */
+/* 我此刻（HerStatus 的按钮） */
 .bl-ribbon { position: relative; display: flex; align-items: center; gap: 12px; width: calc(100% + 12px); margin: 32px -6px 0; min-height: 52px; padding: 0 30px; text-align: left; color: #7C6060;
   background: linear-gradient(180deg, #F6E3E5 0%, #EFD3D7 30%, #F9ECED 52%, #EBCBD0 78%, #F3DEE1 100%);
   clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 50%, 100% 100%, 0 100%, 14px 50%); filter: drop-shadow(0 4px 6px rgba(150, 128, 120, 0.15)); }
@@ -232,45 +48,176 @@
 .bl-ribbon b { flex: 1; min-width: 0; font-weight: 500; font-size: 14px; letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bl-ribbon small { flex: none; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 12px; color: #A07C80; }
 
-/* 票根：一起听 / 一起看 —— 两侧有半圆缺口，右边一截撕得下来的存根 */
-.bl-ticket { position: relative; display: flex; align-items: stretch; min-height: 86px; margin: 0 2px 12px; color: var(--bl-ink);
-  --notch: radial-gradient(circle at 0 50%, transparent 9px, #000 9.5px) left / 51% 100% no-repeat, radial-gradient(circle at 100% 50%, transparent 9px, #000 9.5px) right / 51% 100% no-repeat;
-  -webkit-mask: var(--notch); mask: var(--notch); background: var(--bl-paper); filter: drop-shadow(0 6px 10px rgba(150, 128, 120, 0.12)); }
-.bl-ticket.watch { background: #FBF2F2; }
-.bl-ticket-a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 14px 10px 14px 24px; color: inherit; border: 1px solid var(--bl-line); border-right: 0; }
-.bl-ticket-t { min-width: 0; display: grid; gap: 3px; }
-.bl-ticket-t em { font-style: normal; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-size: 10.5px; letter-spacing: 2.5px; color: var(--bl-mark); }
-.bl-ticket-t b { font-weight: 500; font-size: 15.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bl-ticket-t small { font-size: 11.5px; color: var(--bl-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bl-stub { flex: none; width: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid var(--bl-line); border-left: 1.5px dashed var(--bl-pink); }
-.bl-stub b { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500; font-size: 30px; line-height: 1; color: var(--bl-ink); }
-.bl-stub small { font-size: 10.5px; letter-spacing: 2px; color: var(--bl-sub); margin-top: 2px; }
-.bl-stub button { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--bl-ink); background: var(--bl-btn); }
-.bl-disc { flex: none; position: relative; width: 52px; height: 52px; border-radius: 50%;
-  background: repeating-radial-gradient(circle, #5f4f4c 0 1.5px, #6b5a56 1.5px 3px); box-shadow: 0 2px 6px rgba(80, 60, 56, 0.25); }
-.bl-disc i { position: absolute; inset: 16px; border-radius: 50%; background: radial-gradient(circle, #FBF8F6 0 2px, #EFD3D7 2.5px); }
-.bl-disc.spin { animation: bl-spin 6s linear infinite; }
-@keyframes bl-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .bl-disc.spin { animation: none; } }
+.hm.ballet .bl-ribbon { isolation: isolate; background: none; clip-path: none; filter: none; width: 100%; margin: 34px 0 0; min-height: 58px; padding: 0 46px 4px; }
 
-/* 日记：他的动态 —— 左边一列斜体时间，中间一条粉色细线串起来 */
-.bl-diary { position: relative; margin: 0 4px; padding: 6px 18px; background: var(--bl-paper); border: 1px solid var(--bl-line); box-shadow: var(--bl-sh); }
-.bl-entry { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 14px; padding: 13px 0; color: var(--bl-ink); }
-.bl-entry + .bl-entry { border-top: 1px dashed #F1E5E1; }
-.bl-entry::before { content: ''; position: absolute; left: 69px; top: 20px; width: 5px; height: 5px; border-radius: 50%; background: var(--bl-pink); }
-.bl-entry time { padding-top: 1px; text-align: right; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 12px; color: var(--bl-sub); padding-right: 8px; }
-.bl-entry-t { display: grid; gap: 3px; padding-left: 6px; }
-.bl-entry-t b { font-weight: 500; font-size: 13.5px; }
-.bl-entry-t b small { font-size: 11px; color: var(--bl-faint); }
-.bl-entry-t em { font-style: normal; font-size: 12px; color: var(--bl-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bl-new { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 5px; margin-left: 6px; border-radius: 9px; font-style: normal; font-size: 10px; color: #fff; background: var(--bl-pink); vertical-align: 1px; }
-.bl-entry-more { width: 100%; min-height: 44px; border-top: 1px dashed #F1E5E1; font-size: 12px; letter-spacing: 2px; color: var(--bl-sub); }
+/* ———— 首页现在的样子：窗纱背景 · 浅银 Imprint 标题 · 雾面玻璃卡 · 芭蕾小画贴纸 ———— */
+.hm.gl {
+  --gl-ink: #5E4A4F; --gl-sub: #9C878C; --gl-faint: #BDAEB2; --gl-pink: #E9A7B8; --gl-card: rgba(255, 255, 255, 0.72); --gl-line: rgba(255, 255, 255, 0.9);
+  --ink: var(--gl-ink); --muted: var(--gl-sub); --accent: #C98799;
+  color: var(--gl-ink);
+  background:
+    linear-gradient(180deg, #F8E9EA 0px, #F8E9EA 280px, #FAF1F1 560px, #FBF7F7 820px) no-repeat,
+    #FBF7F7;
+}
+/* 窗纱：几道很淡的竖条光，糊开 */
+.gl-hero { position: relative; margin: calc(-22px - env(safe-area-inset-top, 0px)) -18px 0; padding: calc(env(safe-area-inset-top, 0px) + 20px) 18px 6px; overflow: hidden; }
+.gl-hero::before { content: ''; position: absolute; inset: -40px -40px 0; pointer-events: none; filter: blur(14px); opacity: 0.75; -webkit-mask: linear-gradient(#000 60%, transparent); mask: linear-gradient(#000 60%, transparent);
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0) 0 34px, rgba(255, 255, 255, 0.55) 46px, rgba(255, 255, 255, 0) 62px 90px),
+    radial-gradient(50% 30% at 50% 42%, rgba(255, 255, 255, 0.9), transparent 70%); }
+.gl-hero > * { position: relative; }
+.gl-meta { display: flex; justify-content: space-between; padding: 6px 58px 0 6px; font-family: 'Helvetica Neue', 'PingFang SC', sans-serif; font-size: 10px; letter-spacing: 3px; color: rgba(255, 255, 255, 0.95); text-shadow: 0 1px 6px rgba(120, 90, 98, 0.35); }
+.hm.gl .bl-bell { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); right: 16px; color: #fff; background: rgba(255, 255, 255, 0.28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.hm.gl .bl-bell .dot { background: #F7C9D5; }
+.gl-title { margin: 14px -8px 0; }
+.gl-title svg { display: block; width: 100%; height: auto; overflow: visible; }
+.gl-title-t { font-family: 'Pinyon Script', 'Great Vibes', cursive; font-size: 84px; }
+.gl-names { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 2px auto 0; min-height: 44px; color: #fff; font-size: 16px; letter-spacing: 6px; text-shadow: 0 0 10px rgba(247, 169, 192, 0.9), 0 1px 3px rgba(120, 90, 98, 0.35); }
+.gl-names svg { width: 96px; height: 20px; filter: drop-shadow(0 0 4px rgba(247, 169, 192, 0.9)); }
+.gl-day { display: flex; flex-direction: column; align-items: center; margin-top: 6px; color: #fff; text-shadow: 0 0 14px rgba(247, 169, 192, 0.9), 0 1px 4px rgba(120, 90, 98, 0.3); }
+.gl-day b { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500; font-size: 46px; line-height: 1; }
+.gl-day span { font-family: 'Helvetica Neue', sans-serif; font-size: 9.5px; letter-spacing: 4px; margin-top: 4px; }
+.gl-rule { display: flex; align-items: center; gap: 10px; margin: 18px 34px 0; font-size: 11px; letter-spacing: 2px; color: #fff; }
+.gl-rule i { flex: 1; height: 1px; background: rgba(255, 255, 255, 0.8); position: relative; }
+.gl-rule i:first-child::before, .gl-rule i:last-child::after { content: ''; position: absolute; top: -3px; width: 6px; height: 6px; border: 1px solid #fff; border-width: 1px 0 0 1px; }
+.gl-rule i:first-child::before { left: 0; rotate: -45deg; }
+.gl-rule i:last-child::after { right: 0; rotate: 135deg; }
+.gl-para { margin: 12px 30px 0; text-align: center; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-size: 12.5px; line-height: 1.55; color: rgba(255, 255, 255, 0.95); text-shadow: 0 1px 4px rgba(120, 90, 98, 0.3); }
 
-/* 首饰盒：百宝箱 —— 3×3 小格子，缎面内衬 */
-.bl-box { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0 4px; padding: 1px; background: var(--bl-line); border: 6px solid var(--bl-paper); outline: 1px solid var(--bl-line); box-shadow: var(--bl-sh); }
-.bl-box a { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 104px; padding: 12px 4px; text-align: center; color: var(--bl-ink);
-  background: radial-gradient(ellipse at 50% 30%, #FFFDFB, #FBF2F2 85%); }
-.bl-box a:active { background: #F6E6E8; }
-.bl-box-ic { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--accent); border: 1px solid var(--bl-line); background: var(--bl-paper); margin-bottom: 2px; }
-.bl-box b { font-weight: 500; font-size: 12.5px; letter-spacing: 1px; }
-.bl-box em { font-style: normal; font-size: 10px; color: var(--bl-faint); }
+/* 雾面玻璃卡（通用） */
+.hm.gl .gl-note { position: relative; background: var(--gl-card); -webkit-backdrop-filter: blur(16px) saturate(1.1); backdrop-filter: blur(16px) saturate(1.1);
+  border-radius: 24px; box-shadow: inset 0 0 0 1px var(--gl-line), 0 10px 26px rgba(150, 110, 120, 0.12); color: var(--gl-ink); }
+.gl-note { margin: 22px 0 0; padding: 20px 22px 16px; }
+.gl-note-stk { position: absolute; right: 8px; top: -26px; width: 50px; rotate: 32deg; filter: drop-shadow(0 4px 6px rgba(120, 90, 98, 0.18)); pointer-events: none; }
+.gl-note-h { display: flex; align-items: baseline; gap: 10px; }
+.gl-note-h b { font-weight: 500; font-size: 14px; letter-spacing: 4px; }
+.gl-note-h span { font-family: 'Pinyon Script', cursive; font-size: 18px; color: var(--gl-pink); }
+.gl-note-body { margin: 10px 0 0; font-size: 16px; line-height: 1.85; min-height: 3.7em; transition: opacity 0.3s; }
+.gl-note-body.fading { opacity: 0.4; }
+.gl-note-f { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.gl-note-f em { font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 13px; color: var(--gl-sub); }
+.gl-note-f button { height: 38px; padding: 0 18px; border-radius: 19px; font-size: 12.5px; letter-spacing: 3px; color: var(--gl-ink); background: #fff; box-shadow: inset 0 0 0 1px #E4DEE0, 0 4px 10px rgba(120, 100, 106, 0.08); }
+.gl-note-f button:disabled { opacity: 0.6; }
+
+.clamp4 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+/* 我此刻 */
+.hm.gl .bl-ribbon { margin: 18px 0 0; width: 100%; min-height: 56px; padding: 0 76px 0 20px; clip-path: none; filter: none; border-radius: 22px; color: var(--gl-ink);
+  background: var(--gl-card) url('../../design/ballet/stickers/bunny.webp') no-repeat right 12px bottom -4px / 50px auto; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: inset 0 0 0 1px var(--gl-line), 0 10px 26px rgba(150, 110, 120, 0.12); }
+.hm.gl .bl-ribbon-k { color: var(--gl-pink); border-right-color: rgba(233, 167, 184, 0.4); }
+
+/* 动态 */
+.gl-new { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; font-style: normal; font-family: inherit; font-size: 10px; color: #fff; background: #E6A2B4; }
+
+/* ———— 不排格子（她嫌板正）：大小不一、错开叠着，小画从边上探出来 ———— */
+.hm.gl :is(.gx-card, .gx-disc, .gx-arch) { position: relative; display: flex; flex-direction: column; color: var(--gl-ink); background: var(--gl-card);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1); backdrop-filter: blur(16px) saturate(1.1); box-shadow: inset 0 0 0 1px var(--gl-line), 0 14px 30px rgba(150, 110, 120, 0.13); }
+.gx-stk { position: absolute; pointer-events: none; filter: drop-shadow(0 6px 8px rgba(120, 90, 98, 0.18)); }
+.gx-k { font-size: 11px; letter-spacing: 3px; color: var(--gl-sub); }
+.gx-k em, .gx-h em { font-family: 'Pinyon Script', cursive; font-style: normal; letter-spacing: 0; color: #A79FA6; }
+.gx-k em { display: block; font-size: 22px; line-height: 1.1; margin-bottom: 2px; }
+.gx-p { margin: 10px 0 0; font-size: 13.5px; line-height: 1.75; }
+.gx-p.muted { color: var(--gl-faint); }
+.gx-p.center { text-align: center; }
+.clamp3 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.gx-s { margin-top: auto; padding-top: 8px; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 12.5px; color: var(--gl-sub); }
+
+/* 留言板：斜放的信纸；他的心情：拱门窗，压在信纸右下角 */
+.gx-pair { position: relative; margin-top: 40px; }
+.gx-letter { width: 66%; min-height: 210px; padding: 20px 18px 18px; border-radius: 6px; rotate: -3deg; }
+.gx-stk.menuet { right: -42px; top: -30px; width: 86px; rotate: 14deg; }
+.gx-mood { z-index: 1; width: 54%; margin: -92px 4px 0 auto; padding: 66px 18px 18px; border-radius: 200px 200px 24px 24px; text-align: center; align-items: center; }
+.gx-stk.musicbox { left: 50%; top: -44px; width: 96px; translate: -50% 0; }
+.gx-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }
+.gx-tags span { height: 24px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 12px; font-size: 11px; color: #9A6E7A; background: rgba(246, 205, 216, 0.5); }
+
+/* 答应你的事：不装盒子，一个蝴蝶结挂在标题前面 */
+.gx-promise { position: relative; margin: 40px 6px 0; }
+.gx-stk.bow { left: -14px; top: -22px; width: 78px; rotate: -16deg; }
+.gx-h { margin: 0; display: flex; align-items: baseline; gap: 10px; font-weight: 500; }
+.gx-h em { font-size: 30px; line-height: 1; }
+.gx-h span { font-size: 12.5px; letter-spacing: 4px; color: var(--gl-sub); }
+.gx-promise .gx-h { padding-left: 64px; }
+.gx-todo { list-style: none; margin: 14px 0 0; padding: 0; }
+.gx-todo li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 2px; font-size: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.95); box-shadow: 0 1px 0 rgba(233, 167, 184, 0.25); }
+.gx-todo li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-todo li time { flex: none; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 12.5px; color: var(--gl-sub); }
+
+/* 我此刻：往右错一点，轻轻斜，小兔从左边跳出来 */
+.hm.gl .bl-ribbon { width: 88%; margin: 34px 0 0 auto; rotate: 1.5deg; padding: 0 20px 0 64px; border-radius: 28px;
+  background: var(--gl-card) url('../../design/ballet/stickers/bunny.webp') no-repeat left -2px bottom 0 / 58px auto; }
+
+/* 一起听：一张圆唱片；一起看：拱门票，往下错开 */
+.gx-together { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 40px; }
+.gx-together:not(.two) { justify-content: center; }
+.gx-disc { flex: none; width: 176px; height: 176px; border-radius: 50%; align-items: center; justify-content: center; text-align: center;
+  background: repeating-radial-gradient(circle, rgba(255, 255, 255, 0) 0 5px, rgba(255, 255, 255, 0.35) 5px 6px), var(--gl-card) !important; }
+.gx-disc-a { display: flex; flex-direction: column; align-items: center; max-width: 120px; color: inherit; margin-top: -10px; }
+.gx-disc-a em, .gx-arch em { font-family: 'Pinyon Script', cursive; font-style: normal; font-size: 18px; color: #A79FA6; }
+.gx-disc-a b, .gx-arch b { margin-top: 2px; font-weight: 500; font-size: 14.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.gx-disc-a small, .gx-arch small { margin-top: 2px; font-size: 11px; color: var(--gl-sub); }
+.gx-play { position: absolute; left: 50%; bottom: 14px; translate: -50% 0; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #F2BFCD, #E6A2B4); box-shadow: 0 4px 10px rgba(230, 162, 180, 0.35); }
+.gx-stk.pointe { right: -26px; bottom: -14px; width: 84px; rotate: 8deg; }
+.gx-arch { flex: none; width: 46%; margin-top: 64px; min-height: 190px; padding: 112px 14px 18px; border-radius: 120px 120px 20px 20px; align-items: center; text-align: center; }
+.gx-stk.curtain { left: 50%; top: 6px; width: 96px; translate: -50% 0; }
+
+/* 他的动态：一条细时间线 */
+.gx-sec { display: flex; align-items: baseline; justify-content: space-between; margin: 44px 4px 10px; }
+.gx-sec a, .gx-sec button { font-size: 11.5px; letter-spacing: 2px; color: var(--gl-sub); }
+.gx-line { position: relative; padding: 4px 0 0 84px; }
+.gx-line::before { content: ''; position: absolute; left: 70px; top: 10px; bottom: 10px; width: 1px; background: linear-gradient(rgba(233, 167, 184, 0.6), rgba(233, 167, 184, 0.1)); }
+.gx-act { position: relative; display: block; padding: 10px 0 12px; color: inherit; }
+.gx-act::before { content: ''; position: absolute; left: -18px; top: 16px; width: 7px; height: 7px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px #EDB3C2, 0 0 8px rgba(237, 179, 194, 0.8); }
+.gx-act time { position: absolute; left: -84px; top: 11px; width: 56px; text-align: right; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 12px; color: var(--gl-sub); }
+.gx-act span { display: grid; gap: 2px; }
+.gx-act b { font-weight: 500; font-size: 14px; }
+.gx-act b small { font-size: 11px; color: var(--gl-faint); }
+.gx-act em { font-style: normal; font-size: 12px; color: var(--gl-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-act .gl-new { margin-left: 6px; vertical-align: 1px; }
+.gx-more { margin: 2px 0 0; min-height: 40px; font-size: 12px; letter-spacing: 2px; color: var(--gl-sub); }
+
+/* 百宝箱：小画直接摆，中间那列往下错 */
+.gx-apps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 6px; padding: 0 4px 30px; }
+.gx-apps a { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0; color: var(--gl-ink); }
+.gx-apps a:nth-child(3n + 2) { translate: 0 28px; }
+.gx-apps a::before { content: ''; position: absolute; top: 6px; left: 50%; width: 84px; height: 84px; translate: -50% 0; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 70%); }
+.gx-apps img { position: relative; width: 76px; height: 76px; object-fit: contain; filter: drop-shadow(0 6px 8px rgba(120, 90, 98, 0.16)); transition: transform 0.2s; }
+.gx-apps a:active img { transform: scale(0.92) rotate(-4deg); }
+.gx-apps b { position: relative; font-weight: 500; font-size: 12px; letter-spacing: 2px; }
+
+/* 头顶用她给的 Ballerina Gown #F8E9EA，往下渐变回原来的底色；头图上的小字改成玫瑰灰，不然看不见 */
+.hm.gl .gl-meta { color: #9E7F86; text-shadow: none; }
+.hm.gl .bl-bell { color: #8C6B73; background: rgba(255, 255, 255, 0.55); }
+.hm.gl .gl-names { color: #7E5A62; text-shadow: 0 0 10px rgba(255, 255, 255, 0.95); }
+.hm.gl .gl-names svg path:first-child, .hm.gl .gl-names svg path:last-child { stroke: #B88E97; }
+.hm.gl .gl-names svg { filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.9)); }
+.hm.gl .gl-day { color: #7E5A62; text-shadow: 0 0 12px rgba(255, 255, 255, 0.95); }
+.hm.gl .gl-rule { color: #B88E97; }
+.hm.gl .gl-rule i { background: #D9BCC2; }
+.hm.gl .gl-rule i:first-child::before, .hm.gl .gl-rule i:last-child::after { border-color: #D9BCC2; }
+.hm.gl .gl-para { color: #9E7F86; text-shadow: none; }
+
+/* ———— 方框换成蕾丝：上下镶蕾丝花边（lace-tile 是能无缝拼的一小段） ———— */
+/* 他想对你说：上下各一条蕾丝花边，左右不要框，中间系一个白蕾丝蝴蝶结 */
+.hm.gl .gl-note { margin-top: 34px; border-radius: 2px; rotate: -1deg; overflow: visible; }
+.hm.gl .gl-note::before, .hm.gl .gl-note::after { content: ''; position: absolute; left: 0; right: 0; height: 14px; pointer-events: none; filter: drop-shadow(0 1px 1px rgba(150, 120, 128, 0.35)); }
+.hm.gl .gl-note::before { top: -13px; background: url('../../design/ballet/lace-tile-up.png') repeat-x 0 100% / auto 14px; }
+.hm.gl .gl-note::after { bottom: -13px; background: url('../../design/ballet/lace-tile-down.png') repeat-x 0 0 / auto 14px; }
+.gl-note-bow { position: absolute; left: 50%; top: -34px; width: 64px; translate: -50% 0; z-index: 2; pointer-events: none; filter: drop-shadow(0 1px 1px rgba(150, 120, 128, 0.5)) drop-shadow(0 0 1px rgba(150, 120, 128, 0.4)); }
+.hm.gl .gl-note-stk { top: -14px; right: -2px; width: 46px; }
+
+/* 留言板：上下各压一条蕾丝（不用遮罩剪，不然会把乐谱贴纸也剪掉） */
+.hm.gl .gx-letter { border-radius: 0; overflow: visible; }
+.hm.gl .gx-letter::after { content: ''; position: absolute; left: 0; right: 0; bottom: -13px; height: 14px; pointer-events: none;
+  background: url('../../design/ballet/lace-tile-down.png') repeat-x 0 0 / auto 14px; filter: drop-shadow(0 1px 1px rgba(150, 120, 128, 0.35)); }
+.gx-pair { isolation: isolate; }
+.gx-pair::before { content: ''; position: absolute; left: 0; top: -1px; width: 66%; height: 14px; rotate: -3deg; transform-origin: 0 100%; z-index: 1; pointer-events: none;
+  background: url('../../design/ballet/lace-tile-up.png') repeat-x 0 100% / auto 14px; filter: drop-shadow(0 1px 1px rgba(150, 120, 128, 0.35)); }
+
+/* 我此刻：一条蕾丝缎带（上下花边，不再是胶囊） */
+.hm.gl .bl-ribbon { border-radius: 2px; overflow: visible; }
+.hm.gl .bl-ribbon::before, .hm.gl .bl-ribbon::after { content: ''; position: absolute; left: 0; right: 0; height: 10px; pointer-events: none; filter: drop-shadow(0 1px 1px rgba(150, 120, 128, 0.3)); }
+.hm.gl .bl-ribbon::before { top: -9px; background: url('../../design/ballet/lace-tile-up.png') repeat-x 0 100% / auto 10px; }
+.hm.gl .bl-ribbon::after { bottom: -9px; background: url('../../design/ballet/lace-tile-down.png') repeat-x 0 0 / auto 10px; }
+/* 他的心情：拱门窗底下也压一条蕾丝 */
+.hm.gl .gx-mood { border-radius: 200px 200px 2px 2px; }
+.hm.gl .gx-mood::after { content: ''; position: absolute; left: 0; right: 0; bottom: -13px; height: 14px; pointer-events: none;
+  background: url('../../design/ballet/lace-tile-down.png') repeat-x 0 0 / auto 14px; filter: drop-shadow(0 1px 1px rgba(150, 120, 128, 0.35)); }

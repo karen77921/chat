@@ -222,6 +222,13 @@ class ImprintStoreTest(unittest.TestCase):
             conn.execute("UPDATE records SET payload=? WHERE id='setting_reading_here'", (json.dumps(row),))
         self.assertEqual(imprint_action(self.store, "reading_here_context")["text"], "")  # 过了一刻钟就不当她还在读
 
+    def test_every_builtin_tool_has_a_chinese_card(self):
+        cat = api_loop.builtin_tool_catalog()
+        self.assertNotIn("其他", [g["name"] for g in cat["groups"]])
+        listed = [t["id"] for g in cat["groups"] for t in g["tools"]]
+        self.assertEqual(len(listed), cat["count"])
+        self.assertEqual(len(listed), len(set(listed)))
+
     def test_coupons_know_who_holds_them_and_get_used_once(self):
         gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))
         self.assertEqual(gift["art"], "coupon")

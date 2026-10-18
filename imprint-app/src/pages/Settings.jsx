@@ -375,6 +375,32 @@ function ModelAccess() {
   );
 }
 
+/* ---------- 他自带的工具（只看，不开关：好些是配合着用的，关一个可能悄悄坏掉别的） ---------- */
+function BuiltinTools() {
+  const { data } = useLoad('/api/tools/builtin');
+  if (!data?.groups) return null;
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>his own</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>他自带的工具 · {data.count} 个</h2></div>
+      <p className="st-tip" style={{ marginTop: 0 }}>装在服务器上、不用另外连的本事。标着「会改东西」的会真的写进 App；聊到相关的事他才会拿起来用。</p>
+      <div className="card st-list st-tools">
+        {data.groups.map((g) => (
+          <details key={g.name} className="st-tg">
+            <summary><b>{g.name}</b><em>{g.tools.length} 个</em></summary>
+            {g.tools.map((t) => (
+              <div key={t.id} className="st-tool">
+                <div className="st-tool-h"><b>{t.name}</b><span className={`st-tool-k ${t.writes ? 'w' : ''}`}>{t.writes ? '会改东西' : '只看'}</span></div>
+                <em>{t.desc}</em>
+                <code>{t.id}</code>
+              </div>
+            ))}
+          </details>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /* ---------- 功能管理（含 MCP） ---------- */
 function Features() {
   const { data, setData } = useLoad('/api/features');
@@ -457,6 +483,7 @@ function Features() {
         ))}
       </div>
       <button type="button" className="cl-link st-addmcp" onClick={() => setAdding(true)}><Icon name="plus" size={16} stroke={1.5} />加一个 MCP（填地址）</button>
+      <BuiltinTools />
       {adding && (
         <Sheet open onClose={() => setAdding(false)} label="加一个 MCP" seed={87}>
           <div className="sec-head"><span className="en">add mcp</span><h2 className="zh" style={{ margin: 0 }}>加一个 MCP</h2></div>

@@ -341,6 +341,7 @@ async function compat(path, opts) {
     const fields = { memory: 'context_compaction', recall: 'ombre_auto_recall', time: 'context_time', backup: 'backup_enabled', light: 'light_chat', nostream: 'chat_nonstream' };
     return loop('config', { method: 'POST', body: { [fields[key]]: on } });
   }
+  if (method === 'GET' && p === '/api/tools/builtin') return loop('tools/builtin');
   if (method === 'POST' && p === '/api/mcp') {
     let target;
     try { target = new URL(opts.body?.url); } catch { throw new ApiError(400, '请输入完整的 MCP 地址'); }

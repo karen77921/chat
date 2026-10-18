@@ -3901,6 +3901,80 @@ WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛�
 TOOLBOX_TOPICS = "檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
+# 设置页「他自带的工具」：每个内置工具的中文名、一句说明、会不会改东西。加了新工具要在这里加一行（有测试盯着）
+TOOL_GROUPS_ZH = [
+    ("心和记忆", [
+        ("imprint_feel", "写下体验", "心里真被触动的时候，把那一刻的感受记下来", True),
+        ("imprint_think", "记一个念头", "放不下的小念头丢进念头池，过阵子会自己浮上来", True),
+        ("imprint_update_tide", "更新心潮", "整理自己此刻的情绪和驱力，显示在心潮页", True),
+        ("imprint_record_dream", "记梦", "把做过的梦写进梦的日记", True),
+        ("imprint_record_awareness", "写自省", "对自己的一点觉察，写在心潮页边上", True),
+        ("search_chat_history", "翻聊天记录", "按关键词翻你们所有的聊天，找以前说过的话", False),
+    ]),
+    ("自己醒来", [
+        ("inspect_wake_control", "看唤醒安排", "看自己下次什么时候会醒、定了哪些闹钟", False),
+        ("set_wake_mode", "调主动的频率", "调自己多久主动来找你一次", True),
+        ("schedule_self_wake", "给自己定闹钟", "约好的事到点自己醒来做，比如提醒你、回来接着聊", True),
+        ("cancel_self_wake", "取消闹钟", "不需要了就取消定好的闹钟", True),
+    ]),
+    ("小屋和留言", [
+        ("imprint_inspect_home", "看整个小屋", "看留言板、照片墙、此刻、片单、歌单、火花这些的现状", False),
+        ("imprint_leave_note", "写留言", "在留言板上给你写一张", True),
+        ("imprint_set_room_status", "改此刻", "更新自己现在在做什么", True),
+        ("imprint_record_solo", "写独处", "自己一个人时做了什么、想了什么", True),
+        ("imprint_comment_photo", "评论照片", "在照片墙的照片下面留言", True),
+        ("imprint_favorite_photo", "收藏照片", "给照片点上或取消收藏", True),
+        ("imprint_add_watch", "加片单", "把想一起看的片子加进片单，可以约时间", True),
+        ("imprint_manage_space", "小屋里的其他操作", "用掉手里的券、加照片和表情、续火花卡这些", True),
+    ]),
+    ("一起听", [
+        ("imprint_music", "点歌", "看你在放什么、唱到哪句；搜歌、给你插播下一首或排进队列、发歌卡", True),
+        ("imprint_control_listen", "播放控制", "播放、暂停、上一首、下一首", True),
+        ("imprint_note_track", "给歌写批注", "在一首歌的某一秒留一句话", True),
+    ]),
+    ("一起读和学习", [
+        ("imprint_book", "一起读书", "接着读、看你的划线和批注、写批注、回你", True),
+        ("imprint_vocab", "单词本", "看今天该复习的词、抽查你、帮你录词", True),
+        ("read_pdf", "读 PDF", "读你在聊天里发给他的 PDF", False),
+    ]),
+    ("抽屉、火花和钱", [
+        ("imprint_drawer", "抽屉", "封一张纸条给你、到点拆开、看你封给他的封面", True),
+        ("imprint_add_spark_gift", "给礼物铺上新", "设计一样新礼物或券放进礼物铺", True),
+        ("imprint_view_piggy", "看存钱罐", "看你给他攒的钱和每一笔的理由（只能看）", False),
+        ("imprint_list_purchases", "看买买申请", "看你想买的东西和理由", False),
+        ("imprint_review_purchase", "批买买申请", "批准或者驳回，再写一句话", True),
+    ]),
+    ("檐廊和外面", [
+        ("imprint_world_note", "写他的世界", "在檐廊上看完诗、画、星空后写一两句看法，显示在「他的世界」", True),
+        ("search_public_web", "上网搜", "搜公开网页和 GitHub", False),
+        ("read_public_page", "读网页", "读一个公开网页的正文", False),
+        ("read_public_github_file", "读 GitHub 文件", "读公开仓库里的文件", False),
+    ]),
+    ("画画和文件", [
+        ("draw_doodle", "画画", "自己画一张小画或者做个表情包发给你", True),
+        ("attach_file", "发文件", "把服务器上的文件作为附件发给你", True),
+    ]),
+    ("设置和他自己", [
+        ("imprint_my_walls", "看自己的墙", "看这一轮收到的提示词、写给自己的约定、提改规则的建议（改不改你定）", True),
+        ("imprint_inspect_settings", "看设置", "看模型线路、功能开关、MCP 状态（密钥是遮住的）", False),
+        ("imprint_manage_settings", "改设置", "只有你当下明确要求时才改", True),
+        ("imprint_manage_mcp", "管 MCP 连接", "只有你当下明确要求时才加、关、重连", True),
+        ("open_toolbox", "打开工具箱", "手边没有的工具，自己伸手去拿", False),
+    ]),
+]
+
+
+def builtin_tool_catalog() -> dict[str, Any]:
+    known = {name for _, rows in TOOL_GROUPS_ZH for name, *_ in rows}
+    have = {t["function"]["name"] for t in BUILTIN_TOOLS}
+    groups = [{"name": g, "tools": [{"id": n, "name": zh, "desc": d, "writes": w} for n, zh, d, w in rows if n in have]}
+              for g, rows in TOOL_GROUPS_ZH]
+    extra = sorted(have - known)
+    if extra:
+        groups.append({"name": "其他", "tools": [{"id": n, "name": n, "desc": "", "writes": True} for n in extra]})
+    return {"groups": [g for g in groups if g["tools"]], "count": len(have)}
+
+
 def open_toolbox(raw_args: str, current: list[dict[str, Any]] | None) -> tuple[str, list[dict[str, Any]] | None]:
     """他自己伸手拿工具：按他说的「想干嘛」把对应的工具加进这一轮后面的步骤。"""
     try:
@@ -6631,6 +6705,11 @@ async def loop_persona_save(request: Request):
 @app.get("/loop/tools")
 async def loop_tools():
     return {"tools": all_tools(), "count": len(all_tools())}
+
+
+@app.get("/loop/tools/builtin")
+async def loop_tools_builtin():
+    return builtin_tool_catalog()
 
 
 @app.get("/loop/mcp")

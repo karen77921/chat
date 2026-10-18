@@ -106,6 +106,7 @@ const chats = {
       { id: 'c4t', from: 'him', type: 'thinking', thinking: 'The weather says light snow around 2am. She is probably still standing outside taking photos — remind her gently.', at: C('22:54') },
       { id: 'c4s', from: 'him', type: 'text', text: '先给你盖个章⟦气泡⟧[表情：paw]', at: C('22:54') },
       { id: 'c4m', from: 'him', type: 'text', text: '睡前听这个\n[歌：t2｜Gymnopédie No.1｜Satie]', at: C('22:54') },
+      { id: 'c4p', from: 'him', type: 'text', text: '帮你填好了，自己看一下再交。\n[申请草稿：d1a2b3c4d5｜【赠主食猫条1包】鸡肉鱼油固毛流心罐1盒｜50.9｜尾巴生活抖音旗舰店]', at: C('22:55') },
       { id: 'c5', from: 'him', type: 'text', text: '凌晨真的可能下雪。\n拍照又站在路中间了吧？', at: C('22:54'), replyOptions: ['才没有，我很小心的', '你管我～', '我把刚拍的那张发给你'] },
       { id: 'c6', from: 'me', type: 'text', text: '没有！站在路边的！', quote: { id: 'c5', from: 'him', text: '拍照又站在路中间了吧？' }, status: 'queued', at: C('22:57') },
       { id: 'c7', from: 'me', type: 'voice', voice: { url: '', durationS: 6, transcript: '周六的电影订好位置了，第七排中间' }, status: 'queued', at: C('22:58') },
@@ -552,6 +553,7 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     ]); return { available: true, names: { me: 'Lumi', him: 'Ash' }, balance: items.reduce((n, x) => n + x.delta, 0), items }; }
     case 'POST /api/piggy': { const it = { id: `p${Date.now()}`, delta: body.kind === 'take' ? -Number(body.amount) : Number(body.amount), reason: body.reason, by: 'me', at: new Date().toISOString() }; state.piggy.unshift(it); return it; }
     case 'GET /api/purchases': return { available: true, names: { me: 'Lumi', him: 'Ash' }, avatars: {}, items: state.purchases ?? (state.purchases = [
+      { id: 'd1a2b3c4d5', status: 'draft', drafted_by: 'him', category: '想买的东西', title: '【赠主食猫条1包】鸡肉鱼油固毛流心罐1盒', price: 50.9, channel: '尾巴生活抖音旗舰店', reason: '', draft_note: '截图里还没下单，我先帮你填好了', at: NOW, timeline: [] },
       { id: 'a1', no: '202610100001', category: '想买的东西', title: '冰淇淋', price: 5, reason: '我要吃冰淇淋 (>ᴗ<)', status: 'rejected', comment: '夫人这个太便宜，选一个贵的重新申请。', at: '2026-10-10T10:00:00+08:00',
         timeline: [{ at: '2026-10-10T10:00:00+08:00', kind: 'submit', by: 'me', text: '我要吃冰淇淋 (>ᴗ<)' }, { at: '2026-10-10T10:01:00+08:00', kind: 'reject', by: 'him', text: '夫人这个太便宜，选一个贵的重新申请。' }] },
       { id: 'a2', no: '202610090001', category: '想吃的', title: '火锅', price: 268, reason: '周五下班想吃', status: 'approved', comment: '批了，我请。', at: '2026-10-09T18:00:00+08:00',

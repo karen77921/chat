@@ -451,9 +451,12 @@ async function compat(path, opts) {
   if (method === 'DELETE' && (m = /^\/api\/piggy\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/piggy/${m[1]}`, { method: 'DELETE' });
   if (method === 'GET' && p === '/api/purchases') {
     const [list, settings] = await Promise.all([loop('imprint/purchases'), loop('imprint/settings').catch(() => ({}))]);
-    return { ...list, avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) } };
+    const items = (list.items || []).map((x) => (x.image ? { ...x, imageUrl: attachmentUrl({ url: x.image }) } : x));
+    return { ...list, items, avatars: { me: attachmentUrl({ url: settings.avatars?.me }), him: attachmentUrl({ url: settings.avatars?.him }) } };
   }
   if (method === 'POST' && p === '/api/purchases') return loop('purchases', opts);
+  if (method === 'POST' && (m = /^\/api\/purchases\/([0-9a-f]+)\/submit$/.exec(p))) return loop(`purchases/${m[1]}/submit`, opts);
+  if (method === 'POST' && (m = /^\/api\/purchases\/([0-9a-f]+)\/discard$/.exec(p))) return loop(`imprint/purchases/${m[1]}/discard`, { method: 'POST' });
   if (method === 'POST' && (m = /^\/api\/purchases\/([0-9a-f]+)\/(withdraw|review)$/.exec(p))) {
     return m[2] === 'withdraw' ? loop(`imprint/purchases/${m[1]}/withdraw`, { method: 'POST' }) : loop(`purchases/${m[1]}/review`, { method: 'POST', timeout: 150000 });
   }

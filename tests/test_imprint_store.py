@@ -229,6 +229,29 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(len(listed), cat["count"])
         self.assertEqual(len(listed), len(set(listed)))
 
+    def test_he_drafts_a_purchase_from_her_screenshot(self):
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        with sqlite3.connect(self.relay) as conn:
+            conn.execute("INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                         (now, "in", "user", "", json.dumps({"attachments": [{"url": "/uploads/shot.jpg", "mime": "image/jpeg"}]})))
+        got = imprint_action(self.store, "purchase_draft", {"title": "猫罐头三盒", "price": 50.9, "channel": "尾巴生活旗舰店"}, self.relay)
+        draft = got["draft"]
+        self.assertEqual((draft["status"], draft["image"], draft["drafted_by"]), ("draft", "/uploads/shot.jpg", "him"))
+        self.assertEqual(got["card"], f"[申请草稿：{draft['id']}｜猫罐头三盒｜50.9｜尾巴生活旗舰店]")
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "purchase_review", {"id": draft["id"], "decision": "approve"})  # 草稿他不能批
+        done = imprint_action(self.store, "purchase_submit", {"id": draft["id"], "reason": "家里罐头堆成山了但还是想要", "when": "本周"})
+        self.assertEqual((done["status"], done["when"], done["timeline"][0]["kind"]), ("pending", "本周", "submit"))
+        self.assertTrue(done["no"])
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "purchase_submit", {"id": draft["id"]})  # 交过就不能再交
+        other = imprint_action(self.store, "purchase_draft", {"title": "x", "price": 1, "use_last_image": False}, self.relay)["draft"]
+        self.assertEqual(other["image"], "") if "image" in other else None
+        self.call("POST", "/purchases/{rec_id}/discard", other["id"])
+        self.assertEqual([x["id"] for x in self.call("GET", "/purchases")["items"]], [draft["id"]])
+        with self.assertRaises(ValueError):
+            imprint_action(self.store, "purchase_create", {"title": "y", "price": 1, "image": "javascript:x"})
+
     def test_coupons_know_who_holds_them_and_get_used_once(self):
         gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))
         self.assertEqual(gift["art"], "coupon")

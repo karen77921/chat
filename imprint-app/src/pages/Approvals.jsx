@@ -1,18 +1,21 @@
 /**
  * 买买申请：她交申请（想要什么、多少钱、为什么），他自己审批，盖章、写回应，每一步都进审批轨迹。
  * 网址：#/approvals   ?id=xxx 看某一张
- * 数据：GET /api/purchases、POST /api/purchases、POST /api/purchases/:id/withdraw|review
+ * 他也能从她发的购物截图起草一张（status: draft），她在这里看过、改好再交：?draft=xxx 直接打开那张草稿。
+ * 数据：GET /api/purchases、POST /api/purchases、POST /api/purchases/:id/withdraw|review|submit|discard
  */
 import { useEffect, useState } from 'react';
 import Icon from '../design/icons.jsx';
 import Sheet from '../design/Sheet.jsx';
 import AuthImg from '../design/AuthImg.jsx';
-import { api } from '../lib/api.js';
+import { api, uploadFile } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
+import { shrinkImage } from '../lib/image.js';
 import { ago } from '../lib/home.js';
 import '../components/approvals/approvals.css';
 
 const CATEGORIES = ['想买的东西', '想吃的', '想玩的', '其他'];
+const WHEN = ['今天', '本周', '这个月', '不急'];
 const STAMP = { pending: ['审批中', 'wait'], approved: ['通过', 'ok'], rejected: ['不通过', 'no'], withdrawn: ['已撤回', 'off'] };
 const STEP = { submit: '发起申请', approve: '通过', reject: '暂不通过', withdraw: '撤回申请' };
 const BANNER = {
@@ -41,6 +44,13 @@ export default function Approvals({ query }) {
   const [note, setNote] = useState('');
   const items = data?.items || [];
   const open = query.id ? items.find((x) => x.id === query.id) : null;
+  const drafts = items.filter((x) => x.status === 'draft');
+  const fromDraft = (x) => ({ draftId: x.id, category: x.category, title: x.title, price: String(x.price), reason: x.reason || '', channel: x.channel || '', when: x.when || '', image: x.image || '', imageUrl: x.imageUrl || '', note: x.draft_note || '' });
+  // 聊天里点「查看并提交」过来：直接打开那张草稿
+  useEffect(() => {
+    const d = query.draft && items.find((x) => x.id === query.draft && x.status === 'draft');
+    if (d) { setForm(fromDraft(d)); location.hash = '#/approvals'; }
+  }, [query.draft, data]); // eslint-disable-line react-hooks/exhaustive-deps
   const waiting = items.some((x) => x.status === 'pending');
   const now = new Date();
 
@@ -55,8 +65,9 @@ export default function Approvals({ query }) {
   const submit = async () => {
     setBusy('submit'); setNote('');
     try {
-      const item = await api('/api/purchases', { method: 'POST', body: { ...form, price: Number(form.price) } });
-      setData((d) => ({ ...d, items: [item, ...(d?.items || [])] }));
+      const { draftId, imageUrl, note: _n, ...body } = form;
+      const item = await api(draftId ? `/api/purchases/${draftId}/submit` : '/api/purchases', { method: 'POST', body: { ...body, price: Number(form.price) } });
+      await reload();
       setForm(null); go(item.id);
     } catch (e) { setNote(e?.message || '没交上，再试一次'); }
     setBusy('');
@@ -72,7 +83,24 @@ export default function Approvals({ query }) {
 
   const names = data?.names || { me: '我', him: '他' };
   const avatars = data?.avatars || {};
-  const shown = filter ? items.filter((x) => x.status === filter) : items;
+  const listed = items.filter((x) => x.status !== 'draft');
+  const shown = filter ? listed.filter((x) => x.status === filter) : listed;
+  const discard = async (x) => {
+    setBusy(`discard-${x.id}`);
+    try { await api(`/api/purchases/${x.id}/discard`, { method: 'POST' }); setData((d) => ({ ...d, items: d.items.filter((y) => y.id !== x.id) })); }
+    catch (e) { setNote(e?.message || '没丢掉'); }
+    setBusy('');
+  };
+  const pickImage = async (file) => {
+    if (!file) return;
+    setBusy('image'); setNote('');
+    try {
+      const small = await shrinkImage(file);
+      const up = await uploadFile(small);
+      setForm((f) => ({ ...f, image: up.url, imageUrl: URL.createObjectURL(small) }));
+    } catch (e) { setNote(e?.message || '图没传上'); }
+    setBusy('');
+  };
 
   return (
     <main className="ap">
@@ -88,10 +116,25 @@ export default function Approvals({ query }) {
       {open ? (
         <Detail item={open} names={names} avatars={avatars} now={now} busy={busy} note={note}
           onWithdraw={() => act('withdraw', open)} onReview={() => act('review', open)}
-          onRedo={() => setForm({ category: open.category, title: open.title, price: String(open.price), reason: open.reason })} />
+          onRedo={() => setForm({ category: open.category, title: open.title, price: String(open.price), reason: open.reason, channel: open.channel || '', when: open.when || '', image: open.image || '', imageUrl: open.imageUrl || '' })} />
       ) : data && (
         <>
-          <button type="button" className="btn-main ap-new" onClick={() => setForm({ category: CATEGORIES[0], title: '', price: '', reason: '' })}>
+          {!!drafts.length && (
+            <section className="ap-drafts">
+              <h3>{names.him}帮你起草的 · {drafts.length}</h3>
+              {drafts.map((x) => (
+                <div key={x.id} className="card ap-draft">
+                  {x.imageUrl && <img src={x.imageUrl} alt="" />}
+                  <span className="ap-row-t"><b>{x.title}</b><small>{money(x.price)}{x.channel ? ` · ${x.channel}` : ''}</small></span>
+                  <span className="ap-draft-a">
+                    <button type="button" className="chip on" onClick={() => setForm(fromDraft(x))}>查看并提交</button>
+                    <button type="button" className="chip" disabled={busy === `discard-${x.id}`} onClick={() => discard(x)}>不要了</button>
+                  </span>
+                </div>
+              ))}
+            </section>
+          )}
+          <button type="button" className="btn-main ap-new" onClick={() => setForm({ category: CATEGORIES[0], title: '', price: '', reason: '', channel: '', when: '', image: '' })}>
             <Icon name="plus" size={15} />交一张申请
           </button>
           <div className="ap-filters" role="tablist" aria-label="筛选">
@@ -112,12 +155,25 @@ export default function Approvals({ query }) {
       {form && (
         <Sheet open onClose={() => setForm(null)} label="交一张申请" seed={61}>
           <div className="ap-form">
-            <h3>交一张申请</h3>
+            <h3>{form.draftId ? `${names.him}帮你起草的申请` : '交一张申请'}</h3>
+            {form.draftId && <p className="ap-tip">看一眼对不对，改好再交；交上去他就开始审。{form.note ? `他说：${form.note}` : ''}</p>}
             <div className="ap-cats" role="radiogroup" aria-label="类别">
               {CATEGORIES.map((c) => <button key={c} type="button" role="radio" aria-checked={form.category === c} className={`chip ${form.category === c ? 'on' : ''}`} onClick={() => setForm({ ...form, category: c })}>{c}</button>)}
             </div>
             <label className="pill"><span>想要</span><input value={form.title} maxLength={40} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="比如：冰淇淋" /></label>
             <label className="pill"><span>价格</span><input value={form.price} inputMode="decimal" onChange={(e) => setForm({ ...form, price: e.target.value.replace(/[^\d.]/g, '') })} placeholder="¥" /></label>
+            <label className="pill"><span>店铺</span><input value={form.channel || ''} maxLength={40} onChange={(e) => setForm({ ...form, channel: e.target.value })} placeholder="店铺 / 平台（可以不填）" /></label>
+            <div className="ap-cats" role="radiogroup" aria-label="想什么时候买">
+              <span className="ap-k">什么时候买</span>
+              {WHEN.map((w) => <button key={w} type="button" role="radio" aria-checked={form.when === w} className={`chip ${form.when === w ? 'on' : ''}`} onClick={() => setForm({ ...form, when: form.when === w ? '' : w })}>{w}</button>)}
+            </div>
+            <div className="ap-img">
+              {form.imageUrl ? <img src={form.imageUrl} alt="商品图" /> : null}
+              <label className="chip">{busy === 'image' ? '传图中…' : form.image ? '换一张图' : '＋ 商品图 / 截图'}
+                <input type="file" accept="image/*" hidden onChange={(e) => { pickImage(e.target.files?.[0]); e.target.value = ''; }} />
+              </label>
+              {form.image && <button type="button" className="chip" onClick={() => setForm({ ...form, image: '', imageUrl: '' })}>去掉图</button>}
+            </div>
             <textarea className="card ap-reason" value={form.reason} maxLength={500} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="申请说明：为什么想要～" />
             {note && <p className="ap-note">{note}</p>}
             <button type="button" className="btn-main" disabled={busy === 'submit' || !form.title.trim() || form.price === ''} onClick={submit}>{busy === 'submit' ? '交上去…' : '交给他审批'}</button>
@@ -138,6 +194,8 @@ function Detail({ item, names, avatars, now, busy, note, onWithdraw, onReview, o
           <Stamp status={item.status} />
         </div>
         <div className="ap-price">{money(item.price)}</div>
+        {(item.channel || item.when) && <div className="ap-facts">{item.channel && <span>在 {item.channel}</span>}{item.when && <span>想{item.when === '不急' ? '慢慢' : item.when}买</span>}</div>}
+        {item.imageUrl && <img className="ap-pic" src={item.imageUrl} alt="商品图" />}
         <hr />
         <h3>申请说明</h3>
         <p className="ap-text">{item.reason || '（没写说明）'}</p>

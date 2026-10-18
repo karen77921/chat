@@ -2155,9 +2155,82 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                              (json.dumps(payload, ensure_ascii=False), item["id"]))
                 return item
 
+            def extras(item: dict, src: dict) -> dict:
+                """购买渠道、想什么时候买、商品图：都是可选的。"""
+                for key, n in (("channel", 40), ("when", 20)):
+                    if key in src:
+                        item[key] = str(src.get(key) or "").strip()[:n]
+                if "image" in src:
+                    url = str(src.get("image") or "").strip()
+                    if url and not (url.startswith("/") or url.startswith("https://")) or len(url) > 2048:
+                        raise ValueError("图片地址不对")
+                    item["image"] = url
+                return item
+
+            def last_her_image() -> str:
+                """她最近两小时在聊天里发的最后一张图（多半就是购物截图）。"""
+                if not relay_path or not relay_path.exists():
+                    return ""
+                with contextlib.suppress(Exception), sqlite3.connect(str(relay_path), timeout=10) as relay:
+                    for ts, meta in relay.execute("SELECT ts, meta FROM messages WHERE direction='in' ORDER BY id DESC LIMIT 40"):
+                        info = json.loads(meta or "{}")
+                        for att in reversed(info.get("attachments") or []):
+                            if str((att or {}).get("mime") or "").startswith("image/") and att.get("url"):
+                                when = dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                                if when.tzinfo is None:
+                                    when = when.replace(tzinfo=dt.timezone.utc)
+                                fresh = dt.datetime.now(dt.timezone.utc) - when < dt.timedelta(hours=2)
+                                return str(att["url"]) if fresh else ""
+                return ""
+
             if action == "purchase_list":
                 rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='purchase' ORDER BY at DESC LIMIT 200").fetchall()
                 return {"items": [{**json.loads(r["payload"]), "id": r["id"], "at": r["at"]} for r in rows]}
+            if action == "purchase_draft":
+                # 他帮她起草：从她发的购物截图里认出商品、价格、店铺，留一张草稿，她看过、改过再自己交
+                title = str(body.get("title") or "").strip()[:40]
+                try:
+                    price = round(float(body.get("price")), 2)
+                except (TypeError, ValueError):
+                    raise ValueError("价格要填数字")
+                if not title or not (0 <= price <= 10_000_000):
+                    raise ValueError("草稿要有商品名（40 字内）和合理的价格")
+                item = extras({"category": str(body.get("category") or "想买的东西").strip()[:12], "title": title, "price": price,
+                               "reason": "", "status": "draft", "by": "me", "drafted_by": "him",
+                               "draft_note": str(body.get("note") or "").strip()[:200], "timeline": []}, body)
+                if not item.get("image") and body.get("use_last_image", True):
+                    item["image"] = last_her_image()
+                made = add("purchase", item)
+                clean = lambda v: re.sub(r"[｜\]\n]", " ", str(v or "")).strip()
+                return {"draft": made, "card": f"[申请草稿：{made['id']}｜{clean(title)}｜{price:g}｜{clean(item.get('channel'))}]",
+                        "how": "把 card 这一行原样单独放进回复里，她那边是一张「查看并提交」的卡片；交不交、怎么改由她。"}
+            if action == "purchase_submit":
+                # 她把草稿看过、改好，正式交上来
+                item = load(body.get("id"))
+                if item.get("status") != "draft":
+                    raise ValueError("这张已经交过了")
+                title = str(body.get("title", item.get("title")) or "").strip()
+                reason = str(body.get("reason", item.get("reason")) or "").strip()
+                try:
+                    price = round(float(body.get("price", item.get("price"))), 2)
+                except (TypeError, ValueError):
+                    raise ValueError("价格要填数字")
+                if not title or len(title) > 40 or len(reason) > 500 or not (0 <= price <= 10_000_000):
+                    raise ValueError("想要的东西 1–40 字，说明不超过 500 字，价格要合理")
+                count = conn.execute("SELECT COUNT(*) FROM records WHERE kind='purchase' AND json_extract(payload, '$.no') IS NOT NULL").fetchone()[0]
+                now = iso_now()
+                item.update({"title": title, "reason": reason, "price": price, "status": "pending",
+                             "category": str(body.get("category", item.get("category")) or "想买的东西").strip()[:12],
+                             "no": dt.datetime.now(ZONE).strftime("%Y%m%d") + f"{count + 1:04d}",
+                             "timeline": [{"at": now, "kind": "submit", "by": "me", "text": reason}]})
+                extras(item, body)
+                return store(item)
+            if action == "purchase_discard":
+                item = load(body.get("id"))
+                if item.get("status") != "draft":
+                    raise ValueError("只能丢掉还没交的草稿")
+                conn.execute("DELETE FROM records WHERE kind='purchase' AND id=?", (item["id"],))
+                return {"ok": True}
             if action == "purchase_create":
                 title = str(body.get("title") or "").strip()
                 reason = str(body.get("reason") or "").strip()
@@ -2171,9 +2244,9 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 now = iso_now()
                 count = conn.execute("SELECT COUNT(*) FROM records WHERE kind='purchase'").fetchone()[0]
                 number = dt.datetime.now(ZONE).strftime("%Y%m%d") + f"{count + 1:04d}"
-                return add("purchase", {"no": number, "category": category, "title": title, "price": price, "reason": reason,
-                                        "status": "pending", "by": "me",
-                                        "timeline": [{"at": now, "kind": "submit", "by": "me", "text": reason}]})
+                return add("purchase", extras({"no": number, "category": category, "title": title, "price": price, "reason": reason,
+                                               "status": "pending", "by": "me",
+                                               "timeline": [{"at": now, "kind": "submit", "by": "me", "text": reason}]}, body))
             if action == "purchase_review":
                 item = load(body.get("id"))
                 decision = str(body.get("decision") or "").strip().lower()
@@ -2182,6 +2255,8 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                     raise ValueError("decision 只能是 approve 或 reject")
                 if item.get("status") == "withdrawn":
                     raise ValueError("她已经撤回了这张申请")
+                if item.get("status") == "draft":
+                    raise ValueError("这还是草稿，她还没交")
                 item["status"] = "approved" if decision == "approve" else "rejected"
                 item["comment"] = comment
                 item["timeline"] = [*item.get("timeline", []), {"at": iso_now(), "kind": decision, "by": "him", "text": comment}]
@@ -2998,6 +3073,13 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.get("/purchases")
     def purchases():
         return {"available": True, "names": public_names(), **imprint_action(data_path, "purchase_list")}
+
+    @router.post("/purchases/{rec_id}/discard")
+    def purchase_discard(rec_id: str):
+        try:
+            return imprint_action(data_path, "purchase_discard", {"id": rec_id})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @router.post("/purchases/{rec_id}/withdraw")
     def purchase_withdraw(rec_id: str):

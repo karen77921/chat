@@ -3609,6 +3609,24 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_draft_purchase",
+        "description": "Fill a 买买申请 draft for her from a shopping screenshot or link she sent: product name, price, shop/channel. "
+                       "Her latest image in chat is attached as the product picture automatically. It stays a draft until she "
+                       "reviews and submits it herself; put the returned card line alone in your reply. Only when she asks or "
+                       "clearly wants to apply; never submit or approve it yourself.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"}, "price": {"type": "number"}, "channel": {"type": "string"},
+                "category": {"type": "string", "enum": ["想买的东西", "想吃的", "想玩的", "其他"]},
+                "when": {"type": "string"}, "note": {"type": "string"},
+            },
+            "required": ["title", "price"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_world_note",
         "description": "Write your own thought under something you just looked at on the engawa (poem, painting, sky, article). "
                        "It shows under that card in 他的世界, her page of what you have seen. One or two honest sentences in Chinese; "
@@ -3764,6 +3782,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         add_builtin("imprint_view_piggy")
     if any(word in query for word in ("申请", "审批", "批准", "批一下", "批了", "想买", "买买")):
         add_builtin("imprint_list_purchases", "imprint_review_purchase")
+    if any(word in query for word in ("申请", "想买", "买买", "截图", "下单", "购物", "付款", "淘宝", "抖音", "拼多多", "京东", "草稿")):
+        add_builtin("imprint_draft_purchase")
     if any(word in query for word in ("画", "涂鸦", "表情包", "贴纸", "doodle", "draw", "sketch")):
         add_builtin("draw_doodle")
     if any(word in query for word in ("pdf", "PDF", "文档", "论文", "讲义", "课件", "read_pdf")):
@@ -3943,6 +3963,7 @@ TOOL_GROUPS_ZH = [
         ("imprint_view_piggy", "看存钱罐", "看你给他攒的钱和每一笔的理由（只能看）", False),
         ("imprint_list_purchases", "看买买申请", "看你想买的东西和理由", False),
         ("imprint_review_purchase", "批买买申请", "批准或者驳回，再写一句话", True),
+        ("imprint_draft_purchase", "帮你起草申请", "你发购物截图，他帮你把商品、价格、店铺填成一张草稿，交不交你决定", True),
     ]),
     ("檐廊和外面", [
         ("imprint_world_note", "写他的世界", "在檐廊上看完诗、画、星空后写一两句看法，显示在「他的世界」", True),
@@ -4241,6 +4262,7 @@ class Turn:
             "imprint_note_track": "note_track",
             "imprint_music": "music_him",
             "imprint_world_note": "world_note",
+            "imprint_draft_purchase": "purchase_draft",
             "imprint_add_spark_gift": "add_gift",
             "imprint_manage_space": "manage_space",
             "imprint_update_tide": "set_tide",
@@ -6386,6 +6408,10 @@ async def review_purchase(item: dict[str, Any]) -> None:
             {"role": "user", "content": (
                 "（这不是她发来的消息。）她在 Imprint 的「买买申请」里给你交了一张申请，等你审批：\n"
                 f"类别：{item.get('category')}\n想要：{item.get('title')}\n价格：¥{item.get('price'):g}\n她的说明：{item.get('reason') or '（没写）'}\n"
+                + (f"在哪买：{item['channel']}\n" if item.get("channel") else "")
+                + (f"想什么时候买：{item['when']}\n" if item.get("when") else "")
+                + ("她附了一张商品图。\n" if item.get("image") else "")
+                + ("（这张是你帮她起草、她改过以后交的。）\n" if item.get("drafted_by") == "him" else "")
                 + (f"\n她以前的申请：\n{past}\n" if past else "")
                 + (f"\n你们今天的聊天：\n{recent}\n" if recent else "")
                 + "\n用你自己的判断和口吻来审：可以爽快批，也可以逗她、提条件、让她重新申请。"
@@ -6416,6 +6442,19 @@ async def loop_purchase_create(request: Request):
     body = await request.json()
     try:
         item = imprint_action(LOOP_CACHE_DIR / "imprint.db", "purchase_create", body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    task = asyncio.create_task(review_purchase(item), name=f"purchase:{item['id']}")
+    _purchase_tasks.add(task)
+    task.add_done_callback(_purchase_tasks.discard)
+    return item
+
+
+@app.post("/loop/purchases/{rec_id}/submit")
+async def loop_purchase_submit(rec_id: str, request: Request):
+    """她把他起草的草稿看过、改好，正式交上来：和新申请一样，交了就让他审。"""
+    try:
+        item = imprint_action(LOOP_CACHE_DIR / "imprint.db", "purchase_submit", {**(await request.json()), "id": rec_id})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     task = asyncio.create_task(review_purchase(item), name=f"purchase:{item['id']}")

@@ -250,3 +250,9 @@ svg.up { transform: rotate(180deg); }
 .cm-song-t b { font-weight: 500; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cm-song-t em { font-style: normal; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cm-song-k { font-size: 10px; color: var(--accent); letter-spacing: 0.08em; }
+.cm-draft { display: grid; gap: 4px; width: 250px; max-width: 100%; padding: 12px 14px; border-radius: 18px; text-decoration: none; color: var(--ink); }
+.cm-draft-k { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.cm-draft b { font-weight: 500; font-size: 14px; line-height: 1.45; }
+.cm-draft-m { font-size: 12px; color: var(--muted); }
+.cm-draft-go { justify-self: start; margin-top: 6px; padding: 6px 14px; border-radius: 14px; font-size: 12.5px; color: #fff; background: var(--accent); }
+.cm-draft em { font-style: normal; font-size: 10.5px; color: var(--muted); }

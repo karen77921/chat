@@ -57,7 +57,7 @@ function Text({ text, q }) {
 // 他发的歌卡：[歌：曲目id｜歌名｜歌手]，单独一行；点一下就在一起听里放
 const SONG = /\[歌：([^｜\]\n]+)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
 const songsIn = (text) => [...String(text || '').matchAll(SONG)].map((m) => ({ id: m[1].trim(), title: m[2].trim(), artist: m[3].trim() }));
-const withoutSongs = (text) => String(text || '').replace(SONG, '').replace(/\n{3,}/g, '\n\n').trim();
+const withoutSongs = (text) => String(text || '').replace(SONG, '').replace(/\[申请草稿：[^\]\n]*\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
 
 function SongCard({ song }) {
   const L = useListen();
@@ -74,6 +74,22 @@ function SongCard({ song }) {
       <span className="cm-song-i"><Icon name={playing ? 'pause' : 'play'} size={18} stroke={2} /></span>
       <span className="cm-song-t"><span className="cm-song-k">{L?.state?.names?.him || '他'} 点的歌</span><b>{song.title}</b><em>{state || `${song.artist} · ${playing ? '正在放，点开一起听' : '点一下放'}`}</em></span>
     </button>
+  );
+}
+
+// 他起草的买买申请：[申请草稿：id｜商品｜价格｜店铺]，点开去审批页看、改、交
+const DRAFT = /\[申请草稿：([0-9a-f]{8,40})｜([^｜\]\n]*)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
+const draftsIn = (text) => [...String(text || '').matchAll(DRAFT)].map((m) => ({ id: m[1], title: m[2].trim(), price: m[3].trim(), channel: m[4].trim() }));
+
+function DraftCard({ d }) {
+  return (
+    <a className="cm-draft glass" href={`#/approvals?draft=${d.id}`} onClick={(e) => e.stopPropagation()}>
+      <span className="cm-draft-k"><Icon name="gift" size={14} stroke={1.5} />申请购买草稿</span>
+      <b>{d.title}</b>
+      <span className="cm-draft-m">¥ {d.price}{d.channel ? ` · ${d.channel}` : ''}</span>
+      <span className="cm-draft-go">查看并提交</span>
+      <em>草稿还没提交，可以改了再决定</em>
+    </a>
   );
 }
 
@@ -211,7 +227,7 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
             <div key={index} className="cm-sticker"><Sticker sticker={{ id: stickerToken(part) }} size={88} /></div>
           ) : (
             <Fragment key={index}>
-              {(withoutSongs(part) || (index === 0 && m.quote) || !songsIn(part).length) && (
+              {(withoutSongs(part) || (index === 0 && m.quote) || !(songsIn(part).length || draftsIn(part).length)) && (
                 <div data-part={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
                   {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
                   <Text text={withoutSongs(part)} q={q} />
@@ -219,6 +235,7 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
                 </div>
               )}
               {songsIn(part).map((song) => <SongCard key={song.id} song={song} />)}
+              {draftsIn(part).map((d) => <DraftCard key={d.id} d={d} />)}
             </Fragment>
           )))}
         </div>

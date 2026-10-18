@@ -325,7 +325,9 @@ function Reader({ id, chParam, paraParam }) {
   const vp = useRef(null), cols = useRef(null);
   const anchor = useRef(0);
   const touch = useRef(null);
-  const paged = prefs.mode !== 'scroll';
+  // 这一章真排不了左右翻页时临时上下滑；只管这一章，不改她存的设置
+  const [fallback, setFallback] = useState(false);
+  const paged = prefs.mode !== 'scroll' && !fallback;
 
   const say = (t) => { setToast(t); setTimeout(() => setToast(''), 2200); };
   const load = useCallback((which) => api(`/api/books/${id}/ch/${which}`).then((d) => { setData(d); return d; }), [id]);
@@ -360,9 +362,11 @@ function Reader({ id, chParam, paraParam }) {
     setSlide(false);
     const el = cols.current;
     if (el && el.scrollHeight > el.clientHeight + 24) {
-      // 这台手机没把一章排成一栏一栏（字被截在底下了）：换成上下滑，至少一个字都不会漏
-      setPrefs((x) => ({ ...x, mode: 'scroll' }));
-      say('这台手机排不了左右翻页，先换成上下滑了');
+      // 这台手机没把一章排成一栏一栏（字被截在底下了）：换成上下滑，至少一个字都不会漏。
+      // 刚打开时字体和排版还没稳，量出来常常是错的：等排好（ready）那一次还这样才换，而且只换这一章
+      if (!ready.current) return;
+      setFallback(true);
+      say('这一章排不了左右翻页，先上下滑着读（你的设置没改）');
       return;
     }
     const n = measure();
@@ -374,7 +378,7 @@ function Reader({ id, chParam, paraParam }) {
   useEffect(() => { api('/api/books').then((d) => d?.names && setNames(d.names)).catch(() => {}); }, []);
   useEffect(() => {
     ready.current = false;
-    setData(null); setPick(null);
+    setData(null); setPick(null); setFallback(false);
     load(ch).then((d) => {
       if (ch < 0) { setCh(d.ch); return; }
       const me = d.book.progress.me;
@@ -392,7 +396,7 @@ function Reader({ id, chParam, paraParam }) {
     const on = () => settle(anchor.current);
     addEventListener('resize', on);
     return () => { cancelAnimationFrame(id2); removeEventListener('resize', on); };
-  }, [prefs.size, prefs.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [prefs.size, prefs.mode, fallback]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 字体晚到、地址栏收起导致页面高度变了：重新排一次页，停在原来那段
   useEffect(() => {
@@ -588,7 +592,7 @@ function Reader({ id, chParam, paraParam }) {
             <button type="button" disabled={prefs.size === 0} onClick={() => setPrefs((p) => ({ ...p, size: p.size - 1 }))}>A−</button>
             <button type="button" disabled={prefs.size === SIZES.length - 1} onClick={() => setPrefs((p) => ({ ...p, size: p.size + 1 }))}>A+</button></div>
           <div className="st-aa-row"><span>翻书</span>
-            <button type="button" className={paged ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, mode: 'page' }))}>左右翻</button>
+            <button type="button" className={paged ? 'on' : ''} onClick={() => { setFallback(false); setPrefs((p) => ({ ...p, mode: 'page' })); }}>左右翻</button>
             <button type="button" className={!paged ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, mode: 'scroll' }))}>上下滑</button></div>
           <div className="st-aa-row"><span>夜读</span><button type="button" className={prefs.night ? 'on' : ''} onClick={() => setPrefs((p) => ({ ...p, night: !p.night }))}>{prefs.night ? '开' : '关'}</button></div>
           <button type="button" className="st-aa-toc" onClick={() => { setAa(false); setToc(true); }}>目录 · {data?.toc?.length || 0} 章</button>

@@ -8,13 +8,12 @@
 import { useEffect, useState } from 'react';
 import Icon from '../../design/icons.jsx';
 import Sheet from '../../design/Sheet.jsx';
-import AuthImg from '../../design/AuthImg.jsx';
 import { api } from '../../lib/api.js';
 import { useLoad } from '../../lib/useLoad.js';
 import { useListen } from '../../lib/listen.jsx';
 import { daysTogether, ago, clock } from '../../lib/home.js';
-import mochiHim from '../../assets/mochi-him.png';
-import mochiHer from '../../assets/mochi-her.png';
+import laceBow from '../../design/ballet/lace-bow.png';
+import laceBowPink from '../../design/ballet/lace-bow-pink.png';
 import './home-main.css';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -58,29 +57,10 @@ function groupActivity(list) {
   return out;
 }
 
-function Face({ src, label }) {
-  return (
-    <a href="#/settings?p=beauty" className="hm-face" aria-label={`${label}的头像，去换头像`}>
-      {src ? <AuthImg src={src} alt="" /> : <span>{label?.[0] || '·'}</span>}
-    </a>
-  );
-}
-
-/* 两只年糕：平时轻轻呼吸、晃一晃；点一下会被捏扁再弹回来 */
-function Mochi() {
-  const [poke, setPoke] = useState('');
-  const tap = (who) => { setPoke(''); requestAnimationFrame(() => setPoke(who)); };
-  return (
-    <div className="hm-mochi" aria-hidden="true">
-      <img src={mochiHim} alt="" className={`m-him ${poke === 'him' ? 'poke' : ''}`} onClick={() => tap('him')} onAnimationEnd={() => setPoke('')} draggable="false" />
-      <img src={mochiHer} alt="" className={`m-her ${poke === 'her' ? 'poke' : ''}`} onClick={() => tap('her')} onAnimationEnd={() => setPoke('')} draggable="false" />
-    </div>
-  );
-}
-
 export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, onNamesSaved }) {
   const names = d?.names || { me: '', him: '' };
   const days = daysTogether(d?.together, now);
+  const since = d?.together?.since ? d.together.since.slice(5).replace('-', '.') : '';
   const whisper = useLoad('/api/home/whisper');
   const plans = useLoad('/api/home/plans');
   const [asking, setAsking] = useState(false);
@@ -102,36 +82,53 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
   };
 
   return (
-    <main className="home hm">
-      {/* 头像 · 他 × 她 · 头像 */}
-      <header className="hm-top">
-        <button type="button" className="hm-bell" aria-label={unread ? `他的动态，${unread} 条没看` : '他的动态'}
-          onClick={() => latelyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
-          <Icon name="bell" size={18} stroke={1.3} />{unread > 0 && <i className="dot" />}
+    <main className="home hm ballet">
+      {/* 芭蕾 · 缎面 · 蕾丝：明信片版 */}
+      <div className="bl-lace top" aria-hidden="true" />
+      <button type="button" className="bl-bell" aria-label={unread ? `他的动态，${unread} 条没看` : '他的动态'}
+        onClick={() => latelyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+        <Icon name="bell" size={17} stroke={1.3} />{unread > 0 && <i className="dot" />}
+      </button>
+      <header className="bl-head">
+        <p className="bl-date">{now.getMonth() + 1}月{now.getDate()}日 周{'日一二三四五六'[now.getDay()]}{days != null ? ` · 在一起第 ${days} 天` : ''}</p>
+        <h1 className="bl-title">Ballet in silk and satin</h1>
+        <button type="button" className="bl-names" onClick={() => setNaming(true)} aria-label="改昵称">
+          <span>{names.him || '他'}</span><i /><span>{names.me || '我'}</span>
         </button>
-        <div className="hm-pair">
-          <Face src={d?.avatars?.him} label={names.him} />
-          <button type="button" className="hm-names" onClick={() => setNaming(true)} aria-label="改昵称">
-            <span>{names.him || ' '}</span><em>×</em><span>{names.me}</span>
-          </button>
-          <Face src={d?.avatars?.me} label={names.me} />
-        </div>
-        <p className="hm-days">在一起 <b>{days ?? '—'}</b> 天</p>
       </header>
 
       {data?.available === false && <div className="card hm-pad muted">暂时连不上他那边，过一会儿再来看看。</div>}
       {!data && <div className="card hm-skeleton" aria-label="加载中" />}
 
-      {/* 他此刻想说的话，年糕坐在卡片上 */}
-      <section className="hm-say-wrap">
-        <Mochi />
-        <div className="card hm-say">
-          <span className="hm-k">他想对你说</span>
-          <p className={asking ? 'fading' : ''}>{whisper.data?.text || (whisper.data ? '他还在想…' : '…')}</p>
-          <div className="hm-say-f">
-            <span>{whisper.data?.at ? ago(whisper.data.at, now) : ''}</span>
-            <button type="button" onClick={another} disabled={asking}><Icon name="sync" size={13} stroke={1.5} />{asking ? '他在想…' : '换一句'}</button>
+      <section className="bl-stamp-wrap" aria-label={days != null ? `在一起第 ${days} 天` : '在一起的天数'}>
+        <div className="bl-stamp">
+          <div className="bl-stamp-in">
+            <span className="bl-stamp-k">BALLET MEMOIR</span>
+            <img src={laceBow} alt="" className="bl-stamp-bow" />
+            <b className="bl-stamp-n">{days ?? '—'}</b>
+            <em className="bl-stamp-d">days together</em>
+            <span className="bl-stamp-no">N° {days ?? '—'}</span>
           </div>
+        </div>
+      </section>
+
+      <p className="bl-poem">Ballet is the poetry of movement<br />and the music of the soul.</p>
+
+      <section className="bl-card" aria-label="他想对你说">
+        <img src={laceBowPink} alt="" className="bl-card-bow" />
+        <div className="bl-card-h">
+          <div><div className="bl-card-t">Post Card</div><div className="bl-card-k">他想对你说</div></div>
+          <div className="bl-mark" aria-hidden="true">
+            <svg width="46" height="22" viewBox="0 0 46 22" fill="none" stroke="#D4A9B1" strokeWidth="1"><path d="M0 4c4-3 7-3 11 0s7 3 11 0 7-3 11 0 7 3 13 0M0 11c4-3 7-3 11 0s7 3 11 0 7-3 11 0 7 3 13 0M0 18c4-3 7-3 11 0s7 3 11 0 7-3 11 0 7 3 13 0" /></svg>
+            <span className="bl-mark-c"><small>SINCE</small>{since}</span>
+          </div>
+        </div>
+        <div className={`bl-card-body ${asking ? 'fading' : ''}`}>
+          <span className="bl-to">To {names.me || '你'}：</span>{whisper.data?.text || (whisper.data ? '他还在想…' : '…')}
+        </div>
+        <div className="bl-card-f">
+          <em>— from {names.him || '他'}{whisper.data?.at ? ` · ${ago(whisper.data.at, now)}` : ''}</em>
+          <button type="button" onClick={another} disabled={asking}>{asking ? '他在想…' : '换一句'}</button>
         </div>
       </section>
 
@@ -227,6 +224,7 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
       )}
 
       {naming && <Names names={names} onClose={() => setNaming(false)} onSaved={() => { setNaming(false); onNamesSaved?.(); }} />}
+      <div className="bl-lace bottom" aria-hidden="true" />
     </main>
   );
 }
@@ -312,7 +310,7 @@ function Names({ names, onClose, onSaved }) {
         <label className="pill"><span>你</span><input value={me} onChange={(e) => setMe(e.target.value)} maxLength={24} placeholder="你的名字" /></label>
         {note && <p className="hm-empty">{note}</p>}
         <button type="button" className="btn-main" disabled={busy || !him.trim()} onClick={save}>{busy ? '保存中…' : '保存'}</button>
-        <p className="hm-empty">头像点首页上的圆圈去换。</p>
+        <p className="hm-empty">头像在 设置 → 美化 里换。</p>
       </div>
     </Sheet>
   );

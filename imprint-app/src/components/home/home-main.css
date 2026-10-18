@@ -128,3 +128,55 @@
 .hm-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .hm-place { display: flex; gap: 8px; align-items: center; }
 .hm-place input { flex: 1; min-width: 0; height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid rgba(120, 110, 104, 0.18); background: rgba(255, 255, 255, 0.7); font: inherit; outline: 0; }
+
+/* ———— 芭蕾 · 缎面 · 蕾丝（明信片版） ———— */
+.hm.ballet {
+  --bl-bg: #FBF8F6; --bl-ink: #6E5A55; --bl-sub: #A08E89; --bl-faint: #B3A19C;
+  --bl-pink: #E2B4BA; --bl-mark: #D4A9B1; --bl-card: #FFFDFB; --bl-stampbg: #FBF2F2; --bl-line: #EADCD8; --bl-btn: #F5EEEC;
+  --ink: var(--bl-ink); --muted: var(--bl-sub); --accent: #B8848D;
+  position: relative; min-height: 100vh; color: var(--bl-ink);
+  background-color: var(--bl-bg);
+  background-image: radial-gradient(circle, rgba(226, 180, 186, 0.35) 1.5px, transparent 1.6px);
+  background-size: 26px 26px;
+  font-family: 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', serif;
+}
+.hm.ballet .card { background: var(--bl-card); border: 1px solid var(--bl-line); box-shadow: 0 6px 18px rgba(150, 128, 120, 0.08); }
+.bl-lace { height: 23px; margin: 0 -18px; background: url('../../design/ballet/lace-strip-fan-h.png') repeat-x 0 0 / auto 23px; filter: drop-shadow(0 1px 1px rgba(150, 128, 120, 0.5)); }
+.bl-lace.top { margin-top: calc(-1 * env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); background-image: url('../../design/ballet/lace-strip-fan-down.png'); background-position: 0 bottom; }
+.bl-lace.bottom { margin-top: 28px; }
+.bl-bell { position: absolute; right: 16px; top: calc(env(safe-area-inset-top, 0px) + 34px); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--bl-sub); background: rgba(255, 253, 251, 0.8); }
+.bl-bell .dot { position: absolute; top: 9px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--bl-pink); }
+.bl-head { text-align: center; padding-top: 30px; }
+.bl-date { margin: 0; font-size: 12px; letter-spacing: 2px; color: var(--bl-sub); }
+.bl-title { margin: 8px 0 0; font-family: 'Pinyon Script', 'Great Vibes', cursive; font-weight: 400; font-size: 30px; color: #9C8580; line-height: 1.3; }
+.bl-names { display: inline-flex; align-items: center; gap: 12px; margin-top: 6px; min-height: 44px; font-size: 15px; letter-spacing: 6px; color: var(--bl-ink); }
+.bl-names i { width: 5px; height: 5px; border-radius: 50%; background: var(--bl-pink); }
+.bl-stamp-wrap { display: flex; justify-content: center; margin: 14px 0 0; }
+.bl-stamp { position: relative; width: 224px; height: 280px; rotate: -2deg; filter: drop-shadow(0 8px 16px rgba(150, 128, 120, 0.16));
+  background: radial-gradient(circle, transparent 4.5px, #fff 4.6px) -7px -7px / 14px 14px; }
+.bl-stamp::before { content: ''; position: absolute; inset: 7px; background: #fff; }
+.bl-stamp-in { position: absolute; inset: 17px; border: 1px solid var(--bl-line); background: var(--bl-stampbg); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.bl-stamp-k { position: absolute; left: 10px; top: 9px; font-size: 9px; letter-spacing: 2px; color: var(--bl-faint); }
+.bl-stamp-bow { width: 64px; height: auto; filter: drop-shadow(0 1px 1px rgba(150, 128, 120, 0.5)) drop-shadow(0 0 1px rgba(150, 128, 120, 0.45)); margin-bottom: 2px; }
+.bl-stamp-n { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500; font-size: 78px; line-height: 1; color: var(--bl-ink); }
+.bl-stamp-d { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; color: var(--bl-sub); margin-top: 2px; }
+.bl-stamp-no { position: absolute; right: 10px; bottom: 8px; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 12px; color: var(--bl-mark); }
+.bl-poem { margin: 22px 0 0; text-align: center; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 13px; line-height: 1.7; color: var(--bl-faint); }
+.bl-card { position: relative; margin: 26px 8px 8px; padding: 20px 20px 16px; rotate: 1deg; background: var(--bl-card); border: 1px solid var(--bl-line); border-radius: 4px; box-shadow: 0 10px 24px rgba(150, 128, 120, 0.12); }
+.bl-card-bow { position: absolute; left: -12px; top: -28px; width: 50px; height: auto; rotate: -24deg; filter: drop-shadow(0 1px 1px rgba(150, 128, 120, 0.5)) drop-shadow(0 0 1px rgba(150, 128, 120, 0.45)); }
+.bl-card-h { display: flex; justify-content: space-between; align-items: flex-start; }
+.bl-card-t { font-family: 'Pinyon Script', 'Great Vibes', cursive; font-size: 20px; color: #9C8580; line-height: 1.2; }
+.bl-card-k { font-size: 11px; letter-spacing: 6px; color: var(--bl-sub); margin-top: 2px; }
+.bl-mark { display: flex; align-items: center; gap: 0; }
+.bl-mark svg { margin-right: -8px; }
+.bl-mark-c { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--bl-mark); display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Cormorant Garamond', serif; font-size: 11px; color: var(--bl-mark); line-height: 1.1; rotate: -10deg; background: var(--bl-card); }
+.bl-mark-c small { font-size: 7.5px; letter-spacing: 1px; }
+.bl-card-body { margin-top: 12px; font-size: 16px; line-height: 34px; color: var(--bl-ink); min-height: 102px; transition: opacity 0.3s;
+  background-image: repeating-linear-gradient(transparent 0 33px, #EFE2DE 33px 34px); background-position: 0 0; }
+.bl-card-body.fading { opacity: 0.4; }
+.bl-to { color: var(--bl-sub); margin-right: 2px; }
+.bl-card-f { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.bl-card-f em { font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 13px; color: var(--bl-sub); min-width: 0; }
+.bl-card-f button { flex: none; height: 44px; padding: 0 20px; border-radius: 22px; border: 0; background: var(--bl-btn); color: var(--bl-ink); font-size: 13px; letter-spacing: 2px; }
+.bl-card-f button:disabled { opacity: 0.6; }
+.hm.ballet .hm-two, .hm.ballet .hm-sec { margin-top: 22px; }

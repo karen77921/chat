@@ -179,4 +179,98 @@
 .bl-card-f em { font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 13px; color: var(--bl-sub); min-width: 0; }
 .bl-card-f button { flex: none; height: 44px; padding: 0 20px; border-radius: 22px; border: 0; background: var(--bl-btn); color: var(--bl-ink); font-size: 13px; letter-spacing: 2px; }
 .bl-card-f button:disabled { opacity: 0.6; }
-.hm.ballet .hm-two, .hm.ballet .hm-sec { margin-top: 22px; }
+
+/* ———— 往下：信笺 · 节目单 · 缎带 · 票根 · 日记 · 首饰盒 ———— */
+.hm.ballet { --bl-paper: #FFFDFB; --bl-sh: 0 8px 20px rgba(150, 128, 120, 0.1); }
+.bl-sec { display: flex; align-items: flex-end; justify-content: space-between; margin: 40px 6px 14px; }
+.bl-sec > span { display: flex; align-items: baseline; gap: 10px; }
+.bl-sec em { font-family: 'Pinyon Script', 'Great Vibes', cursive; font-style: normal; font-size: 24px; line-height: 1; color: #9C8580; }
+.bl-sec b { font-weight: 500; font-size: 12px; letter-spacing: 4px; color: var(--bl-sub); }
+.bl-sec a, .bl-sec button { font-size: 11.5px; letter-spacing: 1px; color: var(--bl-faint); border-bottom: 1px solid var(--bl-line); padding: 6px 0 2px; }
+.bl-empty { margin: 6px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--bl-faint); }
+.bl-empty.center { text-align: center; }
+
+/* 信笺：留言板 —— 一张斜放的信纸，顶上一条半透明胶带 */
+.bl-letter { position: relative; margin: 0 14px; padding: 30px 22px 16px; rotate: -1.2deg; background: var(--bl-paper);
+  border: 1px solid var(--bl-line); box-shadow: var(--bl-sh);
+  background-image: linear-gradient(90deg, transparent 30px, rgba(226, 180, 186, 0.35) 30px 31px, transparent 31px),
+    repeating-linear-gradient(transparent 0 29px, #F1E5E1 29px 30px); background-position: 0 0, 0 14px; }
+.bl-tape { position: absolute; left: 50%; top: -11px; width: 92px; height: 24px; translate: -50% 0; rotate: 3deg;
+  background: repeating-linear-gradient(90deg, rgba(240, 214, 218, 0.78) 0 6px, rgba(248, 230, 232, 0.78) 6px 12px);
+  box-shadow: 0 1px 2px rgba(150, 128, 120, 0.15); clip-path: polygon(3% 0, 97% 0, 100% 50%, 97% 100%, 3% 100%, 0 50%); }
+.bl-letter-a { display: block; padding-left: 20px; color: var(--bl-ink); }
+.bl-letter-a p { margin: 0; font-size: 14.5px; line-height: 30px; white-space: pre-line; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
+.bl-letter-a small { display: block; text-align: right; margin-top: 4px; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 13px; color: var(--bl-sub); line-height: 30px; }
+.bl-letter .bl-empty { padding-left: 20px; line-height: 30px; margin: 0; }
+.bl-pen { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; margin: 4px 0 0 20px; font-size: 12.5px; letter-spacing: 2px; color: var(--accent); }
+
+/* 节目单：他的心情 + 答应你的事 */
+.bl-prog { position: relative; margin: 0 4px; padding: 22px 22px 34px; background: var(--bl-paper); border: 1px solid var(--bl-line); box-shadow: var(--bl-sh); }
+.bl-prog::before { content: ''; position: absolute; inset: 5px; border: 1px solid #F1E5E1; pointer-events: none; }
+.bl-prog-h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.bl-prog-h + * + .bl-prog-h, .bl-prog .bl-empty + .bl-prog-h { margin-top: 22px; }
+.bl-prog-h span { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 12px; letter-spacing: 2px; color: var(--bl-mark); }
+.bl-prog-h b { font-weight: 500; font-size: 13.5px; letter-spacing: 3px; color: var(--bl-ink); }
+.bl-prog-h::after { content: ''; flex: 1; height: 1px; background: var(--bl-line); }
+.bl-mood { display: block; color: var(--bl-ink); }
+.bl-mood p { margin: 0; font-size: 15px; line-height: 1.8; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.bl-ribbons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.bl-ribbons span { position: relative; height: 24px; padding: 0 16px 0 10px; display: inline-flex; align-items: center; font-size: 11.5px; letter-spacing: 1px; color: #8E6E6E;
+  background: linear-gradient(180deg, #FAEDEE, #F3DDE0 55%, #F8E8EA); clip-path: polygon(0 0, 100% 0, calc(100% - 7px) 50%, 100% 100%, 0 100%); }
+.bl-todo { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.bl-todo li { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; line-height: 1.6; color: var(--bl-ink); }
+.bl-todo li span { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.bl-todo li i { flex: 1; min-width: 14px; border-bottom: 1px dotted var(--bl-pink); translate: 0 -4px; }
+.bl-todo li time { flex: none; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 12.5px; color: var(--bl-sub); }
+.bl-prog-fin { position: absolute; right: 18px; bottom: 10px; font-family: 'Pinyon Script', cursive; font-size: 16px; color: var(--bl-mark); }
+
+/* 缎带：我此刻 */
+.bl-ribbon { position: relative; display: flex; align-items: center; gap: 12px; width: calc(100% + 12px); margin: 32px -6px 0; min-height: 52px; padding: 0 30px; text-align: left; color: #7C6060;
+  background: linear-gradient(180deg, #F6E3E5 0%, #EFD3D7 30%, #F9ECED 52%, #EBCBD0 78%, #F3DEE1 100%);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 50%, 100% 100%, 0 100%, 14px 50%); filter: drop-shadow(0 4px 6px rgba(150, 128, 120, 0.15)); }
+.bl-ribbon-k { flex: none; font-size: 11px; letter-spacing: 3px; color: #A07C80; padding-right: 12px; border-right: 1px solid rgba(160, 124, 128, 0.35); }
+.bl-ribbon b { flex: 1; min-width: 0; font-weight: 500; font-size: 14px; letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-ribbon small { flex: none; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 12px; color: #A07C80; }
+
+/* 票根：一起听 / 一起看 —— 两侧有半圆缺口，右边一截撕得下来的存根 */
+.bl-ticket { position: relative; display: flex; align-items: stretch; min-height: 86px; margin: 0 2px 12px; color: var(--bl-ink);
+  --notch: radial-gradient(circle at 0 50%, transparent 9px, #000 9.5px) left / 51% 100% no-repeat, radial-gradient(circle at 100% 50%, transparent 9px, #000 9.5px) right / 51% 100% no-repeat;
+  -webkit-mask: var(--notch); mask: var(--notch); background: var(--bl-paper); filter: drop-shadow(0 6px 10px rgba(150, 128, 120, 0.12)); }
+.bl-ticket.watch { background: #FBF2F2; }
+.bl-ticket-a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 14px 10px 14px 24px; color: inherit; border: 1px solid var(--bl-line); border-right: 0; }
+.bl-ticket-t { min-width: 0; display: grid; gap: 3px; }
+.bl-ticket-t em { font-style: normal; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-size: 10.5px; letter-spacing: 2.5px; color: var(--bl-mark); }
+.bl-ticket-t b { font-weight: 500; font-size: 15.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-ticket-t small { font-size: 11.5px; color: var(--bl-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-stub { flex: none; width: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid var(--bl-line); border-left: 1.5px dashed var(--bl-pink); }
+.bl-stub b { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500; font-size: 30px; line-height: 1; color: var(--bl-ink); }
+.bl-stub small { font-size: 10.5px; letter-spacing: 2px; color: var(--bl-sub); margin-top: 2px; }
+.bl-stub button { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--bl-ink); background: var(--bl-btn); }
+.bl-disc { flex: none; position: relative; width: 52px; height: 52px; border-radius: 50%;
+  background: repeating-radial-gradient(circle, #5f4f4c 0 1.5px, #6b5a56 1.5px 3px); box-shadow: 0 2px 6px rgba(80, 60, 56, 0.25); }
+.bl-disc i { position: absolute; inset: 16px; border-radius: 50%; background: radial-gradient(circle, #FBF8F6 0 2px, #EFD3D7 2.5px); }
+.bl-disc.spin { animation: bl-spin 6s linear infinite; }
+@keyframes bl-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .bl-disc.spin { animation: none; } }
+
+/* 日记：他的动态 —— 左边一列斜体时间，中间一条粉色细线串起来 */
+.bl-diary { position: relative; margin: 0 4px; padding: 6px 18px; background: var(--bl-paper); border: 1px solid var(--bl-line); box-shadow: var(--bl-sh); }
+.bl-entry { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 14px; padding: 13px 0; color: var(--bl-ink); }
+.bl-entry + .bl-entry { border-top: 1px dashed #F1E5E1; }
+.bl-entry::before { content: ''; position: absolute; left: 69px; top: 20px; width: 5px; height: 5px; border-radius: 50%; background: var(--bl-pink); }
+.bl-entry time { padding-top: 1px; text-align: right; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 12px; color: var(--bl-sub); padding-right: 8px; }
+.bl-entry-t { display: grid; gap: 3px; padding-left: 6px; }
+.bl-entry-t b { font-weight: 500; font-size: 13.5px; }
+.bl-entry-t b small { font-size: 11px; color: var(--bl-faint); }
+.bl-entry-t em { font-style: normal; font-size: 12px; color: var(--bl-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-new { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 5px; margin-left: 6px; border-radius: 9px; font-style: normal; font-size: 10px; color: #fff; background: var(--bl-pink); vertical-align: 1px; }
+.bl-entry-more { width: 100%; min-height: 44px; border-top: 1px dashed #F1E5E1; font-size: 12px; letter-spacing: 2px; color: var(--bl-sub); }
+
+/* 首饰盒：百宝箱 —— 3×3 小格子，缎面内衬 */
+.bl-box { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0 4px; padding: 1px; background: var(--bl-line); border: 6px solid var(--bl-paper); outline: 1px solid var(--bl-line); box-shadow: var(--bl-sh); }
+.bl-box a { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 104px; padding: 12px 4px; text-align: center; color: var(--bl-ink);
+  background: radial-gradient(ellipse at 50% 30%, #FFFDFB, #FBF2F2 85%); }
+.bl-box a:active { background: #F6E6E8; }
+.bl-box-ic { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--accent); border: 1px solid var(--bl-line); background: var(--bl-paper); margin-bottom: 2px; }
+.bl-box b { font-weight: 500; font-size: 12.5px; letter-spacing: 1px; }
+.bl-box em { font-style: normal; font-size: 10px; color: var(--bl-faint); }

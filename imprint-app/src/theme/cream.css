@@ -104,24 +104,7 @@
 [data-theme='cream'] .sec-head .zh { color: var(--ink); }
 [data-theme='cream'] .kicker { color: var(--muted); }
 
-/* ---- 底部导航：奶油胶囊，选中项柔粉浮起 ---- */
-[data-theme='cream'] .tabbar {
-  background: rgba(255, 250, 245, 0.62);
-  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 16px 40px rgba(120, 100, 90, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
-}
-/* 五个入口一样高，不再有凸起的圆钮；选中项是一块柔柔浮起的乳白小垫子 */
-[data-theme='cream'] .tabbar { height: 72px; border-radius: 36px; padding: 0 8px; }
-[data-theme='cream'] .tab { width: 62px; min-height: 58px; border-radius: 26px; gap: 4px; letter-spacing: 0.1em; transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease; }
-[data-theme='cream'] .tab.on {
-  color: #b0716a;
-  background: rgba(255, 253, 249, 0.86);
-  box-shadow: 0 6px 16px rgba(185, 128, 121, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.95);
-}
-[data-theme='cream'] .tab.mid { transform: none; }
-[data-theme='cream'] .tab .mc { width: auto; height: auto; background: none; box-shadow: none; color: inherit; border-radius: 0; }
-[data-theme='cream'] .tab .mc svg { width: 22px; height: 22px; }
+/* 底部导航自己就是芭蕾风（components/tabbar.css），这里不再盖 */
 
 /* ---- 底部弹出的纸 → 玻璃面板 ---- */
 [data-theme='cream'] .sheet-mask { background: rgba(120, 100, 90, 0.18); }

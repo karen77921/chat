@@ -1,7 +1,9 @@
 /**
- * 底栏：首页 · 小屋 · 聊天（居中凸起）· 心潮 · 设置。固定在屏幕底部，磨砂白。
+ * 底栏：首页 · 小屋 · 聊天（居中，一颗缎面珍珠扣）· 心潮 · 设置。
+ * 芭蕾风：奶白缎面条，上沿一圈蕾丝，双细线边框；当前页的图标上面系一个小粉蝴蝶结。
  */
 import Icon from '../design/icons.jsx';
+import bow from '../design/ballet/lace-bow-pink.png';
 import './tabbar.css';
 
 const TABS = [
@@ -21,7 +23,8 @@ export default function TabBar({ path }) {
         const on = t.path === '/' ? path === '/' : path.startsWith(t.path);
         return (
           <a key={t.path} href={`#${t.path}`} className={`tab ${t.mid ? 'mid' : ''} ${on ? 'on' : ''}`} aria-current={on ? 'page' : undefined}>
-            {t.mid ? <span className="mc"><Icon name={t.icon} size={24} stroke={1.4} /></span> : <Icon name={t.icon} size={22} />}
+            {on && !t.mid && <img src={bow} alt="" className="tab-bow" />}
+            {t.mid ? <span className="mc"><Icon name={t.icon} size={22} stroke={1.3} /></span> : <Icon name={t.icon} size={21} stroke={1.2} />}
             <span>{t.name}</span>
           </a>
         );

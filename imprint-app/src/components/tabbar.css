@@ -1,20 +1,28 @@
+/* 底栏（TabBar.jsx）：奶白缎面 + 蕾丝上沿 + 双细线框 */
 .tabbar {
   position: fixed; z-index: 40;
-  left: max(16px, calc(50% - 215px + 16px)); right: max(16px, calc(50% - 215px + 16px));
+  left: max(14px, calc(50% - 215px + 14px)); right: max(14px, calc(50% - 215px + 14px));
   bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
-  height: 66px; border-radius: 33px; display: flex; align-items: center; justify-content: space-around; padding: 0 6px;
-  background: rgba(255, 255, 255, 0.62);
-  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 10px 26px rgba(var(--sh-rgb), 0.12), 0 0 0 1px rgba(47, 74, 102, 0.05);
+  height: 66px; border-radius: 18px; display: flex; align-items: center; justify-content: space-around; padding: 0 4px;
+  background: linear-gradient(180deg, #FFFDFB 0%, #FBF5F3 60%, #F8F0EE 100%);
+  border: 1px solid #EADCD8;
+  box-shadow: 0 10px 26px rgba(150, 128, 120, 0.16), inset 0 1px 0 #fff;
+  font-family: 'Noto Serif SC', 'Songti SC', 'STSong', serif;
 }
-.tab { width: 56px; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
-.tab.on { color: var(--ink); }
-.tab.mid { transform: translateY(-14px); }
+.tabbar::before { content: ''; position: absolute; inset: 4px; border: 1px solid #F1E5E1; border-radius: 14px; pointer-events: none; }
+.tabbar::after { content: ''; position: absolute; left: 16px; right: 16px; top: -9px; height: 10px; pointer-events: none;
+  background: url('../design/ballet/lace-strip-fan-h.png') repeat-x center bottom / auto 10px; filter: drop-shadow(0 -0.5px 0.5px rgba(150, 128, 120, 0.35)); }
+.tab { position: relative; width: 56px; min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 10px; letter-spacing: 0.2em; color: #B3A19C; }
+.tab.on { color: #6E5A55; }
+.tab-bow { position: absolute; top: -5px; left: 50%; width: 22px; height: auto; translate: calc(-50% + 11px) 0; rotate: 18deg; pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(150, 128, 120, 0.5)); }
+.tab.mid { transform: translateY(-16px); }
 .tab .mc {
-  width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff;
-  background: linear-gradient(150deg, var(--print-a), var(--print-b) 45%, var(--print-c));
-  box-shadow: 0 8px 18px rgba(var(--sh-rgb), 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  width: 58px; height: 58px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #7C6060;
+  background: radial-gradient(circle at 35% 28%, #FFFFFF 0%, #FBEFF0 22%, #F1D8DB 58%, #E6C3C8 100%);
+  box-shadow: 0 0 0 4px #FFFDFB, 0 0 0 5px #EADCD8, 0 10px 18px rgba(150, 128, 120, 0.24);
   transition: transform 0.16s ease-out;
 }
+.tab.mid.on { color: #6E5A55; }
 .tab.mid:active .mc { transform: scale(0.94); }

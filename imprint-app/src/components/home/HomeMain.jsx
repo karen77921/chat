@@ -1,9 +1,9 @@
 /**
  * 首页（按她画的草图）：
- *   头像 · 他 × 她 · 头像 / 在一起 N 天 / 会动的两只年糕
- *   他此刻想说的话（可以换一句）
- *   留言板 ｜ 他的心情 + 待办（他答应你、给自己定了时间的事）
- *   往下：一起听 / 一起看、他的动态、所有入口
+ *   日期 · 花体标题 · 名字 / 在一起 N 天的邮票
+ *   他此刻想说的话（明信片，可以换一句）
+ *   往下全是纸做的小东西：留言板是信笺，他的心情 + 待办是节目单，我此刻是缎带，
+ *   一起听 / 一起看是票根，他的动态是日记，百宝箱是摊开的首饰盒
  */
 import { useEffect, useState } from 'react';
 import Icon from '../../design/icons.jsx';
@@ -37,7 +37,7 @@ const KIND = {
 const TREASURES = [
   ['一起', 'play', '#/together', '听歌 · 看片 · 读书'], ['留言板', 'feather', '#/notes', '写给彼此'], ['搜留言', 'search', '#/notes?search=1', '翻以前的'],
   ['续火花', 'flame', '#/spark', '礼物铺 · 券'], ['买买申请', 'gift', '#/approvals', '他来批'], ['存钱罐', 'heart', '#/piggy', '他只能看'],
-  ['单词本', 'pen', '#/words', '他会抽查'], ['抽屉', 'gift', '#/drawer', '封好的纸条'], ['他的世界', 'sparkle', '#/world', '他看过的诗和画'],
+  ['单词本', 'pen', '#/words', '他会抽查'], ['抽屉', 'archive', '#/drawer', '封好的纸条'], ['他的世界', 'sparkle', '#/world', '他看过的诗和画'],
 ];
 const ACT_SHOWN = 4;
 
@@ -66,7 +66,6 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
   const [asking, setAsking] = useState(false);
   const [naming, setNaming] = useState(false);
   const [actOpen, setActOpen] = useState(false);
-  const [boxOpen, setBoxOpen] = useState(false);
   const acts = groupActivity(d?.activity);
   const L = useListen();
   const listen = d?.listen;
@@ -132,100 +131,111 @@ export default function HomeMain({ data, d, now, unread, onReadAll, latelyRef, o
         </div>
       </section>
 
-      {/* 留言板 ｜ 他的心情 + 待办 */}
-      <section className="hm-two">
-        <div className="card hm-box">
-          <a href="#/notes" className="hm-box-h"><b>留言板</b><Icon name="chev" size={14} /></a>
-          {d?.note ? (
-            <a href="#/notes" className="hm-note">
-              <p>{d.note.text}</p>
-              <small>— {d.note.from === 'him' ? names.him : names.me} · 共 {d.note.total} 条</small>
-            </a>
-          ) : <p className="hm-empty">还没有留言</p>}
-          <a href="#/notes?new=1" className="hm-add"><Icon name="plus" size={13} />写一条</a>
-        </div>
-        <div className="card hm-box">
-          <a href="#/tide" className="hm-box-h"><b>他的心情</b><Icon name="chev" size={14} /></a>
-          {s ? (
-            <a href="#/tide" className="hm-mood">
-              <p>{s.mood}</p>
-              {top3.length > 0 && <small>{top3.join(' · ')}</small>}
-            </a>
-          ) : <p className="hm-empty">他还没写心潮</p>}
-          <div className="hm-box-h sub"><b>待办</b></div>
-          {upcoming.length ? (
-            <ul className="hm-todo">
-              {upcoming.map((p) => <li key={p.id}><i /><span>{p.text}</span><time>{when(p.at, now)}</time></li>)}
-            </ul>
-          ) : <p className="hm-empty">他现在没有答应你、还没做的事</p>}
-        </div>
+      {/* 信笺：留言板 */}
+      <Sec en="Letters" zh="留言板" href="#/notes" more={d?.note ? `共 ${d.note.total} 封` : ''} />
+      <section className="bl-letter">
+        <i className="bl-tape" aria-hidden="true" />
+        {d?.note ? (
+          <a href="#/notes" className="bl-letter-a">
+            <p>{d.note.text}</p>
+            <small>— {d.note.from === 'him' ? names.him : names.me}</small>
+          </a>
+        ) : <p className="bl-empty">信纸还空着，先给{names.him || '他'}写一封吧。</p>}
+        <a href="#/notes?new=1" className="bl-pen"><Icon name="feather" size={14} stroke={1.3} />写一封</a>
       </section>
+
+      {/* 节目单：他的心情 + 待办 */}
+      <Sec en="Programme" zh="今日节目单" href="#/tide" />
+      <section className="bl-prog">
+        <div className="bl-prog-h"><span>ACT I</span><b>{names.him || '他'}的心情</b></div>
+        {s ? (
+          <a href="#/tide" className="bl-mood">
+            <p>{s.mood}</p>
+            {top3.length > 0 && <div className="bl-ribbons">{top3.map((n) => <span key={n}>{n}</span>)}</div>}
+          </a>
+        ) : <p className="bl-empty">他今天还没写心潮。</p>}
+        <div className="bl-prog-h"><span>ACT II</span><b>答应你的事</b></div>
+        {upcoming.length ? (
+          <ul className="bl-todo">
+            {upcoming.map((p) => <li key={p.id}><span>{p.text}</span><i aria-hidden="true" /><time>{when(p.at, now)}</time></li>)}
+          </ul>
+        ) : <p className="bl-empty">他现在没有答应你、还没做的事。</p>}
+        <span className="bl-prog-fin" aria-hidden="true">fin.</span>
+      </section>
+
       <HerStatus names={names} now={now} />
 
-      {/* 往下：一起、动态、入口 */}
+      {/* 票根：一起听 / 一起看 */}
+      {(listen || d?.watch) && <Sec en="Together" zh="一起" href="#/together" />}
       {listen && (
-        <div className="card hm-wide">
-          <a href="#/together" className="hm-wide-a" aria-label={`一起听：${listen.title}`}>
-            <span className="hm-ico"><Icon name="play" size={16} /></span>
-            <span className="hm-wide-t"><em>一起听</em><b>{listen.title}</b><small>{listen.artist} · {clock(listen.positionS)} / {clock(listen.durationS)}</small></span>
+        <div className="bl-ticket listen">
+          <a href="#/together" className="bl-ticket-a" aria-label={`一起听：${listen.title}`}>
+            <span className={`bl-disc ${playing ? 'spin' : ''}`} aria-hidden="true"><i /></span>
+            <span className="bl-ticket-t"><em>NOW PLAYING · 一起听</em><b>{listen.title}</b><small>{listen.artist}{listen.durationS ? ` · ${clock(listen.positionS)} / ${clock(listen.durationS)}` : ''}</small></span>
           </a>
-          <button type="button" className="hm-round" onClick={() => L?.toggle()} aria-label={playing ? '暂停' : '播放'}><Icon name={playing ? 'pause' : 'play'} size={14} stroke={1.6} /></button>
+          <span className="bl-stub">
+            <button type="button" onClick={() => L?.toggle()} aria-label={playing ? '暂停' : '播放'}><Icon name={playing ? 'pause' : 'play'} size={15} stroke={1.5} /></button>
+          </span>
         </div>
       )}
       {d?.watch && (
-        <a href="#/together?tab=watch" className="card hm-wide" aria-label={`一起看：${d.watch.title}`}>
-          <span className="hm-ico"><Icon name="window" size={16} /></span>
-          <span className="hm-wide-t"><em>一起看</em><b>《{d.watch.title}》</b><small>{weekday(d.watch.at)} {hm(d.watch.at)} 见</small></span>
-          <span className="hm-round"><Icon name="chev" size={14} /></span>
+        <a href="#/together?tab=watch" className="bl-ticket watch" aria-label={`一起看：${d.watch.title}`}>
+          <span className="bl-ticket-a">
+            <span className="bl-ticket-t"><em>ADMIT TWO · 一起看</em><b>《{d.watch.title}》</b><small>{weekday(d.watch.at)} {hm(d.watch.at)} 见</small></span>
+          </span>
+          <span className="bl-stub"><b>{new Date(d.watch.at).getDate()}</b><small>{new Date(d.watch.at).getMonth() + 1}月</small></span>
         </a>
       )}
 
+      {/* 日记：他的动态 */}
       <div ref={latelyRef} className="anchor" />
-      <div className="hm-sec">
-        <h2>他的动态</h2>
+      <div className="bl-sec">
+        <span><em>Lately</em><b>他的动态</b></span>
         {unread ? <button type="button" onClick={onReadAll}>全部已读</button> : <a href="#/room">去小屋</a>}
       </div>
       {acts.length ? (
-        <div className="card hm-list">
+        <section className="bl-diary">
           {acts.slice(0, actOpen ? acts.length : ACT_SHOWN).map((a) => (
-            <a key={a.id} href={a.kind === 'reply' && a.sessionId ? `#/chat/t?id=${encodeURIComponent(a.sessionId)}` : KIND[a.kind]?.href || '#/room'} className="hm-act">
-              <span className="hm-ico"><Icon name={KIND[a.kind]?.icon || 'leaf'} size={15} /></span>
-              <span className="hm-act-t"><b>{a.title}{a.count > 1 ? <small> · {a.count} 条</small> : null}</b><em>{a.kind === 'tool' && a.count > 1 ? a.tools.join('、') : a.text}</em></span>
-              <span className="hm-act-m">{ago(a.at, now)}{a.unread > 0 && <span className="badge">{a.unread}</span>}</span>
+            <a key={a.id} href={a.kind === 'reply' && a.sessionId ? `#/chat/t?id=${encodeURIComponent(a.sessionId)}` : KIND[a.kind]?.href || '#/room'} className="bl-entry">
+              <time>{ago(a.at, now)}</time>
+              <span className="bl-entry-t">
+                <b>{a.title}{a.count > 1 ? <small> · {a.count} 条</small> : null}{a.unread > 0 && <i className="bl-new">{a.unread}</i>}</b>
+                <em>{a.kind === 'tool' && a.count > 1 ? a.tools.join('、') : a.text}</em>
+              </span>
             </a>
           ))}
           {acts.length > ACT_SHOWN && (
-            <button type="button" className="hm-act-more" onClick={() => setActOpen((v) => !v)}>
-              {actOpen ? '收起' : `还有 ${acts.length - ACT_SHOWN} 条`}<Icon name="chev" size={13} />
+            <button type="button" className="bl-entry-more" onClick={() => setActOpen((v) => !v)}>
+              {actOpen ? '收起' : `还有 ${acts.length - ACT_SHOWN} 条`}
             </button>
           )}
-        </div>
-      ) : <div className="card hm-pad muted">还没有可记录的动态</div>}
+        </section>
+      ) : <p className="bl-empty center">还没有可记录的动态</p>}
 
-      <button type="button" className="card hm-box hm-tbox" onClick={() => setBoxOpen(true)} aria-label="打开百宝箱">
-        <span className="hm-box-ic"><Icon name="gift" size={20} stroke={1.4} /></span>
-        <span className="hm-box-t"><b>百宝箱</b><em>{TREASURES.map(([zh]) => zh).join(' · ')}</em></span>
-        <span className="hm-round"><Icon name="chev" size={14} /></span>
-      </button>
-      {boxOpen && (
-        <Sheet open onClose={() => setBoxOpen(false)} label="百宝箱" seed={23}>
-          <div className="hm-box-sheet">
-            <h3><span className="hand">treasure box</span>百宝箱</h3>
-            <nav className="hm-treasures" aria-label="百宝箱">
-              {TREASURES.map(([zh, icon, href, sub]) => (
-                <a key={href} href={href} onClick={() => setBoxOpen(false)}>
-                  <span className="hm-tr-ic"><Icon name={icon} size={20} stroke={1.4} /></span>
-                  <b>{zh}</b><em>{sub}</em>
-                </a>
-              ))}
-            </nav>
-          </div>
-        </Sheet>
-      )}
+      {/* 首饰盒：百宝箱，直接摊开 */}
+      <Sec en="Treasure box" zh="百宝箱" />
+      <nav className="bl-box" aria-label="百宝箱">
+        {TREASURES.map(([zh, icon, href, sub]) => (
+          <a key={href} href={href}>
+            <span className="bl-box-ic"><Icon name={icon} size={19} stroke={1.2} /></span>
+            <b>{zh}</b><em>{sub}</em>
+          </a>
+        ))}
+      </nav>
 
       {naming && <Names names={names} onClose={() => setNaming(false)} onSaved={() => { setNaming(false); onNamesSaved?.(); }} />}
       <div className="bl-lace bottom" aria-hidden="true" />
     </main>
+  );
+}
+
+/** 每一段的小标题：花体英文 + 中文，右边可选一个入口 */
+function Sec({ en, zh, href, more }) {
+  return (
+    <div className="bl-sec">
+      <span><em>{en}</em><b>{zh}</b></span>
+      {href && <a href={href}>{more || '去看看'}</a>}
+    </div>
   );
 }
 
@@ -261,8 +271,8 @@ function HerStatus({ names: raw, now }) {
   };
   return (
     <>
-      <button type="button" className="card hm-her" onClick={() => setOpen(true)}>
-        <span className="hm-k">我此刻</span>
+      <button type="button" className="bl-ribbon" onClick={() => setOpen(true)}>
+        <span className="bl-ribbon-k">我此刻</span>
         <b>{shown || '点一下，告诉' + names.him + '你在干嘛'}</b>
         {st.at && shown && <small>{ago(st.at, now)}</small>}
       </button>

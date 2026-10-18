@@ -1100,8 +1100,16 @@ def book_action(conn: sqlite3.Connection, action: str, body: dict) -> dict:
         chs = book["meta"]["chapters"]
         ch = max(0, min(int(body.get("ch") if body.get("ch") is not None else pos(book, "me")["ch"]), len(chs) - 1))
         paras = [r[0] for r in conn.execute("SELECT text FROM book_paras WHERE book=? AND ch=? ORDER BY idx", (book["id"], ch))]
+        # 目录上每章标出各自写了几条批注；他的批注单独列一份，点一下直接跳过去
+        counts: dict[int, dict] = {}
+        for c, by, n in conn.execute("SELECT ch, by, COUNT(*) FROM book_marks WHERE book=? AND text!='' GROUP BY ch, by", (book["id"],)):
+            counts.setdefault(int(c), {"me": 0, "him": 0})[by if by in ("me", "him") else "me"] = n
+        his = [m for m in mark_rows("book=? AND by='him' AND text!=''", (book["id"],))]
+        his.sort(key=lambda m: (m["ch"], m["para"], m["at"]))
         return {"book": public(book), "ch": ch, "title": chs[ch]["title"], "paras": paras,
-                "toc": [c["title"] for c in chs], "marks": mark_rows("book=? AND ch=?", (book["id"], ch))}
+                "toc": [c["title"] for c in chs], "marks": mark_rows("book=? AND ch=?", (book["id"], ch)),
+                "toc_notes": {str(k): v for k, v in counts.items()},
+                "his_notes": [{k: m[k] for k in ("id", "ch", "para", "quote", "text", "parent", "at")} for m in his[-300:]]}
 
     if action == "book_progress":
         book = load(body.get("book"))

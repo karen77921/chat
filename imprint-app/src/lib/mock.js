@@ -521,7 +521,8 @@ function mockBooks(method, p, body) {
   if (method === 'GET' && p === '/api/books') return { available: true, names: { me: '瑄瑄', him: '季宁' }, books: bk.books, recent: bk.marks.filter((x) => x.text).reverse().map((x) => ({ ...x, title: 'Pride and Prejudice' })) };
   if (method === 'GET' && (m = /^\/api\/books\/(\w+)\/ch\/(-?\d+)$/.exec(p))) {
     const b = bk.books.find((x) => x.id === m[1]); const ch = Number(m[2]) < 0 ? 0 : Number(m[2]);
-    return { book: { ...b, progress: { me: { ...b.progress.me, ch: 0, para: 0 }, him: { ...b.progress.him, ch: 0, para: 5 } } }, ch, title: `CHAPTER ${['I', 'II', 'III'][ch] || ch + 1}`, paras: PP1, toc: Array.from({ length: 61 }, (_, i) => `CHAPTER ${i + 1}`), marks: bk.marks.filter((x) => x.book === m[1] && x.ch === ch) };
+    return { book: { ...b, progress: { me: { ...b.progress.me, ch: 0, para: 0 }, him: { ...b.progress.him, ch: 0, para: 5 } } }, ch, title: `CHAPTER ${['I', 'II', 'III'][ch] || ch + 1}`, paras: PP1, toc: Array.from({ length: 61 }, (_, i) => `CHAPTER ${i + 1}`), marks: bk.marks.filter((x) => x.book === m[1] && x.ch === ch),
+      toc_notes: { 0: { me: 1, him: 2 }, 4: { me: 0, him: 1 } }, his_notes: [{ id: 'h1', ch: 0, para: 0, quote: 'It is a truth universally acknowledged', text: '开篇就在反讽，你看她多会。', parent: '', at: NOW }, { id: 'h2', ch: 0, para: 2, quote: 'Netherfield Park is let at last', text: '她妈一听有钱单身汉就坐不住了。', parent: 'x', at: NOW }, { id: 'h3', ch: 4, para: 3, quote: 'pride', text: '傲慢这个词出现了，记住它。', parent: '', at: NOW }] };
   }
   if (method === 'POST' && (m = /^\/api\/books\/(\w+)\/mark$/.exec(p))) {
     const parent = body.parent ? bk.marks.find((x) => x.id === body.parent) : null;
@@ -676,10 +677,6 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     ]; const c = qs.get('cat'); return { available: true, names: { me: 'Lumi', him: 'Ash' }, cats: [['poem', '诗'], ['art', '画'], ['sky', '星空'], ['read', '读到的'], ['history', '历史上的今天']].map(([id, name]) => ({ id, name, count: all.filter((x) => x.cat === id).length })), items: c ? all.filter((x) => x.cat === c) : all }; }
     case 'GET /api/chats/active': return { id: 'w1' };
     case 'POST /api/books/here': return { ok: true };
-    case 'GET /api/books': return { available: true, names: { me: 'Lumi', him: 'Ash' }, books: [] };
-    case 'GET /api/books/b1/ch/0': case 'GET /api/books/b1/ch/-1': return { ch: 0, title: '第三章 工厂', toc: [{ title: '第三章 工厂' }],
-      book: { id: 'b1', title: '末日游戏', progress: { me: { ch: 0, para: 0, pct: 12, started: true }, him: { ch: 0, para: 2, pct: 10, started: true } } }, marks: [],
-      paras: ['愤怒的异形不停拉近与年长玩家的距离，这让他差点要吓疯了。', '他不停提速，本来想追着白姜一起跑的，结果一错眼，白姜就不见了。', '怎么这么能跑！', '焦虑之时，年长玩家看见路边有一辆厂区的运输三轮车，钥匙还插在上面，当即决定开这辆车逃命。', '发动机突突突地响起来。'] };
     case 'GET /api/music/find': { const q = (qs.get('q') || '').trim(); return { items: [1, 2, 3, 4].map((n) => ({ appleId: `a${n}`, title: `${q} ${n}`, artist: '示例歌手', album: '示例专辑', cover: '', preview: '', fullS: 240 })) }; }
     case 'POST /api/music/queue': { const t = body.song ? { id: body.song.appleId, title: body.song.title, artist: body.song.artist, durationS: 30, url: '', source: 'apple' } : tracks[body.track_id]; tracks[t.id] = t; listen.playlist = listen.playlist.filter((x) => x.trackId !== t.id); const i = listen.playlist.findIndex((x) => x.trackId === listen.trackId); listen.playlist.splice(body.at === 'end' ? listen.playlist.length : i + 1, 0, { trackId: t.id, by: 'me' }); if (body.at === 'now') { listen.trackId = t.id; listen.positionS = 0; listen.playing = true; } return listenState(); }
     case 'GET /api/music/search': { const q = (qs.get('q') || '').trim(); return { available: true, items: q ? Object.values(tracks).filter((t) => t.title.includes(q) || t.artist.includes(q)) : [] }; }

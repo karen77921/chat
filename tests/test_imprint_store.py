@@ -1660,8 +1660,12 @@ class BookTest(unittest.TestCase):
         ask2 = self.act("book_mark", {"book": book["id"], "ch": 1, "para": 0, "quote": "Mr. Bennet was among the earliest", "kind": "ask", "text": "他早就去了？", "by": "me"})["mark"]
         got = self.act("book_answer", {"text": "📖《Pride and Prejudice》\n「Mr. Bennet was among the earliest」\n他早就去了？", "reply": "嘴硬心软"})["mark"]
         self.assertEqual((got["parent"], got["by"], got["text"]), (ask2["id"], "him", "嘴硬心软"))
-        marks = self.act("book_chapter", {"book": book["id"], "ch": 0})["marks"]
-        self.assertEqual(len(marks), 4)
+        chap = self.act("book_chapter", {"book": book["id"], "ch": 0})
+        self.assertEqual(len(chap["marks"]), 4)
+        # 目录：每章几条批注；他写过的批注和回复按章列好，点了能跳过去
+        self.assertEqual(chap["toc_notes"]["0"], {"me": 1, "him": 2})
+        self.assertEqual(chap["toc_notes"]["1"], {"me": 1, "him": 1})
+        self.assertEqual([(n["ch"], n["text"]) for n in chap["his_notes"]], [(0, "反讽"), (0, "她有五个女儿要嫁"), (1, "嘴硬心软")])
         self.act("book_unmark", {"id": ask["id"]})
         self.assertEqual(len(self.act("book_chapter", {"book": book["id"], "ch": 0})["marks"]), 2)
         self.act("book_delete", {"book": book["id"]})

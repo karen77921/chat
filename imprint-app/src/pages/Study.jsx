@@ -313,6 +313,7 @@ function Reader({ id, chParam, paraParam }) {
   const [aa, setAa] = useState(false);
   const [company, setCompany] = useState(false);
   const [toc, setToc] = useState(false);
+  const [tocTab, setTocTab] = useState('toc'); // 目录 / 他的批注
   const [pick, setPick] = useState(null); // { para, si, text, top, left }
   const [thread, setThread] = useState(null); // { mode:'view'|'note'|'ask'|'word', root?, para, quote }
   const [toast, setToast] = useState('');
@@ -473,6 +474,8 @@ function Reader({ id, chParam, paraParam }) {
     } else if (page > 0) flipTo(-1); else if (data.ch > 0) { target.current = 'end'; setCh(data.ch - 1); }
   };
   const jump = (i) => { target.current = 0; setToc(false); if (i === data?.ch) settle(0); else setCh(i); };
+  // 从「他的批注」直接跳到那一句所在的地方
+  const jumpTo = (i, para) => { setToc(false); if (i === data?.ch) settle(para); else { target.current = para; setCh(i); } };
   useEffect(() => {
     if (!paged) return undefined;
     const on = (e) => { if (e.key === 'ArrowRight') turn(1); if (e.key === 'ArrowLeft') turn(-1); };
@@ -657,14 +660,34 @@ function Reader({ id, chParam, paraParam }) {
       {toc && (
         <Panel onClose={() => setToc(false)} label="目录">
           <div className="st-pad st-toc">
-            <div className="st-eyebrow">Contents</div>
-            {data?.toc?.map((t, i) => (
-              <button key={i} type="button" className={i === data.ch ? 'on' : ''} onClick={() => jump(i)} ref={i === data.ch ? (el) => el?.scrollIntoView({ block: 'center' }) : undefined}>
-                <span>{t}</span>
-                {book.progress.me.ch === i && <i className="her">{meI}</i>}
-                {book.progress.him.started && book.progress.him.ch === i && <i className="him">{himI}</i>}
-              </button>
-            ))}
+            <div className="st-toc-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={tocTab === 'toc'} className={tocTab === 'toc' ? 'on' : ''} onClick={() => setTocTab('toc')}>目录</button>
+              <button type="button" role="tab" aria-selected={tocTab === 'his'} className={tocTab === 'his' ? 'on' : ''} onClick={() => setTocTab('his')}>{names.him}的批注 · {data?.his_notes?.length || 0}</button>
+            </div>
+            {tocTab === 'toc' && data?.toc?.map((t, i) => {
+              const n = data.toc_notes?.[String(i)];
+              return (
+                <button key={i} type="button" className={i === data.ch ? 'on' : ''} onClick={() => jump(i)} ref={i === data.ch ? (el) => el?.scrollIntoView({ block: 'center' }) : undefined}>
+                  <span>{t}</span>
+                  {n?.him > 0 && <em className="st-toc-n him" aria-label={`${names.him}在这章写了 ${n.him} 条批注`}>✎ {himI} {n.him}</em>}
+                  {n?.me > 0 && <em className="st-toc-n her" aria-label={`你在这章写了 ${n.me} 条批注`}>✎ {meI} {n.me}</em>}
+                  {book.progress.me.ch === i && <i className="her">{meI}</i>}
+                  {book.progress.him.started && book.progress.him.ch === i && <i className="him">{himI}</i>}
+                </button>
+              );
+            })}
+            {tocTab === 'his' && (
+              data?.his_notes?.length ? data.his_notes.map((m, k) => (
+                <div key={m.id}>
+                  {(k === 0 || data.his_notes[k - 1].ch !== m.ch) && <div className="st-toc-ch">{data.toc[m.ch]}</div>}
+                  <button type="button" className="st-toc-note" onClick={() => jumpTo(m.ch, m.para)}>
+                    {m.quote && <q>{m.quote}</q>}
+                    <span>{m.parent ? '回你：' : ''}{m.text}</span>
+                    <small>{when(m.at)}</small>
+                  </button>
+                </div>
+              )) : <p className="st-quiet">{names.him}还没在这本书里写批注。</p>
+            )}
           </div>
         </Panel>
       )}

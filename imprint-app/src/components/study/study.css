@@ -255,3 +255,16 @@
 .st-co-field input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 15px; color: inherit; }
 .st-co-in button { flex: none; height: 44px; padding: 0 18px; border-radius: 22px; background: #8c5f63; color: #fff; font-size: 14px; }
 .st-co-in button:disabled { opacity: 0.45; }
+
+/* 目录：每章的批注数、他的批注 */
+.st-toc-tabs { display: flex; gap: 18px; margin: 4px 0 8px; }
+.st-toc .st-toc-tabs button { width: auto; border-top: 0 !important; padding: 6px 0 !important; font-size: 13px !important; letter-spacing: 0.12em; color: var(--st-muted); border-bottom: 1.5px solid transparent !important; }
+.st-toc .st-toc-tabs button.on { color: inherit; border-bottom-color: currentColor !important; }
+.st-toc-n { font-style: normal; font-size: 11px; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
+.st-toc-n.him { color: var(--st-him); background: color-mix(in srgb, var(--st-him) 12%, transparent); }
+.st-toc-n.her { color: var(--st-her); background: color-mix(in srgb, var(--st-her) 12%, transparent); }
+.st-toc-ch { margin: 16px 0 4px; font-family: var(--st-serif); font-size: 13px; color: var(--st-muted); letter-spacing: 0.06em; }
+.st-toc .st-toc-note { display: grid !important; gap: 4px; padding: 10px 0 !important; }
+.st-toc-note q { font-family: var(--st-serif); font-size: 13px; font-style: italic; color: var(--st-muted); quotes: '「' '」'; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.st-toc-note span { font-size: 14.5px; line-height: 1.6; color: var(--st-him); }
+.st-toc-note small { font-size: 11px; color: var(--st-muted); }

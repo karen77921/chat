@@ -209,6 +209,19 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(api_loop.with_world_note(tools, hint), tools)
         self.assertIsNone(api_loop.with_world_note(None, hint))
 
+    def test_reading_companion_knows_her_page(self):
+        self.assertEqual(imprint_action(self.store, "reading_here_context")["text"], "")
+        self.call("POST", "/books/here", Request({"book": "末日游戏", "chapter": "第三章", "text": "年长玩家看见路边有一辆运输三轮车。"}))
+        line = imprint_action(self.store, "reading_here_context")["text"]
+        self.assertIn("《末日游戏》", line)
+        self.assertIn("运输三轮车", line)
+        old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=30)).isoformat()
+        with sqlite3.connect(self.store) as conn:
+            row = json.loads(conn.execute("SELECT payload FROM records WHERE id='setting_reading_here'").fetchone()[0])
+            row["at"] = old
+            conn.execute("UPDATE records SET payload=? WHERE id='setting_reading_here'", (json.dumps(row),))
+        self.assertEqual(imprint_action(self.store, "reading_here_context")["text"], "")  # 过了一刻钟就不当她还在读
+
     def test_coupons_know_who_holds_them_and_get_used_once(self):
         gift = self.call("POST", "/spark/shop", Request({"name": "撒娇券", "cat": "coupon", "cost": 1}))
         self.assertEqual(gift["art"], "coupon")

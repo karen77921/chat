@@ -429,6 +429,13 @@ async function compat(path, opts) {
     const up = await request(`${RELAY}/app/upload?name=${encodeURIComponent(file?.name || 'book.txt')}`, { method: 'POST', raw: file, timeout: 180000 });
     return bookJob(await loop('books/import', { method: 'POST', body: { url: up.url, name: file?.name || 'book.txt', read_now: !!opts.body?.readNow }, timeout: 60000 }));
   }
+  if (method === 'GET' && p === '/api/chats/active') {
+    const ss = await request(`${RELAY}/app/sessions`);
+    const id = ss.active_session || ss.sessions?.[0]?.id;
+    if (!id) throw new ApiError(400, '还没有聊天窗口');
+    return { id };
+  }
+  if (method === 'POST' && p === '/api/books/here') return loop('imprint/books/here', opts);
   if (method === 'POST' && p === '/api/books/ask') {
     // 书里点「问他」：发到正在用的聊天窗口，再叫他回
     const ss = await request(`${RELAY}/app/sessions`);

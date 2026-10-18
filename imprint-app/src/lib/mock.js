@@ -674,6 +674,12 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
       { id: 'w4', cat: 'read', title: 'Why the sea is salty', sub: 'aeon.co', body: '一段他读到的文字……', link: 'https://aeon.co', at: NOW, times: 1 },
       { id: 'w5', cat: 'history', title: '10-17 这一天', sub: '历史上的今天', items: [{ title: 'Something happened', sub: '1979' }], at: NOW, times: 1 },
     ]; const c = qs.get('cat'); return { available: true, names: { me: 'Lumi', him: 'Ash' }, cats: [['poem', '诗'], ['art', '画'], ['sky', '星空'], ['read', '读到的'], ['history', '历史上的今天']].map(([id, name]) => ({ id, name, count: all.filter((x) => x.cat === id).length })), items: c ? all.filter((x) => x.cat === c) : all }; }
+    case 'GET /api/chats/active': return { id: 'w1' };
+    case 'POST /api/books/here': return { ok: true };
+    case 'GET /api/books': return { available: true, names: { me: 'Lumi', him: 'Ash' }, books: [] };
+    case 'GET /api/books/b1/ch/0': case 'GET /api/books/b1/ch/-1': return { ch: 0, title: '第三章 工厂', toc: [{ title: '第三章 工厂' }],
+      book: { id: 'b1', title: '末日游戏', progress: { me: { ch: 0, para: 0, pct: 12, started: true }, him: { ch: 0, para: 2, pct: 10, started: true } } }, marks: [],
+      paras: ['愤怒的异形不停拉近与年长玩家的距离，这让他差点要吓疯了。', '他不停提速，本来想追着白姜一起跑的，结果一错眼，白姜就不见了。', '怎么这么能跑！', '焦虑之时，年长玩家看见路边有一辆厂区的运输三轮车，钥匙还插在上面，当即决定开这辆车逃命。', '发动机突突突地响起来。'] };
     case 'GET /api/music/find': { const q = (qs.get('q') || '').trim(); return { items: [1, 2, 3, 4].map((n) => ({ appleId: `a${n}`, title: `${q} ${n}`, artist: '示例歌手', album: '示例专辑', cover: '', preview: '', fullS: 240 })) }; }
     case 'POST /api/music/queue': { const t = body.song ? { id: body.song.appleId, title: body.song.title, artist: body.song.artist, durationS: 30, url: '', source: 'apple' } : tracks[body.track_id]; tracks[t.id] = t; listen.playlist = listen.playlist.filter((x) => x.trackId !== t.id); const i = listen.playlist.findIndex((x) => x.trackId === listen.trackId); listen.playlist.splice(body.at === 'end' ? listen.playlist.length : i + 1, 0, { trackId: t.id, by: 'me' }); if (body.at === 'now') { listen.trackId = t.id; listen.positionS = 0; listen.playing = true; } return listenState(); }
     case 'GET /api/music/search': { const q = (qs.get('q') || '').trim(); return { available: true, items: q ? Object.values(tracks).filter((t) => t.title.includes(q) || t.artist.includes(q)) : [] }; }

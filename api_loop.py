@@ -2494,7 +2494,7 @@ async def build_messages(
     diary = recent_diary_text()
     if diary:
         volatile_parts.append(diary)
-    for action in ("her_status", "drawer_context", "listen_context"):
+    for action in ("her_status", "drawer_context", "listen_context", "reading_here_context"):
         with contextlib.suppress(Exception):
             line = imprint_action(LOOP_CACHE_DIR / "imprint.db", action)["text"]
             if line:

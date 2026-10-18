@@ -10,6 +10,7 @@ import { useRoute } from '../lib/router.js';
 import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
 import '../components/study/study.css';
+import Companion from '../components/study/Companion.jsx';
 
 const CLASSICS = [
   [1342, 'Pride and Prejudice', 'Jane Austen'], [1260, 'Jane Eyre', 'Charlotte Brontë'],
@@ -310,6 +311,7 @@ function Reader({ id, chParam, paraParam }) {
   const [names, setNames] = useState({ me: '我', him: '他' });
   const [prefs, setPrefs] = useState(loadPrefs);
   const [aa, setAa] = useState(false);
+  const [company, setCompany] = useState(false);
   const [toc, setToc] = useState(false);
   const [pick, setPick] = useState(null); // { para, si, text, top, left }
   const [thread, setThread] = useState(null); // { mode:'view'|'note'|'ask'|'word', root?, para, quote }
@@ -584,8 +586,13 @@ function Reader({ id, chParam, paraParam }) {
         <a href={SHELF} className="st-x" aria-label="回书架" onClick={leaveTo}>×</a>
         <button type="button" className="st-c" onClick={(e) => { e.stopPropagation(); setToc(true); }}>{book?.title || ''}</button>
         <button type="button" className="st-tocb" onClick={(e) => { e.stopPropagation(); setToc(true); }} aria-label="目录">目录</button>
+        <button type="button" className="st-tocb st-cob" onClick={(e) => { e.stopPropagation(); setCompany((v) => !v); }} aria-pressed={company}>陪读</button>
         <button type="button" className="st-aa" onClick={(e) => { e.stopPropagation(); setAa((v) => !v); }}>Aa</button>
       </header>
+      {company && data?.paras && (
+        <Companion him={names.him} onClose={() => setCompany(false)}
+          page={() => ({ book: data.book.title, chapter: data.title, text: data.paras.slice(Math.max(0, anchor.current), anchor.current + 5).join('\n') })} />
+      )}
       {aa && (
         <div className="st-aa-pop" onClick={(e) => e.stopPropagation()}>
           <div className="st-aa-row"><span>字号</span>

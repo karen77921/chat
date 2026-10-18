@@ -1813,6 +1813,24 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
         if action == "listen_context":
             return {"text": listen_context(conn)}
 
+        if action == "reading_here_set":
+            # 陪读：她在读书页底下跟他聊时，眼前这一页是什么
+            text = re.sub(r"\s+\n", "\n", str(body.get("text") or "")).strip()[:1200]
+            return {"ok": True, "here": save_setting("reading_here", {
+                "book": str(body.get("book") or "")[:120], "chapter": str(body.get("chapter") or "")[:120],
+                "text": text, "at": iso_now()})}
+        if action == "reading_here_context":
+            here = setting("reading_here")
+            try:
+                age = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(str(here.get("at")).replace("Z", "+00:00"))).total_seconds()
+            except (TypeError, ValueError):
+                return {"text": ""}
+            if age > 15 * 60 or not here.get("text"):
+                return {"text": ""}
+            return {"text": (f"【陪读】她这会儿正在书房读《{here.get('book')}》·「{here.get('chapter')}」，是在读书页底下的陪读框里跟你说话。"
+                             f"她眼前这一页：「{here['text']}」\n围绕这一页聊，像坐在旁边陪她读：回得短一点，她问书里的东西就照这页答，"
+                             "想给她看样子可以搜张图；别替她剧透后面的情节。")}
+
         if action == "world_record":
             # 同一样东西（同一首诗、同一天的夜空）只存一张，再看一次只更新时间和次数
             item = world_item(str(body.get("tool") or ""), body.get("args") or {}, body.get("data") or {})
@@ -3000,6 +3018,10 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def remove_sticker(rec_id: str):
         delete("sticker_me", rec_id)
         return {"ok": True}
+
+    @router.post("/books/here")
+    async def books_here(request: Request):
+        return imprint_action(data_path, "reading_here_set", await request.json())
 
     @router.get("/world")
     def world_list(cat: str = "", limit: int = 60):

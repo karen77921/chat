@@ -41,9 +41,10 @@
 .ch-st.waiting i { background: #e2b26b; }
 .ch-st.stuck i { background: #c9867d; }
 @keyframes blink { 50% { opacity: 0.3; } }
-.ch-search { flex: 1; height: 42px; border-radius: 21px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; color: var(--accent); }
+.ch-search { flex: 1; min-width: 0; height: 42px; border-radius: 21px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; color: var(--accent); }
 .ch-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 13.5px; color: var(--ink); }
-.ch-search button { width: 26px; height: 26px; border-radius: 50%; background: var(--l3); display: flex; align-items: center; justify-content: center; }
+.ch-search input::-webkit-search-cancel-button { display: none; -webkit-appearance: none; }
+.ch-search button { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--l3); display: flex; align-items: center; justify-content: center; }
 
 /* ---------- 消息 ---------- */
 .ch-list { position: relative; z-index: 1; padding: calc(env(safe-area-inset-top, 0px) + 118px) 20px calc(env(safe-area-inset-bottom, 0px) + 96px); display: flex; flex-direction: column; }
@@ -256,3 +257,16 @@ svg.up { transform: rotate(180deg); }
 .cm-draft-m { font-size: 12px; color: var(--muted); }
 .cm-draft-go { justify-self: start; margin-top: 6px; padding: 6px 14px; border-radius: 14px; font-size: 12.5px; color: #fff; background: var(--accent); }
 .cm-draft em { font-style: normal; font-size: 10.5px; color: var(--muted); }
+
+/* 搜聊天：一条条结果，点一下回到那个位置 */
+.ch-results { display: grid; gap: 8px; padding: 0 2px 20px; }
+.ch-res { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 10px 12px; border-radius: 16px; text-align: left; color: var(--ink); }
+.ch-res-av { flex: none; width: 36px; height: 36px; border-radius: 50%; overflow: hidden; }
+.ch-res-b { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.ch-res-h { display: flex; align-items: baseline; gap: 8px; }
+.ch-res-h b { font-weight: 500; font-size: 13px; }
+.ch-res-h time { font-size: 11px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+.ch-res-t { font-size: 13.5px; line-height: 1.6; word-break: break-word; }
+.ch-res-t mark { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.ch-hit .cm-bubble, .ch-hit .cm-images, .ch-hit .cm-sticker { animation: ch-hit 2.2s ease-out; }
+@keyframes ch-hit { 0%, 40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }

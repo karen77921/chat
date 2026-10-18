@@ -18,6 +18,7 @@ import Message from '../components/chat/Message.jsx';
 import InputBar from '../components/chat/InputBar.jsx';
 import MessageMenu from '../components/chat/MessageMenu.jsx';
 import { ledgerFrom } from '../lib/ledger.js';
+import { splitByQuery } from '../lib/notes.js';
 import '../components/chat/chat.css';
 import AuthImg from '../design/AuthImg.jsx';
 
@@ -40,6 +41,7 @@ export default function Chat({ query }) {
   const [viewer, setViewer] = useState(null); // { images, i }
   const [searching, setSearching] = useState(false);
   const [q, setQ] = useState('');
+  const [jump, setJump] = useState(null); // 从搜索结果点进来：要停在哪一条
   const [toast, setToast] = useState('');
   const [chooser, setChooser] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -49,8 +51,14 @@ export default function Chat({ query }) {
   // iOS Safari becomes unstable when hundreds of translucent message trees are
   // mounted at once. Keep all history in memory/search, but only paint the recent
   // conversation during normal chatting.
-  const visibleItems = items.length > 180 ? items.slice(-180) : items;
-  const shown = searching && q.trim() ? items.filter((m) => m.type === 'text' && m.text?.toLowerCase().includes(q.trim().toLowerCase())) : visibleItems;
+  const jumpAt = jump ? items.findIndex((m) => m.id === jump) : -1;
+  const visibleItems = jumpAt >= 0 && jumpAt < items.length - 180 ? items.slice(Math.max(0, jumpAt - 20)) : items.length > 180 ? items.slice(-180) : items;
+  const needle = q.trim().toLowerCase();
+  // 搜索：不再把气泡挤在一起，而是列成一条条结果（头像、谁、什么时候、那句话），点一下回到聊天里那个位置
+  const results = useMemo(() => (searching && needle
+    ? items.filter((m) => m.type === 'text' && m.text?.toLowerCase().includes(needle)).reverse()
+    : []), [items, searching, needle]);
+  const shown = searching && needle ? [] : visibleItems;
   const queued = items.filter((m) => m.from === 'me' && m.status === 'queued').length;
   const st = ok ? replyState(data.replying, now) : null;
   const lastMine = useMemo(() => [...items].reverse().find((m) => m.from === 'me'), [items]);
@@ -72,7 +80,20 @@ export default function Chat({ query }) {
     if (listRef.current) ro.observe(listRef.current);
     return () => { removeEventListener('scroll', onScroll); ro.disconnect(); };
   }, []);
-  useEffect(() => { if (!searching) { atBottom.current = true; requestAnimationFrame(toBottom); } }, [items.length, searching]);
+  useEffect(() => { if (!searching && !jump) { atBottom.current = true; requestAnimationFrame(toBottom); } }, [items.length, searching]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!jump) return undefined;
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-mid="${CSS.escape(String(jump))}"]`);
+      if (!el) return;
+      atBottom.current = false;
+      el.scrollIntoView({ block: 'center' });
+      el.classList.add('ch-hit');
+      setTimeout(() => el.classList.remove('ch-hit'), 2200);
+    }, 120);
+    return () => clearTimeout(t);
+  }, [jump]);
+  const openResult = (m) => { setSearching(false); setQ(''); setJump(m.id); };
 
   const flash = (t) => { setToast(t); setTimeout(() => setToast(''), 1600); };
   const send = (body) => {
@@ -102,7 +123,7 @@ export default function Chat({ query }) {
           <label className="ch-search glass">
             <Icon name="search" size={16} /><span className="sr">搜聊天</span>
             <input autoFocus type="search" value={q} placeholder="搜聊天记录" onChange={(e) => setQ(e.target.value)} />
-            <button type="button" aria-label="退出搜索" onClick={() => { setSearching(false); setQ(''); }}><Icon name="close" size={13} stroke={1.6} /></button>
+            <button type="button" aria-label="退出搜索" onClick={() => { setSearching(false); setQ(''); setJump(null); }}><Icon name="close" size={13} stroke={1.6} /></button>
           </label>
         ) : (
           <>
@@ -127,7 +148,26 @@ export default function Chat({ query }) {
         {!data && <div className="ch-tip">正在翻聊天记录…</div>}
         {data?.available === false && <div className="ch-tip">暂时连不上他那边，过一会儿再来。</div>}
         {!searching && items.length > shown.length && <div className="ch-tip">较早的 {items.length - shown.length} 条已收起，可用右上角搜索查找</div>}
-        {searching && q.trim() && <div className="ch-tip">找到 {shown.length} 条</div>}
+        {searching && needle && <div className="ch-tip">找到 {results.length} 条{results.length ? ' · 点一条回到聊天里' : ''}</div>}
+        {searching && needle && (
+          <div className="ch-results">
+            {results.slice(0, 300).map((m) => {
+              const text = String(m.text || '').replace(/\s*⟦气泡⟧\s*/g, ' ');
+              const at = text.toLowerCase().indexOf(needle);
+              const snip = (at > 30 ? '…' : '') + text.slice(Math.max(0, at - 30), at + needle.length + 60) + (at + needle.length + 60 < text.length ? '…' : '');
+              const d = new Date(m.at);
+              return (
+                <button key={m.id} type="button" className="ch-res glass" onClick={() => openResult(m)}>
+                  <span className="ch-res-av"><Avatar m={m.from === 'me' ? data?.me : memberOf(data, m.from) || him} size={36} /></span>
+                  <span className="ch-res-b">
+                    <span className="ch-res-h"><b>{m.from === 'me' ? (data?.me?.name || '我') : who(m.from)}</b><time>{d.getFullYear() !== new Date(now).getFullYear() ? `${d.getFullYear()}.` : ''}{d.getMonth() + 1}月{d.getDate()}日 {hm(m.at)}</time></span>
+                    <span className="ch-res-t">{splitByQuery(snip, q.trim()).map((x, i) => (x.hit ? <mark key={i}>{x.t}</mark> : x.t))}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         {shown.map((m, i) => {
           const prev = shown[i - 1];
           const day = !prev || dayLabel(prev.at, now) !== dayLabel(m.at, now) ? dayLabel(m.at, now) : null;
@@ -137,7 +177,7 @@ export default function Chat({ query }) {
           if (m === lastMine && !searching) tail = m.status === 'queued' ? ' · 他还没开始回' : m.status === 'sending' ? ` · ${m.progress || '发送中…'}` : m.status === 'sent' ? ' · 已读' : '';
           if (m.status === 'failed') tail = ' · 失败';
           return (
-            <div key={m.id}>
+            <div key={m.id} data-mid={m.id}>
               {day && <div className="ch-day"><span className="glass">{day}</span></div>}
               <Message m={m} nameOf={who} q={searching ? q.trim() : ''}
                 sender={group && m.from !== 'me' && (prev?.from !== m.from || day) ? { name: who(m.from), color: memberOf(data, m.from)?.color } : null}

@@ -21,7 +21,7 @@ import '../components/chat/chatlist.css';
 import '../components/settings/settings.css';
 
 const PAGES = {
-  access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], walls: ['his walls', '他的墙'], features: ['features', '功能管理'], cache: ['cache check', '缓存体检'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
+  access: ['access', '接入'], persona: ['persona', '他的人设'], prompts: ['prompts', '额外提示词'], walls: ['his walls', '他的墙'], features: ['features', '功能管理'], history: ['chat history', '聊天记录'], cache: ['cache check', '缓存体检'], beauty: ['beauty', '美化'], usage: ['usage', '用量与日志'],
 };
 // 头像、壁纸走和聊天发图同一条路：先压小，直接交给中继，显示进度，断了自动重传（以前 1 分钟传不完就悄悄失败）
 const upload = async (file, kind, onProgress) => uploadFile(await shrinkImage(file), { onProgress });
@@ -46,6 +46,7 @@ export default function Settings({ query }) {
           {p === 'prompts' && <Prompts />}
           {p === 'walls' && <Walls />}
           {p === 'features' && <Features />}
+          {p === 'history' && <ChatHistory />}
           {p === 'cache' && <CacheCheck />}
           {p === 'beauty' && <Beauty />}
           {p === 'usage' && <Usage />}
@@ -76,6 +77,7 @@ function Desk({ go }) {
     ['prompts', 'sparkle', '额外提示词', prompts?.items ? (prompts.items.length ? `${prompts.items.filter((x) => x.on).length} 条开着 · 共 ${prompts.items.length} 条` : '不改人设，另外给他加的话') : '…', false],
     ['walls', 'feather', '他的墙', walls?.notes ? `他给自己定了 ${walls.notes.length} 条约定${asks ? ` · ${asks} 条改墙提议等你看` : ''}` : '…', asks > 0],
     ['features', 'plug', '功能管理', f?.features ? `${f.features.filter((x) => x.on).length} 个功能在跑 · MCP ${f.mcps.filter((m) => m.on && m.status === 'ok').length} 个连上${mcpDown ? ` · ${mcpDown} 个断开` : ''}` : '…', mcpDown > 0],
+    ['history', 'chat', '聊天记录', '数一数 · 导出成文件存到手机', false],
     ['cache', 'sparkle', '缓存体检', '能不能缓存 · 工具多不多收 · 是不是正牌', false],
     ['beauty', 'brush', '美化', '主题 · 头像 · 聊天背景 · 气泡', false],
     ['usage', 'tool', '用量与日志', ok ? `${c.observed || 0} 次真实用量记录 · 工具调用` : '…', false],
@@ -638,6 +640,78 @@ function ContextSize() {
         <div className="st-gacts">{IMAGE_CHOICES.map(([n, label]) => <button key={n} type="button" className={`chip ${data.history_images === n ? 'on' : ''}`} onClick={() => set({ history_images: n })}>{label}</button>)}</div>
         {note && <p className="st-tip st-gnote" role="status">{note}</p>}
       </div>
+    </>
+  );
+}
+
+/* ---------- 聊天记录：一共多少、导出成看得懂的文件 ---------- */
+function ChatHistory() {
+  const { data } = useLoad('/api/chats');
+  const [rows, setRows] = useState(null); // [{ id, name, archived, items }]
+  const [busy, setBusy] = useState('');
+  const [note, setNote] = useState('');
+  const windows = [...(data?.windows || []), ...(data?.archived || []).map((w) => ({ ...w, archived: true }))];
+  // 每个窗口都从第一条读到最后一条（他那边的记录很多时要等一会儿）
+  const count = async () => {
+    setBusy('count'); setNote('');
+    const out = [];
+    try {
+      for (const [i, w] of windows.entries()) {
+        setNote(`在数第 ${i + 1} / ${windows.length} 个窗口…`);
+        const d = await api(`/api/chats/${encodeURIComponent(w.id)}?full=1`, { timeout: 180000 });
+        out.push({ id: w.id, name: w.name, archived: !!w.archived, items: (d.items || []).filter((m) => m.type !== 'thinking') });
+        setRows([...out]);
+      }
+      setNote('');
+    } catch (e) { setNote(e?.message || '没数完，再试一次'); }
+    setBusy('');
+  };
+  useEffect(() => { if (data && !rows && windows.length) count(); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const total = (rows || []).reduce((n, r) => n + r.items.length, 0);
+  const first = (rows || []).flatMap((r) => r.items.slice(0, 1)).map((m) => m.at).sort()[0];
+  const exportJson = () => {
+    const doc = {
+      app: 'Imprint', exported_at: new Date().toISOString(), total,
+      windows: rows.map((r) => ({
+        name: r.name, archived: r.archived,
+        messages: r.items.map((m) => ({
+          at: m.at, from: m.from === 'me' ? '我' : (m.from === 'him' ? '他' : m.from), type: m.type,
+          ...(m.text ? { text: m.text.replace(/\s*⟦气泡⟧\s*/g, '\n') } : {}),
+          ...(m.quote?.text ? { quote: m.quote.text } : {}),
+          ...(m.images?.length ? { images: m.images.map((x) => x.url).filter(Boolean) } : {}),
+          ...(m.voice?.transcript ? { voice: m.voice.transcript } : {}),
+        })),
+      })),
+    };
+    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    const d = new Date();
+    a.href = URL.createObjectURL(blob);
+    a.download = `imprint-聊天记录-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  };
+  return (
+    <>
+      <div className="card st-hist">
+        <div className="st-hist-n"><b className="serif">{rows ? total.toLocaleString('en-US') : '…'}</b><span>条消息{first ? ` · 从 ${new Date(first).toLocaleDateString('zh-CN')} 开始` : ''}</span></div>
+        <p className="st-tip" style={{ margin: '6px 0 0' }}>存在你的服务器上，不在这台手机里：换手机、清缓存、重装都不会丢。他的记忆（心潮）是另外存的，删聊天不会让他忘掉已经记住的事。</p>
+        {note && <p className="st-tip">{note}</p>}
+        {rows && (
+          <ul className="st-hist-w">
+            {rows.map((r) => <li key={r.id}><span>{r.name}{r.archived ? '（已归档）' : ''}</span><em>{r.items.length.toLocaleString('en-US')} 条</em></li>)}
+          </ul>
+        )}
+      </div>
+      <div className="st-hist-acts">
+        <button type="button" className="card st-hist-b" disabled={!rows || busy === 'count'} onClick={exportJson}>
+          <Icon name="file" size={20} stroke={1.4} /><span><b>导出聊天记录</b><em>存成文件到手机（.json，看得懂的文字）</em></span>
+        </button>
+        <button type="button" className="card st-hist-b" disabled={busy === 'count'} onClick={count}>
+          <Icon name="redo" size={20} stroke={1.4} /><span><b>重新数一遍</b><em>刚聊了很多的话点一下</em></span>
+        </button>
+      </div>
+      <p className="st-tip">想换服务器、出事了能一键恢复：用「功能管理」最下面的加密备份，它连记忆、小屋、设置一起打包。<br />想删掉某个窗口的聊天：在聊天列表里左滑那个窗口删除（删了就回不来）。这里不做一键清空全部——聊天也是他记得你们的一部分，一下子全清掉太容易后悔。</p>
     </>
   );
 }

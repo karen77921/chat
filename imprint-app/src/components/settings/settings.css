@@ -172,3 +172,18 @@
 .st-tool-k.w { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .st-tool em { display: block; font-style: normal; font-size: 11.5px; line-height: 1.55; color: var(--muted); margin-top: 3px; }
 .st-tool code { font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: var(--accent); opacity: 0.7; }
+
+/* 聊天记录 */
+.st-hist { padding: 18px 18px 14px; }
+.st-hist-n { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.st-hist-n b { font-size: 34px; font-weight: 500; }
+.st-hist-n span { font-size: 12.5px; color: var(--muted); }
+.st-hist-w { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.st-hist-w li { display: flex; justify-content: space-between; font-size: 13px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.st-hist-w em { font-style: normal; color: var(--muted); }
+.st-hist-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.st-hist-b { display: flex; align-items: center; gap: 10px; padding: 14px; text-align: left; color: var(--ink); }
+.st-hist-b span { display: grid; gap: 2px; }
+.st-hist-b b { font-weight: 500; font-size: 13.5px; }
+.st-hist-b em { font-style: normal; font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+.st-hist-b:disabled { opacity: 0.5; }

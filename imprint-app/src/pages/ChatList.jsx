@@ -6,7 +6,7 @@
  */
 import { useRef, useState } from 'react';
 import Icon from '../design/icons.jsx';
-import { Band, Wax } from '../design/paper.jsx';
+import { Band } from '../design/paper.jsx';
 import Sheet from '../design/Sheet.jsx';
 import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
@@ -15,6 +15,9 @@ import { hm, dayLabel } from '../lib/chat.js';
 import { Avatar } from './Chat.jsx';
 import '../components/chat/chat.css';
 import '../components/chat/chatlist.css';
+import '../components/chat/ballet.css';
+import swan from '../design/ballet/stickers/swan.webp';
+import bow from '../design/ballet/stickers/bow.webp';
 
 export default function ChatList({ query }) {
   const { data, reload } = useLoad('/api/chats');
@@ -67,13 +70,14 @@ export default function ChatList({ query }) {
           {c.unread > 0 && <span className="badge">{c.unread}</span>}
         </span>
       </button>
-      {c.pinned && <Wax size={34} className="cl-wax" />}
+      {c.pinned && <img src={bow} alt="置顶" className="cl-pin" />}
     </SwipeRow>
   );
 
   return (
     <main className="clist">
       <header className="cl-head">
+        <img src={swan} alt="" className="cl-stk" />
         <h1><span className="hand">letters</span><span>{showArchived ? '已归档' : '聊天'}</span></h1>
         {showArchived ? (
           <button type="button" className="rbtn" aria-label="返回聊天列表" onClick={() => { setShowArchived(false); replaceQuery({}); }}><Icon name="back" size={18} stroke={1.5} /></button>

@@ -1,0 +1,141 @@
+/* 聊天页 · 聊天列表：重新画的一套（她嫌之前的样子，不沿用）。
+   头顶 Ballerina Gown #F8E9EA 往下淡成白，像隔着纱帘的光；顶部不放按钮圈，中间是头像 + 浅银花体名字；
+   他的话是白信纸，她的话是一块玫瑰灰的缎子；输入是一整条白色的卡。
+   她自己换了壁纸（.own-wall）或在设置里选了别的气泡（paper / cyan），这些照旧。 */
+.chat, .clist {
+  --print-a: #EFD3D9; --print-b: #D9A9B4; --print-c: #B98290; --accent: #A9737F;
+  --ink: #4E3A3F; --muted: #A08B90; --line: #F0E1E4; --sh-rgb: 150, 110, 120;
+  --rose: #A9737F; --silver: #F2F2F4; --silver-edge: #A8A5AD;
+  font-family: 'Noto Serif SC', 'Songti SC', 'STSong', serif;
+}
+
+/* ================= 聊天页：照 iMessage 的液态玻璃 ================= */
+.chat { --lg: rgba(255, 255, 255, 0.22); --lg-strong: rgba(255, 255, 255, 0.42);
+  --lg-edge: inset 0 1px 0.5px rgba(255, 255, 255, 0.85), inset 0 -1px 1px rgba(255, 255, 255, 0.25), inset 0 0 0 0.5px rgba(255, 255, 255, 0.55);
+  --lg-blur: blur(14px) saturate(1.8) brightness(1.04); }
+.chat:not(.own-wall) .ch-bg { background:
+  radial-gradient(60% 40% at 15% 20%, #F3D3DA 0%, transparent 70%), radial-gradient(55% 35% at 90% 55%, #EBD4E6 0%, transparent 70%),
+  radial-gradient(70% 40% at 30% 95%, #F6DCD8 0%, transparent 70%), linear-gradient(180deg, #F8E9EA, #FBF3F3); }
+.chat:not(.own-wall) .ch-bg-art, .chat:not(.own-wall) .ch-veil { display: none; }
+/* 液态玻璃：半透明 + 很强的模糊和饱和 + 一圈亮边 */
+.chat :is(.lg, .ch-head .gbtn, .ch-who, .cin-plus, .cin-field, .cin-reply, .cin-pause, .ch-day span) {
+  background: var(--lg); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge), 0 6px 18px rgba(120, 80, 92, 0.12); border: 0; }
+
+/* 顶部：左边返回胶囊；中间头像 + 名字胶囊（点开聊天设置）；右边搜索 */
+.chat .ch-head { display: block; height: calc(env(safe-area-inset-top, 0px) + 150px); padding: 0; background: linear-gradient(180deg, rgba(248, 233, 234, 0.7), rgba(248, 233, 234, 0)); -webkit-backdrop-filter: none; backdrop-filter: none; border: 0; pointer-events: none; }
+.chat .ch-head > * { pointer-events: auto; }
+/* 顶部渐隐的模糊：消息滑到顶上会慢慢糊掉，像 iMessage */
+.chat .ch-head::before { content: ''; position: absolute; inset: 0; pointer-events: none; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  -webkit-mask: linear-gradient(#000 50%, transparent); mask: linear-gradient(#000 50%, transparent); }
+.chat .ch-head > .gbtn:first-child { position: absolute; left: 16px; top: calc(env(safe-area-inset-top, 0px) + 40px); width: 56px; height: 44px; border-radius: 22px; color: #4E3A3F; }
+.chat .ch-head > .gbtn[aria-label='搜聊天'] { position: absolute; right: 16px; top: calc(env(safe-area-inset-top, 0px) + 40px); width: 44px; height: 44px; color: #4E3A3F; }
+.chat .ch-head .ch-search { position: absolute; left: 82px; right: 16px; top: calc(env(safe-area-inset-top, 0px) + 41px); height: 42px; background: var(--lg-strong); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge); }
+.chat .ch-id { position: absolute; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 26px); translate: -50% 0; display: flex; flex-direction: column; align-items: center; max-width: 220px; }
+.chat .ch-avatar { width: 58px; height: 58px; box-shadow: 0 4px 12px rgba(120, 80, 92, 0.2); }
+.chat .ch-avatar.grp { width: 64px; }
+.chat .ch-who { position: relative; margin-top: -8px; display: inline-flex; align-items: center; gap: 4px; max-width: 220px; height: 34px; padding: 0 12px 0 16px; border-radius: 17px; color: #3E2E33; }
+.chat .ch-who h1, .chat .ch-who h1.serif, .chat .ch-who h1.grp { margin: 0; font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif; font-weight: 600; font-size: 15px; letter-spacing: 0.5px; color: #3E2E33; line-height: 1;
+  -webkit-text-stroke: 0; text-shadow: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat .ch-who svg { flex: none; color: #9A858A; }
+.chat .ch-st { margin-top: 4px; justify-content: center; font-size: 10px; letter-spacing: 1px; color: #8E7A7F; }
+.chat .ch-st.idle { display: none; }
+
+.chat .ch-list { padding: calc(env(safe-area-inset-top, 0px) + 150px) 14px calc(env(safe-area-inset-bottom, 0px) + 96px); }
+.chat .ch-day { margin: 10px 0 14px; }
+.chat .ch-day span { padding: 4px 12px; border-radius: 12px; font-size: 11px; color: #6E5A60; letter-spacing: 0.5px; }
+.chat .ch-tip { font-size: 11.5px; color: #8E7A7F; }
+
+/* 气泡：iMessage 的圆角 + 一组最后一条带小尾巴。他的是透明玻璃，她的是玫瑰粉 */
+.chat .cm-last .cm-row { padding-bottom: 8px; }
+.chat .cm-bubble { position: relative; max-width: 270px; padding: 8px 14px; border-radius: 19px; font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif; font-size: 16px; line-height: 22px; letter-spacing: 0.2px; }
+html[data-bubble='glass'] .chat .cm-bubble.him, html:not([data-bubble]) .chat .cm-bubble.him {
+  background: rgba(255, 255, 255, 0.5); color: #2E2226; -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08); }
+html[data-bubble='glass'] .chat .cm-bubble.me, html:not([data-bubble]) .chat .cm-bubble.me {
+  background: linear-gradient(180deg, #E9A6B6, #D98C9F); color: #fff; -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.45), 0 4px 14px rgba(200, 120, 140, 0.25); }
+/* 小尾巴 */
+html[data-bubble='glass'] .chat .cm-last .cm-bubble.him:not(.cm-voice)::after, html[data-bubble='glass'] .chat .cm-last .cm-bubble.me:not(.cm-voice)::after,
+html:not([data-bubble]) .chat .cm-last .cm-bubble.him:not(.cm-voice)::after, html:not([data-bubble]) .chat .cm-last .cm-bubble.me:not(.cm-voice)::after {
+  content: ''; position: absolute; bottom: 0; width: 14px; height: 18px; background: inherit; pointer-events: none; }
+html[data-bubble='glass'] .chat .cm-last .cm-bubble.him::after, html:not([data-bubble]) .chat .cm-last .cm-bubble.him::after { left: -7px; width: 18px; height: 20px; background: rgba(255, 255, 255, 0.72); clip-path: path('M18 0 L18 18 C14 20 6 21 0 20 C6 18 10 13 10 2 Z'); }
+html[data-bubble='glass'] .chat .cm-last .cm-bubble.him:not(.cm-voice), html:not([data-bubble]) .chat .cm-last .cm-bubble.him:not(.cm-voice) { border-bottom-left-radius: 8px; }
+html[data-bubble='glass'] .chat .cm-last .cm-bubble.me::after, html:not([data-bubble]) .chat .cm-last .cm-bubble.me::after { right: -7px; width: 18px; height: 20px; background: #D98C9F; clip-path: path('M0 0 L0 18 C4 20 12 21 18 20 C12 18 8 13 8 2 Z'); }
+html[data-bubble='glass'] .chat .cm-last .cm-bubble.me:not(.cm-voice), html:not([data-bubble]) .chat .cm-last .cm-bubble.me:not(.cm-voice) { border-bottom-right-radius: 8px; }
+.chat .cm-bubble.me .cm-quote, .chat .cm-bubble.me .cm-quote-who { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.6); }
+.chat .cm-bubble.me .cm-edited { color: rgba(255, 255, 255, 0.8); }
+.chat .cm-time { font-family: -apple-system, 'PingFang SC', sans-serif; font-style: normal; font-size: 11px; color: #8E7A7F; margin: 4px 8px 4px; }
+.chat .cm-react { background: var(--lg-strong); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge), 0 3px 8px rgba(120, 80, 92, 0.15); }
+
+/* 卡片类（歌、草稿、文件、图片、思考、快捷回复）都是玻璃 */
+.chat :is(.cm-song, .cm-draft, .cm-file, .cm-imgs, .cm-think-b, .ch-opt) { background: rgba(255, 255, 255, 0.45) !important; -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08) !important; }
+.chat .cm-row.me .cm-voice { background: linear-gradient(180deg, #E9A6B6, #D98C9F) !important; color: #fff; }
+.chat .cm-row.me .cm-voice .cm-wave, .chat .cm-row.me .cm-voice .cm-dur { color: #fff; }
+.chat .cm-row.me .cm-voice .cm-play { background: rgba(255, 255, 255, 0.3); }
+.chat .cm-play, .chat .cm-song-i { background: #D98C9F; }
+.chat .cm-draft-go { background: #D98C9F; box-shadow: none; }
+.chat .cm-term { box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08); }
+.chat .cm-term-h { background: rgba(217, 140, 159, 0.85); }
+.chat .cm-term-b { background: rgba(255, 255, 255, 0.55); }
+.chat .cm-transcript { color: #C27588; }
+
+/* 输入：＋ 圆玻璃 · 玻璃胶囊（麦克风、表情，有字时出现发送箭头）· 小回复按钮 */
+.chat .cin { padding: 8px 14px calc(env(safe-area-inset-bottom, 0px) + 10px); }
+.chat .cin.open { background: rgba(250, 240, 242, 0.55); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); border-top: 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7); }
+.chat .cin-row { align-items: flex-end; gap: 8px; padding: 0; background: none; box-shadow: none; }
+.chat .cin-plus { width: 44px; height: 44px; border-radius: 50%; color: #4E3A3F; }
+.chat .cin-field { min-height: 44px; border-radius: 22px; padding: 0 5px 0 16px; align-items: center; }
+.chat .cin-field textarea { font-family: -apple-system, 'PingFang SC', sans-serif; font-size: 16px; padding: 11px 0; }
+.chat .cin-field textarea::placeholder { color: #9A868B; }
+.chat .cin-ico { color: #8E7A7F; }
+.chat .cin-send { flex: none; width: 34px; height: 34px; margin: 0 0 5px 2px; align-self: flex-end; background: #D98C9F; box-shadow: none; }
+.chat .cin-send svg { rotate: -90deg; }
+.chat .cin-reply, .chat .cin-pause { position: relative; flex: none; width: 44px; height: 44px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; color: #B56A7D; }
+.chat .cin-reply:not(:disabled) { background: rgba(217, 140, 159, 0.85); color: #fff; }
+.chat .cin-reply:disabled { color: #B9A6AB; opacity: 1; }
+.chat .cin-reply .cnt { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #fff; color: #C27588; font-size: 10.5px; box-shadow: 0 1px 4px rgba(120, 80, 92, 0.2); }
+.chat .cin-quote { background: var(--lg-strong); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge); }
+.chat .cin-quote i { background: #D98C9F; }
+
+/* ================= 聊天列表 ================= */
+.clist { background: linear-gradient(180deg, #F8E9EA 0px, #F8E9EA 200px, #FAF1F1 460px, #FCF9F9 760px) no-repeat, #FCF9F9; }
+.clist .cl-head { position: relative; padding-top: calc(env(safe-area-inset-top, 0px) + 46px); }
+.clist .cl-head h1 { flex-direction: column; align-items: flex-start; gap: 4px; }
+.clist .cl-head h1 .hand { font-family: 'Pinyon Script', 'Great Vibes', cursive; font-style: normal; font-size: 52px; line-height: 0.9; color: var(--silver);
+  -webkit-text-stroke: 0.5px var(--silver-edge); text-shadow: 0 1px 1px rgba(110, 96, 102, 0.4); text-transform: capitalize; }
+.clist .cl-head h1 span:last-child { font-size: 12px; letter-spacing: 6px; color: var(--muted); }
+.clist .cl-head .rbtn { background: none; box-shadow: none; color: #8C6F76; }
+.cl-stk { position: absolute; right: 70px; top: calc(env(safe-area-inset-top, 0px) + 26px); width: 72px; rotate: -6deg; pointer-events: none; filter: drop-shadow(0 4px 6px rgba(120, 90, 98, 0.16)); }
+/* 搜索：一条细下划线，不要胶囊 */
+.clist .cl-search { margin-top: 22px; border: 0; border-radius: 0; background: none; box-shadow: none; border-bottom: 1px solid #E8D6DA; padding-left: 2px; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.clist .band-bg { display: none; }
+.clist .sec-head { margin-bottom: 4px; }
+.clist .sec-head .en { font-family: 'Pinyon Script', cursive !important; font-style: normal; font-size: 26px !important; color: #B2A6AC; }
+.clist .sec-head .go { color: var(--muted); font-size: 11px; letter-spacing: 1px; }
+/* 每个窗口：不装卡片，一行一行，细线隔开 */
+.clist .cl-swipe { margin-bottom: 0; border-radius: 0; }
+.clist .cl-swipe:not(.open) .cl-acts { visibility: hidden; }
+.clist .cl-acts { border-radius: 18px; }
+.clist .cl-swipe + .cl-swipe .cl-row { border-top: 1px solid #F0E1E4; }
+.clist .cl-row { min-height: 82px; padding: 0 4px; border-radius: 0; background: none !important; box-shadow: none !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.clist .cl-av { width: 52px; height: 52px; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px #E3D7DA; }
+.clist .cl-name b { font-size: 15px; letter-spacing: 2px; }
+.clist .cl-name em { border: 0; padding: 0; font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 11.5px; color: #B2959C; }
+.clist .cl-prev { font-size: 12.5px; color: #A08B90; }
+.clist .cl-side { font-family: 'Cormorant Garamond', 'Noto Serif SC', serif; font-style: italic; font-size: 12px; }
+.clist .cl-side .badge { background: var(--rose); }
+.cl-pin { position: absolute; left: -10px; top: 6px; width: 30px; rotate: -18deg; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(120, 90, 98, 0.2)); }
+.clist .cl-link { margin-top: 18px; border: 0; border-radius: 28px; justify-content: flex-start; background: #fff; color: var(--rose); box-shadow: 0 0 0 1px #F0E1E4, 0 8px 20px rgba(150, 110, 120, 0.08); }
+.clist .cl-acts button { background: #D7B2BB; }
+.clist .cl-acts button:nth-child(2) { background: #C39AA5; }
+.clist .cl-acts .danger { background: #A9737F; }
+/* cream.css 给每条消息开了 content-visibility，会把气泡的阴影切成硬边；聊天页关掉（较早的消息本来就收起了，条数不多） */
+[data-theme] .chat .ch-list > div[data-mid], .chat .cm-row { content-visibility: visible; }
+.chat .cm-row { margin: 0; padding: 0 0 2px; }
+
+/* 她自己换了壁纸：照片可能很花，玻璃加厚一点、模糊加大，小字带一圈光，不然看不清 */
+.chat.own-wall { --lg: rgba(255, 255, 255, 0.34); --lg-strong: rgba(255, 255, 255, 0.55); --lg-blur: blur(22px) saturate(1.6) brightness(1.06); }
+html[data-bubble='glass'] .chat.own-wall .cm-bubble.him, html:not([data-bubble]) .chat.own-wall .cm-bubble.him { background: rgba(255, 255, 255, 0.66); }
+html[data-bubble='glass'] .chat.own-wall .cm-last .cm-bubble.him::after, html:not([data-bubble]) .chat.own-wall .cm-last .cm-bubble.him::after { background: rgba(255, 255, 255, 0.8); }
+.chat.own-wall :is(.cm-song, .cm-draft, .cm-file, .cm-imgs, .cm-think-b, .ch-opt) { background: rgba(255, 255, 255, 0.72) !important; }
+.chat.own-wall :is(.cm-time, .cm-transcript, .ch-tip, .ch-status, .ch-st) { color: #3E2E33; text-shadow: 0 0 3px #fff, 0 0 6px #fff, 0 0 10px rgba(255, 255, 255, 0.9); }
+.chat.own-wall .ch-head { background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0)); }

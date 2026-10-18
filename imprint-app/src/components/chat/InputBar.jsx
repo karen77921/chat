@@ -1,5 +1,5 @@
 /**
- * 底部输入：＋（图片 / 拍照 / 文件 / 表情）· 输入框（按住麦克风说话、表情）· 发送 / 回复 / 暂停。
+ * 底部输入（照 iMessage 的样子）：＋ · 输入框（按住麦克风说话、表情，有字时框里出现发送）· 右边一个小的回复 / 暂停按钮。
  * 回车只把消息发出去；攒几条后按「回复」他才开始回。Shift + 回车换行。
  */
 import { useEffect, useRef, useState } from 'react';
@@ -130,14 +130,13 @@ export default function InputBar({ queued, replying, quote, onCancelQuote, editi
             <Icon name="mic" size={19} />
           </button>
           <button type="button" className="cin-ico" aria-label="表情" aria-expanded={panel === 'sticker'} onClick={() => setPanel((p) => (p === 'sticker' ? null : 'sticker'))}><Icon name="smile" size={19} /></button>
+          {text.trim() && <button type="button" className="cin-send" aria-label="发送" onClick={sendText}><Icon name="arrow" size={17} stroke={2} /></button>}
         </label>
-        {text.trim() ? (
-          <button type="button" className="cin-send" aria-label="发送" onClick={sendText}><Icon name="send" size={19} stroke={1.5} /></button>
-        ) : replying ? (
-          <button type="button" className="cin-pause glass" onClick={onPause}><Icon name="stop" size={16} />暂停</button>
+        {replying ? (
+          <button type="button" className="cin-pause glass" aria-label="暂停" onClick={onPause}><Icon name="stop" size={15} /></button>
         ) : (
-          <button type="button" className="btn-main cin-reply" disabled={!queued} onClick={onReply}>
-            <Icon name="feather" size={17} stroke={1.5} />回复{queued > 0 && <i className="cnt">{queued}</i>}
+          <button type="button" className="cin-reply" aria-label={queued ? `让他回复（攒了 ${queued} 条）` : '让他回复'} disabled={!queued} onClick={onReply}>
+            <Icon name="feather" size={17} stroke={1.5} />{queued > 0 && <i className="cnt">{queued}</i>}
           </button>
         )}
       </div>

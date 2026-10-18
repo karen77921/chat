@@ -20,6 +20,7 @@ import MessageMenu from '../components/chat/MessageMenu.jsx';
 import { ledgerFrom } from '../lib/ledger.js';
 import { splitByQuery } from '../lib/notes.js';
 import '../components/chat/chat.css';
+import '../components/chat/ballet.css';
 import AuthImg from '../design/AuthImg.jsx';
 
 /** 引用、复制整条时：把气泡分隔记号去掉，按原来的分段接起来 */
@@ -127,19 +128,21 @@ export default function Chat({ query }) {
           </label>
         ) : (
           <>
-            {group ? (
-              <span className="ch-avatar grp">
-                {data.members.slice(0, 2).map((m, k) => <span key={m.id} className={`ga ga${k}`}><Avatar m={m} /></span>)}
-              </span>
-            ) : (
-              <span className="ch-avatar"><Avatar m={him} /></span>
-            )}
-            <div className="ch-who">
-              <h1 className={group ? 'grp' : 'serif'}>{group ? data.name : him?.name || '\u00a0'}</h1>
+            <div className="ch-id">
+              {group ? (
+                <span className="ch-avatar grp">
+                  {data.members.slice(0, 2).map((m, k) => <span key={m.id} className={`ga ga${k}`}><Avatar m={m} /></span>)}
+                </span>
+              ) : (
+                <span className="ch-avatar"><Avatar m={him} /></span>
+              )}
+              <button type="button" className="ch-who" aria-label="聊天设置" onClick={() => setDetailsOpen(true)}>
+                <h1 className={group ? 'grp' : 'serif'}>{group ? data.name : him?.name || '\u00a0'}</h1>
+                <Icon name="chev" size={12} stroke={1.8} />
+              </button>
               <div className={`ch-st ${st ? st.kind : 'idle'}`}>{group ? <>{data.members.map((m) => m.name).join(' · ')} · 你</> : <><i />{status}</>}</div>
             </div>
             <button type="button" className="gbtn" aria-label="搜聊天" onClick={() => setSearching(true)}><Icon name="search" size={18} /></button>
-            <button type="button" className="gbtn" aria-label="聊天设置" onClick={() => setDetailsOpen(true)}><Icon name="more" size={18} /></button>
           </>
         )}
       </header>
@@ -177,7 +180,7 @@ export default function Chat({ query }) {
           if (m === lastMine && !searching) tail = m.status === 'queued' ? ' · 他还没开始回' : m.status === 'sending' ? ` · ${m.progress || '发送中…'}` : m.status === 'sent' ? ' · 已读' : '';
           if (m.status === 'failed') tail = ' · 失败';
           return (
-            <div key={m.id} data-mid={m.id}>
+            <div key={m.id} data-mid={m.id} className={showTime ? 'cm-last' : undefined}>
               {day && <div className="ch-day"><span className="glass">{day}</span></div>}
               <Message m={m} nameOf={who} q={searching ? q.trim() : ''}
                 sender={group && m.from !== 'me' && (prev?.from !== m.from || day) ? { name: who(m.from), color: memberOf(data, m.from)?.color } : null}

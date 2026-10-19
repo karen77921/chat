@@ -19,10 +19,10 @@ def sha(path: pathlib.Path) -> str:
 
 
 def main() -> int:
-    dirty = subprocess.run(["git", "status", "--porcelain", "--", "api_loop.py", "imprint_store.py", "imprint-app/dist"],
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", "api_loop.py", "imprint_store.py", "claude_subscription.py", "imprint-app/dist"],
                            cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     if dirty:
-        print("commit api_loop.py, imprint_store.py and imprint-app/dist first:\n" + dirty, file=sys.stderr)
+        print("commit backend files and imprint-app/dist first:\n" + dirty, file=sys.stderr)
         return 1
     rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     tracked = subprocess.run(["git", "ls-files", "imprint-app/dist"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
@@ -36,7 +36,7 @@ def main() -> int:
         old = json.loads(previous.read_text(encoding="utf-8"))
         known.update(old.get("known", []))
         known.update(old.get("backend", {}).values())
-    backend = {name: sha(ROOT / name) for name in ("api_loop.py", "imprint_store.py")}
+    backend = {name: sha(ROOT / name) for name in ("api_loop.py", "imprint_store.py", "claude_subscription.py")}
     js = next(name for name in dist if re.fullmatch(r"assets/index-[^/]+\.js", name))
     release = {"rev": rev, "backend": backend, "dist": dist, "entry_js": js, "known": sorted(known | set(backend.values()))}
     previous.write_text(json.dumps(release, indent=1) + "\n", encoding="utf-8")

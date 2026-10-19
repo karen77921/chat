@@ -56,6 +56,8 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
+
+from claude_subscription import is_subscription_route, subscription_chat
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
@@ -4748,12 +4750,15 @@ def route_credentials(body: dict[str, Any], *, require_model: bool = False) -> d
         "url": str(body.get("url") or prev.get("url") or "").strip().rstrip("/"),
         "key": key,
         "model": str(body.get("model") or prev.get("model") or "").strip(),
+        "effort": str(body.get("effort") or prev.get("effort") or "high").strip().lower(),
     }
+    if route["effort"] not in {"low", "medium", "high", "xhigh", "max"}:
+        raise HTTPException(status_code=400, detail="effort must be low|medium|high|xhigh|max")
     required = ("url", "key", "model") if require_model else ("url", "key")
     if any(not route[name] for name in required):
         raise HTTPException(status_code=400, detail=f"{'/'.join(required)} required")
-    if not route["url"].startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="API address must start with http:// or https://")
+    if not route["url"].startswith(("http://", "https://")) and not is_subscription_route(route):
+        raise HTTPException(status_code=400, detail="API address must start with http://, https://, or claude-subscription://")
     return route
 
 
@@ -4827,7 +4832,10 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
         try:
             remaining = max(1.0, deadline - loop.time())
             route_timeout = min(budget_s or max(60 if stream else 150, cfg_int("model_request_timeout_seconds", 30, 300)), remaining)
-            request = stream_chat(route, messages, tools, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, tools, session_id)
+            if is_subscription_route(route):
+                request = subscription_chat(route, messages, tools, _sink, _think, session_id)
+            else:
+                request = stream_chat(route, messages, tools, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, tools, session_id)
             try:
                 # Give a tool-capable attempt a short head start, then retry the
                 # same model without schemas so ordinary conversation can get out.
@@ -4839,7 +4847,10 @@ async def run_model(messages: list[dict[str, Any]], tools: list[dict[str, Any]] 
                 if not tools or started["v"] or retry_remaining < 5:
                     raise
                 timing["dropped_tools"] = True  # 带工具的请求超时，去掉工具重问
-                request = stream_chat(route, messages, None, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, None, session_id)
+                if is_subscription_route(route):
+                    request = subscription_chat(route, messages, None, _sink, _think, session_id)
+                else:
+                    request = stream_chat(route, messages, None, _sink, _think, session_id) if stream and STREAM_OUTPUT else complete_chat(route, messages, None, session_id)
                 out = await asyncio.wait_for(request, timeout=retry_remaining)
             reply, leaked = split_leaked_thinking(out.get("text") or "")
             if leaked:
@@ -5166,7 +5177,7 @@ def public_config() -> dict[str, Any]:
         "active_session": active_session_id(),
         "sessions": session_rows(),
         "main_chain": [
-            {"index": i, "model": r.get("model", ""), "url": r.get("url", ""), "key_masked": mask_key(r.get("key", "")),
+            {"index": i, "model": r.get("model", ""), "effort": r.get("effort", "high"), "url": r.get("url", ""), "key_masked": mask_key(r.get("key", "")),
              "cache_mode": r.get("cache_mode", "auto"), "cache_ttl": route_cache_ttl(r), "cache_effective": route_cache_mode(r)}
             for i, r in enumerate(main_chain())
         ],
@@ -5272,6 +5283,7 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
             prev = old[old_idx] if 0 <= old_idx < len(old) else {}
             entry = {
                 "model": str(item.get("model") or prev.get("model") or "").strip(),
+                "effort": str(item.get("effort") or prev.get("effort") or "high").strip().lower(),
                 "url": str(item.get("url") or prev.get("url") or "").strip().rstrip("/"),
                 "key": str(item.get("key") or prev.get("key") or ""),
                 "cache_mode": str(item.get("cache_mode") or prev.get("cache_mode") or "auto").strip().lower(),
@@ -5279,6 +5291,8 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
             }
             if entry["cache_mode"] not in {"auto", "off", "explicit"}:
                 raise HTTPException(status_code=400, detail=f"row {pos + 1}: cache_mode must be auto|off|explicit")
+            if entry["effort"] not in {"low", "medium", "high", "xhigh", "max"}:
+                raise HTTPException(status_code=400, detail=f"row {pos + 1}: effort must be low|medium|high|xhigh|max")
             if entry["cache_ttl"] not in {"5m", "1h"}:
                 raise HTTPException(status_code=400, detail=f"row {pos + 1}: cache_ttl must be 5m|1h")
             if not (entry["model"] and entry["url"] and entry["key"]):
@@ -7038,7 +7052,19 @@ async def loop_test(request: Request):
         route = chain[idx]
     started = dt.datetime.now()
     try:
-        out = await complete_chat(route, [{"role": "user", "content": "Reply with the single word: pong"}], None)
+        if is_subscription_route(route):
+            async def discard(_: str) -> None:
+                return None
+            out = await subscription_chat(
+                route,
+                [{"role": "system", "content": "Reply concisely."},
+                 {"role": "user", "content": "Reply with the single word: pong"}],
+                None,
+                discard,
+                discard,
+            )
+        else:
+            out = await complete_chat(route, [{"role": "user", "content": "Reply with the single word: pong"}], None)
         ms = int((dt.datetime.now() - started).total_seconds() * 1000)
         return {"ok": True, "model": route["model"], "reply": out.get("text", ""), "latency_ms": ms, "usage": out.get("usage") or {}}
     except ModelError as exc:
@@ -7155,6 +7181,8 @@ def cache_check_estimate() -> int:
 async def run_cache_check(index: int) -> dict[str, Any]:
     chain = main_chain()
     route = chain[index]
+    if is_subscription_route(route):
+        raise ValueError("Claude subscription handles caching internally; API cache probes do not apply")
     state = _cache_check_state
     started = asyncio.get_running_loop().time()
     extras = {"user": cache_session_id("cache-check")}
@@ -7499,6 +7527,15 @@ async def loop_models(request: Request):
     """List models offered by one saved or currently edited OpenAI-compatible API."""
     body = await request.json()
     route = route_credentials(body)
+    if is_subscription_route(route):
+        models = [
+            "claude-haiku-4-5-20251001",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5-5",
+            "claude-opus-4-6",
+            "claude-opus-5-5",
+        ]
+        return {"ok": True, "models": models, "count": len(models)}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(45, connect=20), trust_env=True) as client:
             response = await client.get(

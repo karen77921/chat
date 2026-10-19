@@ -336,7 +336,7 @@ function ModelAccess() {
   const test = async (i) => {
     const row = rows[i]; setNote('正在测试接口…');
     try {
-      const body = { index: row.index, url: row.url, model: row.model }; if (row.key) body.key = row.key;
+      const body = { index: row.index, url: row.url, model: row.model, effort: row.effort || 'high' }; if (row.key) body.key = row.key;
       const got = await api('/relay/app/loop/test', { method: 'POST', body, timeout: 60000 });
       setNote(got.ok ? `连接成功 · ${got.latency_ms} ms` : `测试失败：${got.error || '未知错误'}`);
     } catch (e) { setNote(`测试失败：${e.message}`); }
@@ -361,14 +361,34 @@ function ModelAccess() {
       </div>
       {rows.map((row, i) => (
         <div className={`card ma-row ${i === 0 ? 'active' : ''}`} key={`${row.index}-${i}`}>
+          {(() => {
+            const subscription = String(row.url || '').startsWith('claude-subscription://');
+            const subscriptionModels = [
+              ['claude-haiku-4-5-20251001', 'Haiku 4.5 · 最快'],
+              ['claude-sonnet-4-6', 'Sonnet 4.6 · 稳定'],
+              ['claude-sonnet-5-5', 'Sonnet 5.5 · 推荐'],
+              ['claude-opus-4-6', 'Opus 4.6 · 经典'],
+              ['claude-opus-5-5', 'Opus 5.5 · 最强'],
+            ];
+            const efforts = [['low', '低 · 省额度'], ['medium', '中'], ['high', '高 · 推荐'], ['xhigh', '超高'], ['max', '最大']];
+            return <>
           <div className="ma-head"><b>{i === 0 ? '当前使用 · 优先扣费' : `备用 API ${i}`}</b><span><button type="button" onClick={() => move(i, -1)} disabled={!i}>上移</button><button type="button" onClick={() => move(i, 1)} disabled={i === rows.length - 1}>下移</button><button type="button" className="danger" onClick={() => setRows((all) => all.filter((_, n) => n !== i))}>删除</button></span></div>
-          <label>API 地址<input type="url" value={row.url || ''} onChange={(e) => update(i, 'url', e.target.value)} placeholder="https://example.com/v1" /></label>
-          <label>API Key<input type="password" value={row.key || ''} onChange={(e) => update(i, 'key', e.target.value)} placeholder={row.key_masked ? `已保存 ${row.key_masked}，留空不修改` : '粘贴 Key'} /></label>
-          <label>模型<select value={row.model || ''} onChange={(e) => update(i, 'model', e.target.value)}><option value="">先拉取模型</option>{[...new Set([row.model, ...(row.models || [])].filter(Boolean))].map((m) => <option key={m}>{m}</option>)}</select></label>
-          <label>Prompt Cache<select value={row.cache_mode || 'auto'} onChange={(e) => update(i, 'cache_mode', e.target.value)}><option value="auto">自动识别（OpenRouter 自动开启）</option><option value="explicit">兼容 cache_control 的中转</option><option value="off">关闭</option></select></label>
-          {(row.cache_mode || 'auto') !== 'off' && <label>缓存时长<select value={row.cache_ttl || '5m'} onChange={(e) => update(i, 'cache_ttl', e.target.value)}><option value="5m">5 分钟（推荐）</option><option value="1h">1 小时</option></select></label>}
-          <p className="ma-cache-note">当前判定：{row.cache_effective === 'explicit' || row.cache_mode === 'explicit' ? '发送缓存断点；不兼容会自动退回普通请求' : row.cache_mode === 'off' ? '不发送缓存字段' : '普通中转不加字段，避免影响回复'}</p>
+          {!subscription && <><label>API 地址<input type="url" value={row.url || ''} onChange={(e) => update(i, 'url', e.target.value)} placeholder="https://example.com/v1" /></label>
+          <label>API Key<input type="password" value={row.key || ''} onChange={(e) => update(i, 'key', e.target.value)} placeholder={row.key_masked ? `已保存 ${row.key_masked}，留空不修改` : '粘贴 Key'} /></label></>}
+          {subscription ? <>
+            <p className="st-tip">Claude 订阅已登录。这里显示并保存实际使用的完整模型版本与思考强度。</p>
+            <label>Claude 模型<div className="st-gacts">{subscriptionModels.map(([value, label]) => <button type="button" key={value} className={`chip ${row.model === value ? 'on' : ''}`} onClick={() => update(i, 'model', value)}>{label}</button>)}</div></label>
+            <label>思考强度<div className="st-gacts">{efforts.map(([value, label]) => <button type="button" key={value} className={`chip ${(row.effort || 'high') === value ? 'on' : ''}`} onClick={() => update(i, 'effort', value)}>{label}</button>)}</div></label>
+            <p className="ma-cache-note">当前：{row.model || '尚未选择'} · 思考强度 {row.effort || 'high'}。订阅缓存由 Claude 自动管理。</p>
+          </> : <>
+            <label>模型<select value={row.model || ''} onChange={(e) => update(i, 'model', e.target.value)}><option value="">先拉取模型</option>{[...new Set([row.model, ...(row.models || [])].filter(Boolean))].map((m) => <option key={m}>{m}</option>)}</select></label>
+            <label>Prompt Cache<select value={row.cache_mode || 'auto'} onChange={(e) => update(i, 'cache_mode', e.target.value)}><option value="auto">自动识别（OpenRouter 自动开启）</option><option value="explicit">兼容 cache_control 的中转</option><option value="off">关闭</option></select></label>
+            {(row.cache_mode || 'auto') !== 'off' && <label>缓存时长<select value={row.cache_ttl || '5m'} onChange={(e) => update(i, 'cache_ttl', e.target.value)}><option value="5m">5 分钟（推荐）</option><option value="1h">1 小时</option></select></label>}
+            <p className="ma-cache-note">当前判定：{row.cache_effective === 'explicit' || row.cache_mode === 'explicit' ? '发送缓存断点；不兼容会自动退回普通请求' : row.cache_mode === 'off' ? '不发送缓存字段' : '普通中转不加字段，避免影响回复'}</p>
+          </>}
           <div className="ma-actions"><button type="button" className="mini-btn" onClick={() => pull(i)}>拉取模型</button><button type="button" className="mini-btn" onClick={() => test(i)}>测试此接口</button></div>
+            </>;
+          })()}
         </div>
       ))}
       <div className="ma-actions"><button type="button" className="cl-link" onClick={() => setRows((all) => [...all, { index: -1, url: '', key: '', model: '', models: [] }])}><Icon name="plus" size={15} />添加 API</button><button type="button" className="btn-main" disabled={busy || !rows.length} onClick={save}>保存 API 顺序</button></div>

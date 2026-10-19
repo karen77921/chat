@@ -9,6 +9,7 @@ BRANCH="claude/frontend-deployment-check-3dedhf"
 RAW="https://raw.githubusercontent.com/karen77921/chat/${BRANCH}"
 API="/root/companion-loop/api_loop.py"
 STORE="/root/companion-loop/imprint_store.py"
+ADAPTER="/root/companion-loop/claude_subscription.py"
 STATE="/root/companion-loop/.imprint-release"
 KEEP=3
 WORK="$(mktemp -d /tmp/imprint-update.XXXXXX)"
@@ -22,6 +23,7 @@ REV="$(field 'd["rev"]')"
 SHORT="${REV:0:7}"
 API_NEW="$(field 'd["backend"]["api_loop.py"]')"
 STORE_NEW="$(field 'd["backend"]["imprint_store.py"]')"
+ADAPTER_NEW="$(field 'd["backend"]["claude_subscription.py"]')"
 INDEX_NEW="$(field 'd["dist"]["index.html"]')"
 ENTRY_JS="$(field 'd["entry_js"]')"
 echo "      最新版本：${SHORT}"
@@ -29,7 +31,9 @@ echo "      最新版本：${SHORT}"
 sudo test -f "${API}" && sudo test -f "${STORE}"
 API_LIVE="$(sudo sha256sum "${API}" | cut -d' ' -f1)"
 STORE_LIVE="$(sudo sha256sum "${STORE}" | cut -d' ' -f1)"
-for pair in "api_loop.py:${API_LIVE}" "imprint_store.py:${STORE_LIVE}"; do
+ADAPTER_LIVE=''
+if sudo test -f "${ADAPTER}"; then ADAPTER_LIVE="$(sudo sha256sum "${ADAPTER}" | cut -d' ' -f1)"; fi
+for pair in "api_loop.py:${API_LIVE}" "imprint_store.py:${STORE_LIVE}" ${ADAPTER_LIVE:+"claude_subscription.py:${ADAPTER_LIVE}"}; do
   name="${pair%%:*}"; live="${pair#*:}"
   if ! python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if sys.argv[2] in d["known"] or sys.argv[2] in d["backend"].values() else 1)' "${WORK}/release.json" "${live}"; then
     echo "线上 ${name} 不是我认识的任何一个版本（${live:0:12}），可能有人手动改过；为了不覆盖它，什么都没改。" >&2
@@ -62,7 +66,7 @@ install_command() {
     | sudo tee /usr/local/bin/imprint-engawa >/dev/null
   sudo chmod 755 /usr/local/bin/imprint-engawa
 }
-if [[ "${API_LIVE}" == "${API_NEW}" && "${STORE_LIVE}" == "${STORE_NEW}" && "${INDEX_LIVE}" == "${INDEX_NEW}" ]]; then
+if [[ "${API_LIVE}" == "${API_NEW}" && "${STORE_LIVE}" == "${STORE_NEW}" && "${ADAPTER_LIVE}" == "${ADAPTER_NEW}" && "${INDEX_LIVE}" == "${INDEX_NEW}" ]]; then
   install_command
   echo "已经是最新版本（${SHORT}），不用更新。"
   echo 'IMPRINT_UPDATE_OK'
@@ -117,6 +121,11 @@ sudo find "${SITE_STAGE}" -type d -exec chmod 755 {} +
 sudo find "${SITE_STAGE}" -type f -exec chmod 644 {} +
 sudo cp -a "${API}" "${API}.bak-${TAG}"
 sudo cp -a "${STORE}" "${STORE}.bak-${TAG}"
+ADAPTER_EXISTED=0
+if sudo test -f "${ADAPTER}"; then
+  ADAPTER_EXISTED=1
+  sudo cp -a "${ADAPTER}" "${ADAPTER}.bak-${TAG}"
+fi
 
 rollback=1
 restore() {
@@ -125,6 +134,11 @@ restore() {
   if [[ "${rollback}" == 1 ]]; then
     sudo cp -a "${API}.bak-${TAG}" "${API}" || true
     sudo cp -a "${STORE}.bak-${TAG}" "${STORE}" || true
+    if [[ "${ADAPTER_EXISTED}" == 1 ]]; then
+      sudo cp -a "${ADAPTER}.bak-${TAG}" "${ADAPTER}" || true
+    else
+      sudo rm -f "${ADAPTER}" || true
+    fi
     if sudo test -d "${SITE_BACKUP}"; then
       if sudo test -d "${SITE}"; then sudo mv "${SITE}" "${SITE}.failed-${TAG}" || true; fi
       sudo mv "${SITE_BACKUP}" "${SITE}" || true
@@ -146,6 +160,7 @@ for attempt in {1..90}; do  # 最多等 3 分钟
 done
 
 echo '[5/7] 更新后端并重启…'
+sudo install -m 644 "${ROOT}/claude_subscription.py" "${ADAPTER}"
 sudo install -m 644 "${ROOT}/api_loop.py" "${API}"
 sudo install -m 644 "${ROOT}/imprint_store.py" "${STORE}"
 sudo systemctl restart companion-api-loop
@@ -185,6 +200,7 @@ prune "${SITE}.backup-rel-"
 prune "${SITE}.failed-rel-"
 prune "${API}.bak-rel-"
 prune "${STORE}.bak-rel-"
+prune "${ADAPTER}.bak-rel-"
 install_command
 echo 'IMPRINT_UPDATE_OK'
 echo "已更新到 ${SHORT}。以后更新只要输入：imprint-update"

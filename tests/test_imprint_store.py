@@ -1408,7 +1408,7 @@ class WebPushTest(unittest.TestCase):
             with mock.patch.object(api_loop, "_push_seen_at", time.monotonic()):
                 asyncio.run(api_loop.push_reply("在吗", [], "s1"))
             self.assertEqual(sent, [])
-            with mock.patch.object(api_loop, "_push_seen_at", 0.0):
+            with mock.patch.object(api_loop, "_push_seen_at", None):
                 asyncio.run(api_loop.push_reply("在吗\n⟦气泡⟧\n想你了", [], "s 1"))
         self.assertEqual(sent, [("哥哥", "在吗 想你了", "./#/chat/t?id=s%201")])
         self.assertEqual(api_loop.push_text("", [{"mime": "image/png"}]), "[图片]")

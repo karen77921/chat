@@ -1262,7 +1262,7 @@ async def relay_out(payload: dict[str, Any]) -> tuple[bool, Any]:
 PUSH_FILE = LOOP_CACHE_DIR / "push.json"
 PUSH_KEY_FILE = LOOP_CACHE_DIR / "push-vapid.pem"
 PUSH_SEEN_WINDOW_S = 75  # App 开着时每 25 秒报一次「我在看」；这么久没报就当她没在看
-_push_seen_at = 0.0
+_push_seen_at: float | None = None  # 还没报过就是 None（别用 0：机器刚开机时 monotonic 本身就很小，会被误当成「她刚看过」）
 _bg_tasks: set = set()
 
 
@@ -1412,7 +1412,7 @@ async def push_send(title: str, body: str, url: str, tag: str) -> dict[str, int]
 
 async def push_reply(text: str, attachments: list[Any], session_id: str) -> None:
     import time
-    if time.monotonic() - _push_seen_at < PUSH_SEEN_WINDOW_S:
+    if _push_seen_at is not None and time.monotonic() - _push_seen_at < PUSH_SEEN_WINDOW_S:
         return  # 她正开着 App，看得到，不打扰
     body = push_text(text, attachments)
     if not body:

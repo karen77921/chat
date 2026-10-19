@@ -1,28 +1,33 @@
 /**
- * 主题切换。颜色全在 src/design/tokens.css 的变量里，这里只负责给 <html> 换 data-theme。
- *   - 网址带 ?theme=lilac 时优先（截图、给甲方看用）
- *   - 否则读本地记住的 imprint.theme2
- *   - 默认 'cream'（奶油玻璃）；蓝晒写在 :root，不需要 data-theme
+ * 主题切换。颜色全在 src/design/tokens.css 的变量里，这里只负责给 <html> 换 data-theme / data-skin。
+ *   - 网址带 ?theme=cream 时优先（截图用）
+ *   - 否则读本地记住的 imprint.theme3
+ *   - 默认 'ballet'（芭蕾）：它在奶油玻璃上面再套一层（data-theme="cream" + data-skin="ballet"，样子在 theme/ballet.css）
  * 设置 · 美化 里调用 setTheme(name)。
  */
 import { useEffect, useState } from 'react';
 
-// 整个 App 现在只有一套样子：奶油玻璃（旧的蓝晒 / 雾紫 / 灰绿撕纸风已经退休）
+// 芭蕾（默认）和奶油玻璃两套。base：在哪套底子上套；sub/swatches：美化里主题卡片上的说明和色块
 export const THEMES = [
-  { id: 'cream', name: '奶油玻璃', swatch: '#EBCDC9' },
+  { id: 'ballet', name: '芭蕾', base: 'cream', skin: 'ballet', sub: '淡粉 · 浅银 · 芭蕾小画', swatches: ['#F8E9EA', '#E9A6B6', '#ECECEF'] },
+  { id: 'cream', name: '奶油玻璃', sub: '雾蓝天空 · 奶油磨砂', swatches: ['#C9DBE8', '#F8F4EE', '#B98079'] },
 ];
-const KEY = 'imprint.theme2'; // 换了新键：换上奶油玻璃后大家都先看到新样子，想换回去在美化里选
+const KEY = 'imprint.theme3'; // 换了新键：加了芭蕾以后大家先看到芭蕾，想换回去在美化里选
 const subs = new Set();
 
+let current = null;
 function apply(id) {
-  if (id && id !== 'cyan') document.documentElement.dataset.theme = id;
-  else delete document.documentElement.dataset.theme;
+  const t = THEMES.find((x) => x.id === id);
+  current = t ? t.id : null;
+  const html = document.documentElement;
+  if (t) html.dataset.theme = t.base || t.id; else delete html.dataset.theme;
+  if (t?.skin) html.dataset.skin = t.skin; else delete html.dataset.skin;
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.content = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim() || '#F6FAFC';
 }
 
 export function currentTheme() {
-  return document.documentElement.dataset.theme || 'cyan';
+  return current || document.documentElement.dataset.theme || 'cyan';
 }
 
 /** 启动时调用一次 */

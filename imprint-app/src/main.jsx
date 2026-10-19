@@ -10,6 +10,7 @@ import './design/fonts.css';
 import './design/tokens.css';
 import './design/paper.css';
 import './theme/cream.css';
+import './theme/ballet.css';
 
 initTheme();
 initBeauty();

@@ -1,0 +1,91 @@
+/*
+ * 主题「芭蕾」：套在奶油玻璃上面（<html data-theme="cream" data-skin="ballet">），只在选了芭蕾时生效。
+ * 跟首页一套：头顶 Ballerina Gown #F8E9EA 往下淡成白、几道纱帘光；卡片是白雾面；
+ * 页面大标题是浅银花体；每页标题旁边放一张芭蕾小画（她给的素材抠出来的，design/ballet/stickers）。
+ */
+[data-skin='ballet'] {
+  --paper: #FBF7F7;
+  --l1: #FFFFFF;
+  --l2: #F7EDEF;
+  --l3: #F2D7DD;
+  --l4: #EADCDF;
+  --print-a: #F2CBD4;
+  --print-b: #E2A7B6;
+  --print-c: #C98798;
+  --accent: #B97A8B;
+  --dot: #D98C9F;
+  --postmark: #B3A6AC;
+  --ink: #4E3A3F;
+  --muted: #9C858B;
+  --line: rgba(150, 110, 120, 0.16);
+  --card: rgba(255, 255, 255, 0.78);
+  --sheet: rgba(255, 255, 255, 0.86);
+  --sh-rgb: 150, 110, 120;
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-strong: rgba(255, 255, 255, 0.86);
+  --glass-edge: rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 12px 30px rgba(150, 110, 120, 0.1), 0 2px 8px rgba(150, 110, 120, 0.04);
+  --tint-a: #F6DDE3; --tint-b: #EFE4EC; --tint-c: #E9C3CC;
+  --vinyl: #8E7479; --vinyl-ring: #C2A8AE;
+  --silver: #F2F2F4; --silver-edge: #A8A5AD;
+}
+
+/* ---- 底：粉白，几道纱帘光 ---- */
+[data-skin='ballet'] body { background: #FBF7F7; }
+[data-skin='ballet'] body::before {
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0) 0 46px, rgba(255, 255, 255, 0.5) 60px, rgba(255, 255, 255, 0) 76px 118px),
+    radial-gradient(60% 26% at 85% 4%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 70%),
+    radial-gradient(70% 30% at 0% 100%, rgba(242, 215, 221, 0.45), rgba(242, 215, 221, 0) 70%),
+    linear-gradient(180deg, #F8E9EA 0%, #F8E9EA 18%, #FAF1F1 42%, #FBF7F7 70%);
+}
+
+/* ---- 材质：白雾面卡片，淡粉阴影 ---- */
+[data-skin='ballet'] .card,
+[data-skin='ballet'] .glass { background: rgba(255, 255, 255, 0.8); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.95), var(--glass-shadow); }
+[data-skin='ballet'] .sheet { background: rgba(255, 255, 255, 0.88); }
+[data-skin='ballet'] .pill,
+[data-skin='ballet'] .rbtn,
+[data-skin='ballet'] .chip,
+[data-skin='ballet'] .gbtn { background: rgba(255, 255, 255, 0.86); border-color: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 12px rgba(150, 110, 120, 0.08); }
+[data-skin='ballet'] .chip.on { background: #F4D7DE; color: #7E4A57; }
+[data-skin='ballet'] .btn-main { background: linear-gradient(180deg, #E9A6B6, #D98C9F); color: #fff; box-shadow: 0 8px 18px rgba(217, 140, 159, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
+[data-skin='ballet'] .switch:checked { background: #D98C9F; }
+[data-skin='ballet'] .badge { background: #D98C9F; }
+[data-skin='ballet'] .cl-row.card { background: #fff; }
+
+/* ---- 字：页面大标题浅银花体，小标花体 ---- */
+html[data-skin='ballet'] h1 > .hand {
+  font-family: 'Pinyon Script', 'Great Vibes', cursive; font-style: normal; font-weight: 400; font-size: 46px; line-height: 0.95; letter-spacing: 0;
+  color: #F4F4F6; -webkit-text-stroke: 0.7px #948F99; text-shadow: 0 1px 1.5px rgba(90, 76, 82, 0.45); text-transform: capitalize;
+}
+html[data-skin='ballet'] h1:has(> .hand) { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+html[data-skin='ballet'] h1 > .hand + span { font-size: 12.5px; font-weight: 500; color: #8C6F76; letter-spacing: 0.4em; }
+[data-skin='ballet'] .sec-head .en { font-family: 'Pinyon Script', cursive; font-style: normal; font-size: 26px; color: #B2A0A6; }
+[data-skin='ballet'] .sec-head .zh { color: var(--ink); }
+
+/* ---- 弹出面板 ---- */
+[data-skin='ballet'] .sheet-mask { background: rgba(150, 110, 120, 0.18); }
+[data-skin='ballet'] .sheet-panel, [data-skin='ballet'] .sheet-in { background: #FDF8F8; }
+
+/* ---- 每页标题旁边一张芭蕾小画 ---- */
+[data-skin='ballet'] :is(main.room, main.tide, main.settings, main.together, main.st-shelf, main.notes, main.spark, main.ap, main.pg, main.vb) { position: relative; }
+[data-skin='ballet'] :is(main.room, main.tide, main.settings, main.together, main.st-shelf, main.notes, main.spark, main.ap, main.pg, main.vb)::after {
+  content: ''; position: absolute; z-index: 2; pointer-events: none; top: calc(env(safe-area-inset-top, 0px) + 14px); right: 12px; width: 64px; height: 72px;
+  background: var(--stk) no-repeat center / contain; filter: drop-shadow(0 5px 7px rgba(120, 90, 98, 0.18)); rotate: 6deg;
+}
+[data-skin='ballet'] main.room { --stk: url('../design/ballet/stickers/curtain2.webp'); }
+[data-skin='ballet'] main.tide { --stk: url('../design/ballet/stickers/cloud.webp'); }
+[data-skin='ballet'] main.settings { --stk: url('../design/ballet/stickers/wand.webp'); }
+[data-skin='ballet'] main.together { --stk: url('../design/ballet/stickers/bear.webp'); }
+[data-skin='ballet'] main.st-shelf { --stk: url('../design/ballet/stickers/ballet-sheet.webp'); }
+[data-skin='ballet'] main.notes { --stk: url('../design/ballet/stickers/invitation.webp'); }
+[data-skin='ballet'] main.spark { --stk: url('../design/ballet/stickers/star.webp'); }
+[data-skin='ballet'] main.ap { --stk: url('../design/ballet/stickers/slipper.webp'); }
+[data-skin='ballet'] main.pg { --stk: url('../design/ballet/stickers/macaron.webp'); }
+[data-skin='ballet'] main.pg.dr { --stk: url('../design/ballet/stickers/fan.webp'); }
+[data-skin='ballet'] main.pg.wd { --stk: url('../design/ballet/stickers/kitty.webp'); }
+[data-skin='ballet'] main.vb { --stk: url('../design/ballet/stickers/sign.webp'); }
+[data-skin='ballet'] main.settings.sub::after, [data-skin='ballet'] main.vb::after { display: none; }
+/* 右上角有「＋」的页面，小画往左让一让 */
+[data-skin='ballet'] :is(main.room, main.notes)::after { right: 62px; }

@@ -56,14 +56,6 @@
 .st-delmcp.on { font-weight: 500; }
 
 /* 美化 */
-.st-themes { display: flex; gap: 10px; }
-.st-theme { flex: 1; height: 84px; border-radius: 12px; position: relative; text-align: left; box-shadow: 0 0 0 1px rgba(47, 74, 102, 0.08) inset; }
-.st-theme[data-preview='cyan'] { background: #e5eff6; }
-.st-theme[data-preview='lilac'] { background: #eeeaf5; }
-.st-theme[data-preview='sage'] { background: #e7f0eb; }
-.st-theme.on { box-shadow: 0 0 0 1.5px var(--print-c) inset; }
-.st-theme i { position: absolute; left: 12px; top: 12px; width: 26px; height: 26px; border-radius: 50%; }
-.st-theme span { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: #2c4258; }
 .st-avs { display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 0 14px; margin-top: 16px; }
 .st-avs-k { font-size: 13px; width: 48px; }
 .st-avs button { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
@@ -187,3 +179,17 @@
 .st-hist-b b { font-weight: 500; font-size: 13.5px; }
 .st-hist-b em { font-style: normal; font-size: 10.5px; color: var(--muted); line-height: 1.4; }
 .st-hist-b:disabled { opacity: 0.5; }
+
+/* 主题卡片：芭蕾那张站着一只跳舞的小兔 */
+.st-themes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.st-theme { position: relative; min-height: 150px; padding: 14px; border-radius: 22px; display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; text-align: left; overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.9), 0 8px 20px rgba(150, 110, 120, 0.1); color: #4E3A3F; }
+.st-theme[data-preview='ballet'] { background: linear-gradient(170deg, #F8E9EA, #FBF3F3 60%, #fff); }
+.st-theme[data-preview='cream'] { background: linear-gradient(180deg, #C9DBE8, #ECE9E4 60%, #F8F4EE); }
+.st-theme.on { box-shadow: inset 0 0 0 2px #D98C9F, 0 8px 20px rgba(150, 110, 120, 0.14); }
+.st-theme-art { position: absolute; right: -6px; top: 6px; width: 74px; filter: drop-shadow(0 4px 6px rgba(120, 90, 98, 0.18)); }
+.st-theme-sw { display: flex; gap: 4px; margin-bottom: 6px; }
+.st-theme-sw i { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff; }
+.st-theme b { font-weight: 500; font-size: 15px; letter-spacing: 2px; }
+.st-theme em { font-style: normal; font-size: 10.5px; color: #9C878C; letter-spacing: 1px; }
+.st-theme-on { position: absolute; left: 12px; top: 12px; height: 22px; padding: 0 9px; border-radius: 11px; display: inline-flex; align-items: center; font-size: 10.5px; color: #fff; background: #D98C9F; }

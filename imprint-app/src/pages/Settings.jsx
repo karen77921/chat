@@ -13,6 +13,7 @@ import { shrinkImage } from '../lib/image.js';
 import { useLoad } from '../lib/useLoad.js';
 import { replaceQuery } from '../lib/router.js';
 import { THEMES, useTheme, useBeauty } from '../theme/theme.js';
+import themeArt from '../design/ballet/stickers/bunny2.webp';
 import { Avatar } from './Chat.jsx';
 import CacheCheck from '../components/settings/CacheCheck.jsx';
 import { pushStatus, enablePush, disablePush, testPush } from '../lib/push.js';
@@ -818,11 +819,14 @@ function Beauty() {
   const STYLES = [['glass', '磨砂玻璃'], ['paper', '纸片'], ['cyan', '蓝晒信纸']];
   return (
     <>
-      {THEMES.length > 1 && <><div className="nc-k" style={{ marginTop: 0 }}>主题色</div>
-      <div className="st-themes" role="radiogroup" aria-label="主题色">
+      {THEMES.length > 1 && <><div className="nc-k" style={{ marginTop: 0 }}>主题</div>
+      <div className="st-themes" role="radiogroup" aria-label="主题">
         {THEMES.map((t) => (
           <button key={t.id} type="button" role="radio" aria-checked={theme === t.id} className={`st-theme ${theme === t.id ? 'on' : ''}`} data-preview={t.id} onClick={() => setTheme(t.id)}>
-            <i style={{ background: t.swatch }} /><span>{t.name}{theme === t.id ? ' ✓' : ''}</span>
+            {t.id === 'ballet' && <img src={themeArt} alt="" className="st-theme-art" />}
+            <span className="st-theme-sw">{t.swatches.map((c) => <i key={c} style={{ background: c }} />)}</span>
+            <b>{t.name}</b><em>{t.sub}</em>
+            {theme === t.id && <span className="st-theme-on">使用中</span>}
           </button>
         ))}
       </div></>}

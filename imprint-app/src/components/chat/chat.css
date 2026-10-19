@@ -270,3 +270,18 @@ svg.up { transform: rotate(180deg); }
 .ch-res-t mark { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .ch-hit .cm-bubble, .ch-hit .cm-images, .ch-hit .cm-sticker { animation: ch-hit 2.2s ease-out; }
 @keyframes ch-hit { 0%, 40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* 顶栏中间（头像 · 名字按钮 · 状态）和输入栏（发送箭头在框里，右边一个小回复钮）：奶油玻璃下的样子；芭蕾主题另画（chat/ballet.css） */
+.ch-id { flex: 1; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: center; }
+.ch-id .ch-avatar { grid-row: span 2; }
+.ch-id .ch-who { justify-self: start; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; color: var(--ink); text-align: left; }
+.ch-id .ch-who svg { flex: none; color: var(--muted); }
+.ch-id .ch-st { margin-top: 0; }
+.cin-field .cin-send { width: 34px; height: 34px; margin-left: 2px; box-shadow: none; }
+.cin-field .cin-send svg { rotate: -90deg; }
+.cin-reply { position: relative; width: 46px; height: 46px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.cin-reply .cnt { position: absolute; top: -4px; right: -4px; }
+.cin-pause { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.cin-reply { color: var(--muted); background: rgba(255, 252, 248, 0.82); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85) inset, 0 6px 16px rgba(var(--sh-rgb), 0.06); }
+.cin-reply:not(:disabled) { color: #fff; background: linear-gradient(150deg, var(--print-a), var(--print-b) 45%, var(--print-c)); }
+.cin-reply .cnt { color: var(--print-c); background: #fff; }

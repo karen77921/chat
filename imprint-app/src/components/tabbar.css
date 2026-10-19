@@ -1,4 +1,4 @@
-/* 底栏（TabBar.jsx）：一条白纱一样的浮条，入口是芭蕾小画 */
+/* 底栏（TabBar.jsx）：一条白纱一样的浮条；芭蕾主题（.art）入口是芭蕾小画，奶油玻璃是线条图标 */
 .tabbar {
   position: fixed; z-index: 40;
   left: max(16px, calc(50% - 215px + 16px)); right: max(16px, calc(50% - 215px + 16px));
@@ -9,9 +9,15 @@
   font-family: 'Noto Serif SC', 'Songti SC', 'STSong', serif;
 }
 .tab { position: relative; flex: 1; max-width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #B5A3A8; font-size: 10px; letter-spacing: 3px; padding-left: 3px; }
+.tab svg { opacity: 0.8; }
+.tab.on svg { opacity: 1; }
+.tabbar:not(.art) .tab { gap: 4px; }
 .tab img { width: 38px; height: 38px; object-fit: contain; opacity: 0.72; filter: saturate(0.6); transition: transform 0.22s cubic-bezier(.3, 1.4, .5, 1), opacity 0.2s, filter 0.2s; }
 .tab.on { color: #8C5E69; }
 .tab.on img { opacity: 1; filter: saturate(1) drop-shadow(0 4px 5px rgba(150, 110, 120, 0.25)); transform: translateY(-3px) scale(1.14); }
 .tab.on::after { content: ''; position: absolute; bottom: 6px; left: 50%; width: 4px; height: 4px; translate: -50% 0; border-radius: 50%; background: #B98290; }
 .tab:active img { transform: scale(0.9); }
-@media (prefers-reduced-motion: reduce) { .tab img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .tab svg { opacity: 0.8; }
+.tab.on svg { opacity: 1; }
+.tabbar:not(.art) .tab { gap: 4px; }
+.tab img { transition: none; } }

@@ -23,6 +23,7 @@ const Vocab = lazy(() => import('./pages/Vocab.jsx'));
 const Study = lazy(() => import('./pages/Study.jsx'));
 const Drawer = lazy(() => import('./pages/Drawer.jsx'));
 const World = lazy(() => import('./pages/World.jsx'));
+const Workspace = lazy(() => import('./pages/Workspace.jsx'));
 const Together = lazy(() => import('./pages/Together.jsx'));
 const Tide = lazy(() => import('./pages/Tide.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
@@ -38,6 +39,7 @@ const ROUTES = {
   '/piggy': Piggy,
   '/drawer': Drawer,
   '/world': World,
+  '/work': Workspace,
   '/words': Vocab,
   '/study': Study,
   '/study/read': Study,

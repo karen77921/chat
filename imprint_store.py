@@ -3113,6 +3113,64 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     async def books_here(request: Request):
         return imprint_action(data_path, "reading_here_set", await request.json())
 
+    # 工作区：转接 mousecrew（另装在同一台服务器上的「AI 施工队」：群聊 + 工单 + 队员）。
+    # 这里只做转接：地址和令牌存在设置里（令牌不回传给前端），只放行下面这些接口。
+    CREW_PATHS = re.compile(r"^(group/history|group/chat|agents/status|projects|orders|orders/meta/states|threads"
+                            r"|orders/[A-Za-z0-9_-]+(/(dispatch|accept|transition|pause|resume|assign))?)$")
+
+    def crew_conf() -> dict:
+        c = setting("crew")
+        return {"url": str(c.get("url") or "").rstrip("/"), "token": str(c.get("token") or "")}
+
+    @router.get("/crew/config")
+    def crew_config():
+        c = crew_conf()
+        return {"configured": bool(c["url"] and c["token"]), "url": c["url"]}
+
+    @router.put("/crew/config")
+    async def crew_config_set(request: Request):
+        body = await request.json()
+        url = str(body.get("url") or "").strip().rstrip("/")
+        if url and not re.match(r"^https?://", url):
+            raise HTTPException(400, "地址要以 http:// 或 https:// 开头")
+        old = crew_conf()
+        token = str(body.get("token") or "").strip() or old["token"]  # 不填就沿用原来的
+        save_setting("crew", {"url": url, "token": token if url else ""})
+        return {"configured": bool(url and token), "url": url}
+
+    @router.get("/crew/api/{path:path}")
+    @router.post("/crew/api/{path:path}")
+    async def crew_proxy(path: str, request: Request):
+        if not CREW_PATHS.match(path):
+            raise HTTPException(404, "工作区不转接这个接口")
+        c = crew_conf()
+        if not (c["url"] and c["token"]):
+            return {"available": False, "reason": "工作区还没接上 mousecrew"}
+        query = request.url.query
+        target = f"{c['url']}/api/{path}" + (f"?{query}" if query else "")
+        data = await request.body() if request.method == "POST" else None
+        req = urllib.request.Request(target, data=data, method=request.method,
+                                     headers={"Authorization": f"Bearer {c['token']}", "Content-Type": "application/json"})
+
+        def go():
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    return resp.status, resp.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.read()
+        try:
+            status, raw = await asyncio.to_thread(go)
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            return {"available": False, "reason": f"连不上 mousecrew：{getattr(e, 'reason', e)}"}
+        try:
+            payload = json.loads(raw.decode("utf-8") or "null")
+        except ValueError:
+            payload = {"error": raw.decode("utf-8", "replace")[:300]}
+        if status >= 400:
+            msg = payload.get("error") if isinstance(payload, dict) else None
+            raise HTTPException(status, msg or f"mousecrew 返回 {status}")
+        return payload
+
     @router.get("/world")
     def world_list(cat: str = "", limit: int = 60):
         items = rows("world")

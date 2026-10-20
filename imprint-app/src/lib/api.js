@@ -514,6 +514,9 @@ async function compat(path, opts) {
   if (method === 'POST' && p === '/api/spark/redeem') return loop('imprint/spark/redeem', opts);
   if (method === 'POST' && (m = /^\/api\/spark\/kept\/([^/]+)\/active$/.exec(p))) return loop(`imprint/spark/kept/${m[1]}/active`, opts);
   if (method === 'GET' && p === '/api/world') return loop(`imprint/world${query}`);
+  // 工作区：转接 mousecrew（地址和令牌存在后端设置里）
+  if (p === '/api/crew/config') return loop('imprint/crew/config', opts);
+  if (p.startsWith('/api/crew/')) return loop(`imprint/crew/api/${p.slice('/api/crew/'.length)}${query}`, opts);
   if (method === 'GET' && p === '/api/together/watch') return loop('imprint/together/watch');
   if (method === 'POST' && p === '/api/together/watch/list') return loop('imprint/together/watch/list', opts);
   if (method === 'GET' && p === '/api/music/search') return loop(`imprint/together/tracks${query}`).then((data) => ({ ...data, items: (data.items || []).map((item) => ({ ...item, url: attachmentUrl(item) })) }));

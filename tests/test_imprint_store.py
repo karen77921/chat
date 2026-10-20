@@ -125,6 +125,58 @@ class ImprintStoreTest(unittest.TestCase):
         self.call("DELETE", "/piggy/{rec_id}", taken["id"])
         self.assertEqual(self.call("GET", "/piggy")["balance"], 20)
 
+    def test_crew_proxy_forwards_only_known_paths_with_the_token(self):
+        class CrewRequest:
+            def __init__(self, method, body=b"", query=""):
+                self.method, self._body, self.url = method, body, types.SimpleNamespace(query=query)
+
+            async def body(self):
+                return self._body
+
+            async def json(self):
+                return json.loads(self._body or b"{}")
+
+        proxy = lambda path, req: self.call(req.method, "/crew/api/{path:path}", path, req)  # noqa: E731
+        # 没接上时不报错，只说明还没配
+        self.assertFalse(proxy("orders", CrewRequest("GET"))["available"])
+        self.assertEqual(self.call("GET", "/crew/config"), {"configured": False, "url": ""})
+        with self.assertRaises(HTTPException):
+            self.call("PUT", "/crew/config", CrewRequest("PUT", b'{"url": "ftp://x", "token": "t"}'))
+        conf = self.call("PUT", "/crew/config", CrewRequest("PUT", b'{"url": "http://127.0.0.1:8787/", "token": "sekret"}'))
+        self.assertEqual(conf, {"configured": True, "url": "http://127.0.0.1:8787"})
+        self.assertNotIn("sekret", json.dumps(self.call("GET", "/crew/config")))  # 令牌不回传
+        # 只换地址不填令牌：沿用原来的令牌
+        self.call("PUT", "/crew/config", CrewRequest("PUT", b'{"url": "http://127.0.0.1:8787"}'))
+        seen = []
+
+        class Resp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b'[{"id": "APP-1", "status": "draft"}]'
+
+        def fake_open(req, timeout):
+            seen.append((req.full_url, req.get_method(), req.get_header("Authorization"), req.data))
+            return Resp()
+
+        with mock.patch.object(imprint_store.urllib.request, "urlopen", fake_open):
+            out = proxy("orders", CrewRequest("GET", query="status=draft"))
+            proxy("group/chat", CrewRequest("POST", b'{"message": "@backend hi"}'))
+            with self.assertRaises(HTTPException):
+                proxy("../../etc/passwd", CrewRequest("GET"))
+            with self.assertRaises(HTTPException):
+                proxy("agents/backend/session/new", CrewRequest("POST"))
+        self.assertEqual(out, [{"id": "APP-1", "status": "draft"}])
+        self.assertEqual(seen[0][:3], ("http://127.0.0.1:8787/api/orders?status=draft", "GET", "Bearer sekret"))
+        self.assertEqual(seen[1][1:], ("POST", "Bearer sekret", b'{"message": "@backend hi"}'))
+        self.assertEqual(len(seen), 2)
+
     def test_search_and_queue_songs_together(self):
         def fake_song(n):
             return imprint_store.apple_song({"trackId": n, "trackName": f"歌{n}", "artistName": "歌手", "collectionName": "专辑",

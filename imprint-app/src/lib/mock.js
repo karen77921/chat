@@ -537,10 +537,56 @@ function mockBooks(method, p, body) {
   return { ok: true };
 }
 
+/** 工作区（mousecrew）的假数据：三只队员、一个群、几张工单 */
+const crew = {
+  configured: true,
+  agents: {
+    backend: { id: 'backend', transport: 'local', runner: 'claude', state: 'working', queueLength: 1, processAlive: true, context: { tokens: 84000, limit: 200000 } },
+    auditor: { id: 'auditor', transport: 'local', runner: 'claude', state: 'idle', queueLength: 0, processAlive: true, context: { tokens: 21000, limit: 200000 } },
+    codex: { id: 'codex', transport: 'local', runner: 'codex', state: 'unspawned', queueLength: 0, processAlive: false, context: { tokens: 0, limit: 200000 } },
+    frontend: { id: 'frontend', transport: 'remote', state: 'offline', online: false },
+  },
+  projects: [{ id: 'imprint', name: 'Imprint', prefix: 'IMP' }],
+  messages: [
+    { id: 1, role: 'user', content: '@backend 首页的天数算错了一天，看一下', ts: '2026-10-20 01:12:00', metadata: '{"sender":"human"}' },
+    { id: 2, role: 'assistant', content: '收到。时区按 UTC 算了，改成按她的时区，改完提交给 auditor。', ts: '2026-10-20 01:13:10', metadata: '{"sender":"backend"}' },
+    { id: 3, role: 'assistant', content: '[IMP-7] in_progress → submitted · backend', ts: '2026-10-20 01:30:40', metadata: '{"sender":"system","card":true}' },
+    { id: 4, role: 'assistant', content: '看过了，测试补了一条跨零点的。可以合。', ts: '2026-10-20 01:41:02', metadata: '{"sender":"auditor"}' },
+  ],
+  orders: [
+    { id: 'IMP-7', project_id: 'imprint', title: '首页天数在零点前后差一天', description: '按她的时区算', status: 'auditing', assignee: 'backend', repo: 'imprint', created_by: 'human', updated_at: '2026-10-20T01:41:00+08:00' },
+    { id: 'IMP-6', project_id: 'imprint', title: '聊天页液态玻璃在自定义壁纸上看不清小字', status: 'in_progress', assignee: 'frontend', repo: 'imprint', created_by: 'human', updated_at: '2026-10-19T22:10:00+08:00' },
+    { id: 'IMP-8', project_id: 'imprint', title: '他的世界加一个按月份归档', status: 'draft', assignee: null, repo: 'imprint', created_by: 'human', updated_at: '2026-10-20T00:20:00+08:00' },
+    { id: 'IMP-5', project_id: 'imprint', title: '推送：刚开机时不推送', status: 'closed', assignee: 'backend', repo: 'imprint', created_by: 'human', updated_at: '2026-10-19T12:00:00+08:00' },
+  ],
+};
+function crewApi(method, p, body, qs) {
+  const sub = p.slice('/api/crew/'.length);
+  if (sub === 'config') { if (method === 'PUT') crew.configured = Boolean(body?.url); return { configured: crew.configured, url: crew.configured ? 'http://127.0.0.1:8787' : '' }; }
+  if (!crew.configured) return { available: false, reason: '工作区还没接上 mousecrew' };
+  if (sub === 'agents/status') return crew.agents;
+  if (sub === 'projects') return crew.projects;
+  if (sub === 'group/history') return { messages: crew.messages };
+  if (sub === 'group/chat') { crew.messages.push({ id: Date.now(), role: 'user', content: body.message, ts: new Date().toISOString().replace('T', ' ').slice(0, 19), metadata: '{"sender":"human"}' }); return { ok: true, mentions: [] }; }
+  if (sub === 'orders' && method === 'GET') return qs.get('status') ? crew.orders.filter((o) => o.status === qs.get('status')) : crew.orders;
+  if (sub === 'orders' && method === 'POST') { const o = { id: `IMP-${9 + crew.orders.length}`, status: 'draft', created_by: 'human', updated_at: new Date().toISOString(), ...body }; crew.orders.unshift(o); return o; }
+  const m = /^orders\/([\w-]+)(?:\/(\w+))?$/.exec(sub);
+  if (m) {
+    const o = crew.orders.find((x) => x.id === m[1]);
+    if (!m[2]) return { ...o, timeline: [{ status: 'draft', actor: 'human', ts: '2026-10-20T00:20:00+08:00' }, { status: o.status, actor: o.assignee || 'human', ts: o.updated_at }], logs: [] };
+    const to = { dispatch: 'assigned', pause: 'paused', resume: 'in_progress', transition: body?.to_status }[m[2]];
+    if (to) o.status = to;
+    if (m[2] === 'assign') o.assignee = body.assignee;
+    return { ok: true, order: o };
+  }
+  return { ok: true };
+}
+
 export async function mockFetch(path, { method = 'GET', body } = {}) {
   await sleep(120);
   const [p, qsRaw = ''] = path.split('?');
   if (p.startsWith('/api/books')) return mockBooks(method, p, body);
+  if (p.startsWith('/api/crew/')) return crewApi(method, p, body, new URLSearchParams(qsRaw));
   const qs = new URLSearchParams(qsRaw);
   const key = `${method} ${p}`;
   switch (key) {

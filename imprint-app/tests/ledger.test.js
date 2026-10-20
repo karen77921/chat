@@ -44,3 +44,14 @@ test('anthropic cache percentage uses all input buckets instead of tiny uncached
   assert.equal(flat['本轮输入合计'], '49.5k token');
   assert.equal(flat['缓存命中'], '29.1k token（59%）');
 });
+
+test('subscription usage (prompt_tokens + anthropic buckets) still uses all buckets', () => {
+  const groups = ledgerFrom({ usage: {
+    prompt_tokens: 2, completion_tokens: 536, total_tokens: 538,
+    cache_read_input_tokens: 548, cache_creation_input_tokens: 48800,
+  } });
+  const flat = Object.fromEntries(groups.flatMap((g) => g.rows));
+  assert.equal(flat['本轮输入合计'], '49.4k token');
+  assert.equal(flat['缓存命中'], '548 token（1%）');
+  assert.ok(flat['为什么重写']);
+});

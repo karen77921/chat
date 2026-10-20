@@ -22,8 +22,10 @@ export function ledgerFrom(api) {
   // cached_tokens as a subset. Anthropic reports the three input buckets
   // separately. Dividing an Anthropic cache read by input_tokens therefore
   // produces nonsense such as 29,109 / 2 = 1,455,450%.
-  const anthropicBuckets = u.prompt_tokens == null
-    && (u.input_tokens != null || u.cache_read_input_tokens != null || u.cache_creation_input_tokens != null);
+  // The Claude subscription adapter also fills prompt_tokens (= Anthropic's tiny uncached
+  // input_tokens) next to the Anthropic cache buckets, so the bucket keys decide, not prompt_tokens.
+  const anthropicBuckets = d.cached_tokens == null
+    && (u.cache_read_input_tokens != null || u.cache_creation_input_tokens != null || (u.prompt_tokens == null && u.input_tokens != null));
   const promptTotal = input == null ? null : anthropicBuckets ? input + read + write : input;
   const cacheHit = promptTotal ? Math.round((read / promptTotal) * 100) : null;
   const calls = Array.isArray(t.model) ? t.model : [];
@@ -38,6 +40,8 @@ export function ledgerFrom(api) {
       ['写出来', output == null ? '—' : `${tokens(output)} token`],
       ['缓存命中', cacheHit == null ? `${tokens(read)} token` : `${tokens(read)} token（${cacheHit}%）`],
       write ? ['写入缓存', `${tokens(write)} token`] : null,
+      // 读到的很少、几乎整份重写：上一轮过去太久（缓存只留几分钟），或者人设 / 工具这一轮变了
+      write && read < write * 0.2 ? ['为什么重写', '离上一轮太久缓存过期了，或这一轮人设 / 工具有变化，整份重新写了一遍'] : null,
     ].filter(Boolean),
   });
   groups.push({

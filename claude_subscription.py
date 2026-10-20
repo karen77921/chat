@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import pwd
+import re
 import time
 import uuid
 from pathlib import Path
@@ -28,7 +29,10 @@ CLAUDE_USER = os.environ.get("CLAUDE_SUBSCRIPTION_USER", "codex-temp")
 CLAUDE_SDK_RUNNER = os.environ.get("CLAUDE_SUBSCRIPTION_SDK_RUNNER", "/usr/local/bin/imprint-claude-sdk-runner")
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 SDK_IDLE_TTL_SECONDS = 900
-SDK_STATE_FILE = Path(__file__).resolve().parent / "loop_cache" / "claude-sdk-sessions.json"
+SDK_REANCHOR_TOKENS = max(60_000, int(os.environ.get("CLAUDE_SUBSCRIPTION_REANCHOR_TOKENS", "150000")))
+# v2 deliberately does not resume the old unbounded sessions, some of which
+# had already grown past 900k cached tokens before re-anchoring existed.
+SDK_STATE_FILE = Path(__file__).resolve().parent / "loop_cache" / "claude-sdk-sessions-v2.json"
 _usage_cache: dict[str, Any] = {"at": 0.0, "data": None}
 _sdk_actor: "_SdkActor | None" = None
 _sdk_registry_lock = asyncio.Lock()
@@ -186,14 +190,9 @@ def _tail_conversation(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return tail or conversation[-1:]
 
 
-def _prompt(events: list[dict[str, Any]], catalog: list[dict[str, Any]], *, continuation: bool) -> str:
-    lead = (
-        "Continue the existing private conversation using only the new events in this JSON envelope. "
-        if continuation else
-        "Continue the private conversation represented by the complete JSON envelope below. "
-    )
+def _prompt(events: list[dict[str, Any]], catalog: list[dict[str, Any]]) -> str:
     return (
-        lead
+        "Continue the private conversation represented by the complete JSON envelope below. "
         + "The system prompt supplied separately is authoritative. Preserve chronology and persona. "
         "Return a normal reply in text, OR request tools from available_tools. Never invent a tool result. "
         "Tool names must match exactly and arguments must satisfy the listed schema. If tools are needed, "
@@ -201,6 +200,91 @@ def _prompt(events: list[dict[str, Any]], catalog: list[dict[str, Any]], *, cont
         "markdown fences, hidden reasoning, or analysis inside text.\n\n"
         + json.dumps({"conversation": events, "available_tools": catalog}, ensure_ascii=False, separators=(",", ":"))
     )
+
+
+def _content_hash(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+
+
+def _dynamic_segments(content: Any) -> dict[str, str]:
+    """Split Imprint's volatile background so unchanged pieces are not re-sent."""
+    if not isinstance(content, str) or not content.startswith("【本轮动态背景】"):
+        return {}
+    body = content.split("\n", 1)[1] if "\n" in content else ""
+    pieces = [piece.strip() for piece in re.split(
+        r"\n\n(?=【[^】\n]{1,50}】)", body
+    ) if piece.strip()]
+    result: dict[str, str] = {}
+    for index, piece in enumerate(pieces):
+        first = piece.splitlines()[0].strip()
+        key = first[:first.index("】") + 1] if first.startswith("【") and "】" in first else f"section-{index}"
+        while key in result:
+            key += "#"
+        result[key] = piece
+    return result
+
+
+def _incremental_prompt(
+    events: list[dict[str, Any]],
+    catalog: list[dict[str, Any]],
+    previous_tools: dict[str, str],
+    previous_dynamic: dict[str, str],
+) -> tuple[str, dict[str, str], dict[str, str], dict[str, int]]:
+    """Send schema/background deltas, following cc-cache-playbook's pattern."""
+    current_tools = {item["name"]: _content_hash(item) for item in catalog}
+    by_name = {item["name"]: item for item in catalog}
+    tool_updates = [by_name[name] for name, digest in current_tools.items()
+                    if previous_tools.get(name) != digest]
+    removed_tools = sorted(set(previous_tools) - set(current_tools))
+
+    current_dynamic = dict(previous_dynamic)
+    event_delta: list[dict[str, Any]] = []
+    changed_dynamic = 0
+    removed_dynamic = 0
+    for event in events:
+        segments = _dynamic_segments(event.get("content"))
+        if not segments:
+            event_delta.append(event)
+            continue
+        next_hashes = {name: _content_hash(value) for name, value in segments.items()}
+        changed = [value for name, value in segments.items() if current_dynamic.get(name) != next_hashes[name]]
+        removed = sorted(set(current_dynamic) - set(next_hashes))
+        changed_dynamic += len(changed)
+        removed_dynamic += len(removed)
+        if changed or removed:
+            lines = ["【本轮动态背景·增量】"]
+            if changed:
+                lines.extend(changed)
+            if removed:
+                lines.append("【已移除的动态背景】" + "、".join(removed))
+            lines.append("以上只列本轮变化；未列出的动态背景保持上一轮状态。")
+            event_delta.append({**event, "content": "\n\n".join(lines)})
+        current_dynamic = next_hashes
+
+    envelope = {
+        "new_events": event_delta,
+        # Names are cheap and make the current permission boundary unambiguous;
+        # full schemas are sent only when added or changed.
+        "available_tool_names": sorted(current_tools),
+        "tool_schema_updates": tool_updates,
+        "removed_tools": removed_tools,
+    }
+    prompt = (
+        "Continue the existing private conversation using this incremental JSON envelope. "
+        "new_events contains only events not already in the conversation. Dynamic background sections and tool "
+        "schemas not repeated here remain unchanged. removed_tools and removed background headings revoke earlier "
+        "entries. Only names in available_tool_names may be requested. Return the required structured response; "
+        "never invent tool results.\n\n"
+        + json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+    )
+    meta = {
+        "incremental_chars": len(prompt),
+        "tool_schema_updates": len(tool_updates),
+        "dynamic_updates": changed_dynamic,
+        "dynamic_removals": removed_dynamic,
+    }
+    return prompt, current_tools, current_dynamic, meta
 
 
 def _load_sdk_sessions() -> dict[str, str]:
@@ -253,6 +337,8 @@ class _SdkActor:
         self.fingerprint = ""
         self.last_active = time.monotonic()
         self.lock = asyncio.Lock()
+        self.tool_hashes: dict[str, str] = {}
+        self.dynamic_hashes: dict[str, str] = {}
 
     async def close(self) -> None:
         if self.client is not None:
@@ -270,12 +356,17 @@ class _SdkActor:
         self.client = client
         self.fingerprint = fingerprint
 
-    async def run(self, options: Any, fingerprint: str, full_prompt: str, incremental_prompt: str,
-                  sink: Callable[[str], Awaitable[None]], think_sink: Callable[[str], Awaitable[None]]) -> tuple[dict[str, Any], dict[str, Any]]:
+    async def run(self, options: Any, fingerprint: str, conversation: list[dict[str, Any]],
+                  incremental_events: list[dict[str, Any]], catalog: list[dict[str, Any]],
+                  sink: Callable[[str], Awaitable[None]], think_sink: Callable[[str], Awaitable[None]]) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
         async with self.lock:
             warm = self.client is not None and self.fingerprint == fingerprint
             if not warm:
                 await self._connect(options, fingerprint)
+            full_prompt = _prompt(conversation, catalog)
+            incremental_prompt, next_tools, next_dynamic, meta = _incremental_prompt(
+                incremental_events, catalog, self.tool_hashes, self.dynamic_hashes
+            )
             try:
                 data, usage, provider_session = await self._query(incremental_prompt if warm or options.resume else full_prompt,
                                                                   sink, think_sink)
@@ -291,8 +382,25 @@ class _SdkActor:
                 await self._connect(fresh_options, fingerprint)
                 data, usage, provider_session = await self._query(full_prompt, sink, think_sink)
             self.last_active = time.monotonic()
-            _save_sdk_session(self.conv_id, provider_session)
-            return data, usage
+            self.tool_hashes = next_tools
+            self.dynamic_hashes = next_dynamic
+            context_tokens = sum(int(usage.get(key) or 0) for key in (
+                "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"
+            ))
+            meta["context_tokens"] = context_tokens
+            if context_tokens >= SDK_REANCHOR_TOKENS:
+                # The next turn starts from Imprint's compact current window.
+                # Keeping a 900k provider transcript hot still burns subscription
+                # compute even at a high cache-hit percentage.
+                _drop_sdk_session(self.conv_id)
+                await self.close()
+                self.tool_hashes = {}
+                self.dynamic_hashes = {}
+                meta["reanchored"] = 1
+            else:
+                _save_sdk_session(self.conv_id, provider_session)
+                meta["reanchored"] = 0
+            return data, usage, meta
 
     async def _query(self, prompt: str, sink: Callable[[str], Awaitable[None]],
                      think_sink: Callable[[str], Awaitable[None]]) -> tuple[dict[str, Any], dict[str, Any], str]:
@@ -347,6 +455,9 @@ def _options_for(conv_id: str, model: str, effort: str, system_prompt: str, resu
             "USER": CLAUDE_USER,
             "LOGNAME": CLAUDE_USER,
             "CLAUDE_AGENT_SDK_CLIENT_APP": "imprint/1.0",
+            "DISABLE_AUTO_COMPACT": "1",
+            "ENABLE_PROMPT_CACHING_1H": "1",
+            "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
         },
         output_format={"type": "json_schema", "schema": OUTPUT_SCHEMA},
     )
@@ -402,11 +513,12 @@ async def subscription_chat(
     resume = _load_sdk_sessions().get(conv_id)
     options = _options_for(conv_id, model, effort, system_prompt, resume=resume)
     actor = await _actor_for(conv_id)
-    data, raw_usage = await actor.run(
+    data, raw_usage, sdk_meta = await actor.run(
         options,
         fingerprint,
-        _prompt(conversation, catalog, continuation=False),
-        _prompt(incremental, catalog, continuation=True),
+        conversation,
+        incremental,
+        catalog,
         sink,
         think_sink,
     )
@@ -432,7 +544,14 @@ async def subscription_chat(
         "total_tokens": input_tokens + output_tokens,
         "cache_read_input_tokens": int(raw_usage.get("cache_read_input_tokens") or 0),
         "cache_creation_input_tokens": int(raw_usage.get("cache_creation_input_tokens") or 0),
+        "sdk_context_tokens": int(sdk_meta.get("context_tokens") or 0),
+        "sdk_incremental_chars": int(sdk_meta.get("incremental_chars") or 0),
+        "sdk_tool_schema_updates": int(sdk_meta.get("tool_schema_updates") or 0),
+        "sdk_dynamic_updates": int(sdk_meta.get("dynamic_updates") or 0),
+        "sdk_reanchored": int(sdk_meta.get("reanchored") or 0),
     }
+    if isinstance(raw_usage.get("cache_creation"), dict):
+        usage["cache_creation"] = raw_usage["cache_creation"]
     return {
         "text": text,
         "thinking": "",
@@ -441,4 +560,5 @@ async def subscription_chat(
         "finish": "tool_calls" if calls else "stop",
         "prompt_cache": {"mode": "subscription-sdk", "ttl": "persistent-session", "fallback": False},
     }
+
 

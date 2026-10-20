@@ -1678,6 +1678,11 @@ def record_usage_sample(messages: list[dict[str, Any]], usage: dict[str, Any], m
                "in": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
                "read": int(details.get("cached_tokens") or usage.get("cache_read_input_tokens") or 0),
                "write": int(details.get("cache_write_tokens") or usage.get("cache_creation_input_tokens") or 0),
+               "ctx": int(usage.get("sdk_context_tokens") or 0),
+               "incremental_chars": int(usage.get("sdk_incremental_chars") or 0),
+               "tool_schema_updates": int(usage.get("sdk_tool_schema_updates") or 0),
+               "dynamic_updates": int(usage.get("sdk_dynamic_updates") or 0),
+               "reanchored": bool(usage.get("sdk_reanchored")),
                "fields": bool(fields), "sys": _fp(system), "head": _fp(head),
                # 每条历史消息一个短指纹：两轮一比，就知道缓存是从第几条开始断的
                "seq": [_fp(m.get("content"))[:8] for m in messages if m.get("role") in {"user", "assistant"}][:-1][:120]}
@@ -1685,6 +1690,13 @@ def record_usage_sample(messages: list[dict[str, Any]], usage: dict[str, Any], m
         rows = [*rows, row][-20:]
         USAGE_RING_FILE.parent.mkdir(parents=True, exist_ok=True)
         USAGE_RING_FILE.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+        if row["ctx"]:
+            print(
+                f"[cc] ctx={row['ctx']} (+{row['write']}) incremental_chars={row['incremental_chars']} "
+                f"tool_schemas={row['tool_schema_updates']} dyn={row['dynamic_updates']} "
+                f"hit={round(100 * row['read'] / max(1, row['ctx']))}% reanchor={int(row['reanchored'])}",
+                flush=True,
+            )
 
 
 def cache_effective() -> bool:

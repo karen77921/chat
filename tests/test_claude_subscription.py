@@ -48,11 +48,40 @@ class ClaudeSubscriptionSdkTest(unittest.TestCase):
         prompt = adapter._prompt(
             [{"role": "user", "content": "hello"}],
             [{"name": "memory_search", "description": "find", "parameters": {"type": "object"}}],
-            continuation=True,
         )
-        self.assertIn("only the new events", prompt)
+        self.assertIn("complete JSON envelope", prompt)
         envelope = json.loads(prompt.split("\n\n", 1)[1])
         self.assertEqual(envelope["available_tools"][0]["name"], "memory_search")
+
+    def test_incremental_prompt_deduplicates_tools_and_background_sections(self):
+        tools = [{"name": "memory_search", "description": "find", "parameters": {"type": "object"}}]
+        events = [
+            {"role": "user", "content": "【本轮动态背景】\n【时间】十点\n\n【状态】很好"},
+            {"role": "user", "content": "你好"},
+        ]
+        first, tool_hashes, dynamic_hashes, first_meta = adapter._incremental_prompt(events, tools, {}, {})
+        second, _, _, second_meta = adapter._incremental_prompt(events, tools, tool_hashes, dynamic_hashes)
+        first_envelope = json.loads(first.split("\n\n", 1)[1])
+        second_envelope = json.loads(second.split("\n\n", 1)[1])
+        self.assertEqual(first_meta["tool_schema_updates"], 1)
+        self.assertEqual(first_meta["dynamic_updates"], 2)
+        self.assertEqual(second_meta["tool_schema_updates"], 0)
+        self.assertEqual(second_meta["dynamic_updates"], 0)
+        self.assertEqual(second_envelope["tool_schema_updates"], [])
+        self.assertEqual(second_envelope["new_events"], [{"role": "user", "content": "你好"}])
+        self.assertGreater(len(first_envelope["new_events"]), len(second_envelope["new_events"]))
+
+    def test_incremental_prompt_sends_tombstones(self):
+        previous_tools = {"old": "abc"}
+        previous_dynamic = {"【旧状态】": "abc"}
+        prompt, _, _, meta = adapter._incremental_prompt(
+            [{"role": "user", "content": "【本轮动态背景】\n【新状态】新"}],
+            [], previous_tools, previous_dynamic,
+        )
+        envelope = json.loads(prompt.split("\n\n", 1)[1])
+        self.assertEqual(envelope["removed_tools"], ["old"])
+        self.assertEqual(meta["dynamic_removals"], 1)
+        self.assertIn("已移除的动态背景", envelope["new_events"][0]["content"])
 
     def test_actor_keeps_one_warm_client_and_sends_only_increment(self):
         class FakeResult:
@@ -93,8 +122,9 @@ class ClaudeSubscriptionSdkTest(unittest.TestCase):
             async def sink(value):
                 output.append(value)
 
-            await actor.run(options, "same", "FULL", "NEW-1", sink, sink)
-            await actor.run(options, "same", "FULL", "NEW-2", sink, sink)
+            messages = [{"role": "user", "content": "FULL"}]
+            await actor.run(options, "same", messages, messages, [], sink, sink)
+            await actor.run(options, "same", messages, [{"role": "user", "content": "NEW-2"}], [], sink, sink)
             await actor.close()
 
         with tempfile.TemporaryDirectory() as folder, \
@@ -103,8 +133,11 @@ class ClaudeSubscriptionSdkTest(unittest.TestCase):
             import asyncio
             asyncio.run(exercise())
         self.assertEqual(len(FakeClient.instances), 1)
-        self.assertEqual(FakeClient.instances[0].prompts, ["FULL", "NEW-2"])
+        self.assertIn("complete JSON envelope", FakeClient.instances[0].prompts[0])
+        self.assertIn("NEW-2", FakeClient.instances[0].prompts[1])
+        self.assertNotIn("FULL", FakeClient.instances[0].prompts[1])
 
 
 if __name__ == "__main__":
     unittest.main()
+

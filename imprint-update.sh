@@ -118,6 +118,7 @@ sudo tee /usr/local/bin/imprint-claude-sdk-runner >/dev/null <<'RUNNER'
 set -euo pipefail
 exec sudo -H -u codex-temp env -u ANTHROPIC_API_KEY \
   HOME=/home/codex-temp USER=codex-temp LOGNAME=codex-temp \
+  DISABLE_AUTO_COMPACT=1 ENABLE_PROMPT_CACHING_1H=1 CLAUDE_CODE_PROMPT_CACHE_TTL=1h \
   PATH=/home/codex-temp/.local/bin:/usr/local/bin:/usr/bin:/bin \
   /home/codex-temp/.local/bin/claude "$@"
 RUNNER

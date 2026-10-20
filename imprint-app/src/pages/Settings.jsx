@@ -28,6 +28,50 @@ const PAGES = {
 const upload = async (file, kind, onProgress) => uploadFile(await shrinkImage(file), { onProgress });
 const fmtN = (n) => (n == null ? '—' : n.toLocaleString('en-US'));
 const hm = (iso) => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const hms = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`; };
+const resetIn = (iso, now) => {
+  const ms = new Date(iso).getTime() - now;
+  if (!Number.isFinite(ms) || ms <= 0) return '即将重置';
+  const mins = Math.ceil(ms / 60000), days = Math.floor(mins / 1440), hours = Math.floor((mins % 1440) / 60), rest = mins % 60;
+  if (days) return `${days}天${hours}小时后重置`;
+  if (hours) return `${hours}小时${rest}分后重置`;
+  return `${rest}分钟后重置`;
+};
+
+function QuotaCard({ state }) {
+  const { data, setData } = state;
+  const [now, setNow] = useState(Date.now());
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30000); return () => window.clearInterval(timer); }, []);
+  const refresh = async () => {
+    setBusy(true);
+    try { setData(await api('/api/subscription/quota?refresh=1')); }
+    catch (e) { setData({ available: false, reason: e?.message || '额度暂时读取不到' }); }
+    setBusy(false);
+  };
+  return (
+    <section className="card st-quota" aria-label="Claude 订阅额度">
+      <div className="st-quota-head">
+        <span className="st-quota-model">{data?.model || 'Claude 订阅'}{data?.effort ? ` · ${data.effort}` : ''}</span>
+        <button type="button" onClick={refresh} disabled={busy}>{busy ? '刷新中…' : data?.updatedAt ? `更新 ${hms(data.updatedAt)} · 刷新` : '刷新'}</button>
+      </div>
+      {!data && <div className="st-quota-empty">正在读额度…</div>}
+      {data?.available === false && <div className="st-quota-empty">{data.reason || '额度暂时读取不到'}</div>}
+      {data?.available && (data.windows || []).map((row) => {
+        const pct = Math.round(Number(row.usedPercent) || 0);
+        return (
+          <div className="st-quota-row" key={row.key}>
+            <div><b>{row.label}</b><span>{resetIn(row.resetsAt, now)}</span><strong>已用 {pct}%</strong></div>
+            <div className="st-quota-bar"><i style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} /></div>
+          </div>
+        );
+      })}
+      {data?.available && !(data.windows || []).length && <div className="st-quota-empty">官方暂时没有返回额度窗口</div>}
+      {data?.stale && <p className="st-quota-note">{data.reason}</p>}
+      {data?.available && <p className="st-quota-note">{data.subscription ? `${data.subscription.toUpperCase()} 订阅` : 'Claude 订阅'} · 数字来自 Claude 官方额度接口</p>}
+    </section>
+  );
+}
 
 export default function Settings({ query }) {
   const [p, setP] = useState(PAGES[query.p] ? query.p : null);
@@ -61,6 +105,7 @@ export default function Settings({ query }) {
 /* ---------- 主页：控制台 + 入口 ---------- */
 function Desk({ go }) {
   const { data: c } = useLoad('/api/settings/console');
+  const quota = useLoad('/api/subscription/quota');
   const { data: f } = useLoad('/api/features');
   const { data: conn } = useLoad('/api/connections');
   const { data: persona } = useLoad('/api/persona');
@@ -86,6 +131,7 @@ function Desk({ go }) {
   return (
     <main className="settings">
       <header className="st-head"><h1><span className="hand">the desk</span><span>设置</span></h1></header>
+      <QuotaCard state={quota} />
       <TornBox seed={160} className="st-console">
         <div className="st-c-in">
           <div className="sec-head" style={{ margin: 0 }}><span className="en" style={{ fontSize: 22 }}>console</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>控制台</h2><span className="go" style={{ fontSize: 10.5 }}>{c?.now ? `${new Date(c.now).getMonth() + 1}月${new Date(c.now).getDate()}日` : ''}</span></div>

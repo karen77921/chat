@@ -57,7 +57,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
-from claude_subscription import is_subscription_route, subscription_chat
+from claude_subscription import is_subscription_route, subscription_chat, subscription_usage
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
@@ -6068,6 +6068,18 @@ async def loop_busy():
     """How many replies are being written right now; deploys wait for 0 before restarting."""
     active = sum(len([t for t in tasks if not t.done()]) for tasks in _active_turns.values())
     return {"busy": active}
+
+
+@app.get("/loop/subscription/quota")
+async def loop_subscription_quota(refresh: bool = False):
+    """Claude subscription limits plus the currently selected route; never returns OAuth credentials."""
+    chain = main_chain()
+    route = next((item for item in chain if is_subscription_route(item)), None)
+    if route is None:
+        return {"available": False, "reason": "当前没有启用 Claude 订阅线路"}
+    usage = await subscription_usage(force=refresh)
+    return {**usage, "model": str(route.get("model") or ""),
+            "effort": str(route.get("effort") or "high")}
 
 
 @app.get("/healthz")

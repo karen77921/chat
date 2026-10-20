@@ -9,22 +9,81 @@ existing memory, MCP, audit, and UI behavior does not move into Claude Code.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 import os
 import pwd
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+
+import httpx
 
 
 SUBSCRIPTION_SCHEMES = ("claude-subscription://", "claude-code://")
 CLAUDE_BIN = os.environ.get("CLAUDE_SUBSCRIPTION_BIN", "/home/codex-temp/.local/bin/claude")
 CLAUDE_USER = os.environ.get("CLAUDE_SUBSCRIPTION_USER", "codex-temp")
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+_usage_cache: dict[str, Any] = {"at": 0.0, "data": None}
 
 
 def is_subscription_route(route: dict[str, Any]) -> bool:
     return str(route.get("url") or "").lower().startswith(SUBSCRIPTION_SCHEMES)
+
+
+async def subscription_usage(force: bool = False) -> dict[str, Any]:
+    """Return Claude subscription limit windows without exposing OAuth secrets."""
+    now = time.monotonic()
+    cached = _usage_cache.get("data")
+    if not force and cached is not None and now - float(_usage_cache.get("at") or 0) < 60:
+        return dict(cached)
+    try:
+        account = pwd.getpwnam(CLAUDE_USER)
+        credential_path = Path(account.pw_dir) / ".claude" / ".credentials.json"
+        raw_credentials = json.loads(credential_path.read_text(encoding="utf-8"))
+        oauth = raw_credentials.get("claudeAiOauth") or {}
+        access_token = str(oauth.get("accessToken") or "")
+        if not access_token:
+            raise RuntimeError("Claude 订阅还没有登录")
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.get(
+                CLAUDE_USAGE_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "oauth-2025-04-20",
+                    "User-Agent": "claude-code/imprint-quota",
+                },
+            )
+        response.raise_for_status()
+        upstream = response.json()
+        windows = []
+        labels = (("five_hour", "5 小时窗口"), ("seven_day", "本周 · 全模型"),
+                  ("seven_day_opus", "本周 · Opus"), ("seven_day_sonnet", "本周 · Sonnet"))
+        for key, label in labels:
+            value = upstream.get(key)
+            if not isinstance(value, dict) or value.get("utilization") is None:
+                continue
+            windows.append({"key": key, "label": label,
+                            "usedPercent": max(0, min(100, float(value["utilization"]))),
+                            "resetsAt": value.get("resets_at"),
+                            "lockedReason": value.get("locked_reason")})
+        data = {
+            "available": True,
+            "subscription": str(oauth.get("subscriptionType") or "").lower(),
+            "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "windows": windows,
+            "extraUsage": bool((upstream.get("extra_usage") or {}).get("is_enabled")),
+        }
+        _usage_cache.update(at=now, data=data)
+        return dict(data)
+    except Exception as exc:
+        if cached is not None:
+            return {**cached, "stale": True, "reason": "刷新失败，暂时显示上次结果"}
+        return {"available": False, "reason": f"额度暂时读取不到：{type(exc).__name__}"}
 
 
 def _safe_content(value: Any) -> Any:

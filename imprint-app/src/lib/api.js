@@ -385,6 +385,7 @@ async function compat(path, opts) {
   }
   if (method === 'POST' && (m = /^\/api\/garden\/(token|check|start|stop)$/.exec(p))) return loop(`garden/${m[1]}`, { ...opts, method: 'POST' });
   if (method === 'GET' && p === '/api/settings/console') return loop('imprint/usage');
+  if (method === 'GET' && p === '/api/subscription/quota') return loop(`subscription/quota${query}`);
   if (method === 'GET' && p === '/api/logs/cache') return loop(`imprint/usage/cache${query}`);
   if (method === 'GET' && p === '/api/logs/tools') return loop('imprint/logs/tools');
   if (method === 'GET' && p === '/api/logs/backend') return loop('imprint/logs/backend');

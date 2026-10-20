@@ -55,3 +55,23 @@ test('subscription usage (prompt_tokens + anthropic buckets) still uses all buck
   assert.equal(flat['缓存命中'], '548 token（1%）');
   assert.ok(flat['为什么重写']);
 });
+
+test('large subscription cache reads use the sum of all input buckets and stay within 100%', () => {
+  const groups = ledgerFrom({ usage: {
+    prompt_tokens: 2, completion_tokens: 244,
+    cache_read_input_tokens: 136200, cache_creation_input_tokens: 3386,
+  } });
+  const flat = Object.fromEntries(groups.flatMap((g) => g.rows));
+  assert.equal(flat['本轮新输入'], '2 token');
+  assert.equal(flat['本轮输入合计'], '139.6k token');
+  assert.equal(flat['缓存命中'], '136.2k token（98%）');
+});
+
+test('malformed provider counters can never display a cache hit above 100%', () => {
+  const groups = ledgerFrom({ usage: {
+    prompt_tokens: 100, completion_tokens: 1,
+    prompt_tokens_details: { cached_tokens: 200 },
+  } });
+  const flat = Object.fromEntries(groups.flatMap((g) => g.rows));
+  assert.equal(flat['缓存命中'], '200 token（100%）');
+});

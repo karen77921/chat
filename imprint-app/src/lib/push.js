@@ -13,12 +13,32 @@ export function registerSW() {
   navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
   // 服务器慢的时候先用了手机里存的旧版：知道有新版以后，等她下次切回 App 再刷新（不打断正在打的字）
   let stale = false;
+  let checking = false;
+  const currentEntry = () => document.querySelector('script[src*="assets/index-"]')?.getAttribute('src') || '';
+  const markLatest = (entry) => { if (entry && currentEntry() && !currentEntry().endsWith(entry)) stale = true; };
+  const checkLatest = async () => {
+    if (checking) return;
+    checking = true;
+    try {
+      const url = new URL('./', location.href);
+      url.searchParams.set('_imprint_version', Date.now());
+      const html = await fetch(url, { cache: 'no-store' }).then((res) => res.ok ? res.text() : '');
+      markLatest(html.match(/assets\/index-[\w-]+\.js/)?.[0]);
+    } catch { /* 离线时继续用手机里存的版本 */ }
+    checking = false;
+  };
   navigator.serviceWorker.addEventListener('message', (event) => {
     const entry = event.data?.type === 'imprint-latest' && event.data.entry;
-    const mine = document.querySelector('script[src*="assets/index-"]')?.getAttribute('src') || '';
-    if (entry && mine && !mine.endsWith(entry)) stale = true;
+    markLatest(entry);
   });
-  document.addEventListener('visibilitychange', () => { if (stale && document.visibilityState === 'visible') location.reload(); });
+  const refreshWhenVisible = async () => {
+    if (document.visibilityState !== 'visible') return;
+    await checkLatest();
+    if (stale) location.reload();
+  };
+  document.addEventListener('visibilitychange', refreshWhenVisible);
+  window.addEventListener('pageshow', refreshWhenVisible);
+  setTimeout(checkLatest, 1500);
 }
 
 function keyBytes(b64) {

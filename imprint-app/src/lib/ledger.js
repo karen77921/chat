@@ -27,7 +27,10 @@ export function ledgerFrom(api) {
   const anthropicBuckets = d.cached_tokens == null
     && (u.cache_read_input_tokens != null || u.cache_creation_input_tokens != null || (u.prompt_tokens == null && u.input_tokens != null));
   const promptTotal = input == null ? null : anthropicBuckets ? input + read + write : input;
-  const cacheHit = promptTotal ? Math.round((read / promptTotal) * 100) : null;
+  // Providers occasionally return temporarily inconsistent counters. A hit rate is a share,
+  // so never let a malformed payload turn the UI into a multi-million-percent number.
+  const rawCacheHit = promptTotal ? Math.round((read / promptTotal) * 100) : null;
+  const cacheHit = rawCacheHit == null ? null : Math.max(0, Math.min(100, rawCacheHit));
   const calls = Array.isArray(t.model) ? t.model : [];
   const firstChunk = calls.length ? num(calls[0].first_chunk_s) : null;
 

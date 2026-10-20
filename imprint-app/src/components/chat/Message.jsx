@@ -172,6 +172,7 @@ function Command({ command }) {
 export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImage, onRegenerate, onEditFailed, onResend }) {
   const mine = m.from === 'me';
   const [thinkOpen, setThinkOpen] = useState(false);
+  const [heartOpen, setHeartOpen] = useState(false);
   const press = useLongPress((rect, part) => {
     const parts = bubbleParts(m.text);
     onMenu?.(m, rect, part != null && parts.length > 1 ? parts[part] : null);
@@ -246,6 +247,14 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
   return (
     <div className={`cm-row ${mine ? 'me' : 'him'} ${sender ? 'grp' : ''} ${m.fresh ? 'm-settle' : ''}`}>
       {sender && <div className="cm-sender"><i style={{ background: sender.color || 'var(--print-c)' }}>{sender.name?.[0]}</i>{sender.name}</div>}
+      {!mine && m.selfState && (
+        <div className="cm-heart">
+          <button type="button" className="glass cm-heart-b" onClick={() => setHeartOpen((o) => !o)} aria-expanded={heartOpen}>
+            <span aria-hidden="true">♡</span>心里话<Icon name="down" size={14} stroke={1.5} className={heartOpen ? 'up' : ''} />
+          </button>
+          {heartOpen && <div className="glass cm-heart-t"><Text text={m.selfState} q={q} /></div>}
+        </div>
+      )}
       {m.thinking && (
         <div className="cm-think">
           <button type="button" className="glass cm-think-b" onClick={() => setThinkOpen((o) => !o)} aria-expanded={thinkOpen}>想了一下<Icon name="down" size={14} stroke={1.5} className={thinkOpen ? 'up' : ''} /></button>

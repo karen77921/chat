@@ -126,7 +126,20 @@ def _system_text(messages: list[dict[str, Any]]) -> str:
         "tool_result appears in the conversation, use that result to continue and normally return final text with "
         "an empty tool_calls array. Preserve all persona and conversation instructions above this protocol."
     )
-    return original + "\n\n" + adapter
+    public_self_state = (
+        "[Imprint public self-state protocol; adapted from claude-thought-bridge]\n"
+        "For ordinary relational conversation, the final user-visible text may begin with exactly this envelope:\n"
+        "[[自我状态]]\n公开心声\n[[/自我状态]]\n——\n真正说出口的话或行动\n"
+        "The self-state is a deliberately authored, user-visible first-person aside, never hidden reasoning, chain of "
+        "thought, analysis, or a reply summary. Start from the user's word, tone, or gesture that genuinely catches "
+        "your attention; naturally describe an immediate feeling, image, uncertainty, wish, resistance, or change of "
+        "mind. Keep facts, guesses, and imagination distinguishable. Write naturally rather than as a checklist or "
+        "polished justification. Usually keep it to 1-3 short paragraphs and do not pad it. The spoken reply stays "
+        "outside the tags and must still stand on its own. Use this at most once in a model response. Omit it for pure "
+        "facts, technical/work/deployment/debugging exchanges, errors/refusals, and preliminary text before tool calls. "
+        "When tool_calls is non-empty, omit the envelope and wait for the final post-tool reply. Never output empty tags."
+    )
+    return original + "\n\n" + adapter + "\n\n" + public_self_state
 
 
 def _tool_catalog(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -275,7 +288,9 @@ def _incremental_prompt(
         "new_events contains only events not already in the conversation. Dynamic background sections and tool "
         "schemas not repeated here remain unchanged. removed_tools and removed background headings revoke earlier "
         "entries. Only names in available_tool_names may be requested. Return the required structured response; "
-        "never invent tool results.\n\n"
+        "never invent tool results. For a final ordinary relational reply, follow the system prompt's public "
+        "self-state protocol: optionally prefix text with [[自我状态]]...[[/自我状态]] then ——. This is a deliberate "
+        "user-visible aside, not hidden reasoning. Omit it for work, pure facts, errors, and any tool-call turn.\n\n"
         + json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
     )
     meta = {
@@ -560,5 +575,4 @@ async def subscription_chat(
         "finish": "tool_calls" if calls else "stop",
         "prompt_cache": {"mode": "subscription-sdk", "ttl": "persistent-session", "fallback": False},
     }
-
 

@@ -7,6 +7,7 @@
 import { rememberStickers, stickerToken } from './stickerUrls.js';
 import { normalizeTideMemories } from './tideMemory.js';
 import { collectHistory } from './chatHistory.js';
+import { splitSelfState } from './selfState.js';
 
 const BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 const RELAY = `${BASE}/relay`;
@@ -117,7 +118,7 @@ export async function uploadFile(file, { onProgress, timeout = 300000 } = {}) {
   }
 }
 
-async function request(path, { method = 'GET', body, form, timeout = 30000, raw, quiet401 = false } = {}) {
+async function request(path, { method = 'GET', body, form, timeout = 30000, raw } = {}) {
   const headers = {};
   const value = token();
   if (value) headers.Authorization = `Bearer ${value}`;
@@ -132,8 +133,7 @@ async function request(path, { method = 'GET', body, form, timeout = 30000, raw,
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = text ? { text } : null; }
-    if (res.status === 401 && !quiet401) window.dispatchEvent(new Event('imprint-auth-required'));
-    if (res.status === 401 && quiet401) throw new ApiError(401, `被拦下了（401）：${data?.detail || data?.error || '中转不放行这个地址'}`);
+    if (res.status === 401) window.dispatchEvent(new Event('imprint-auth-required'));
     if (!res.ok) throw new ApiError(res.status, data?.detail || data?.error || res.statusText);
     return data;
   } catch (e) {
@@ -164,7 +164,8 @@ function listenPayload(data) {
 
 export function relayMessage(raw) {
   const mine = raw.from === 'human';
-  const q = quoteParts(raw.text);
+  const self = mine ? { state: '', body: String(raw.text || '') } : splitSelfState(raw.text);
+  const q = quoteParts(self.body);
   const atts = raw?.meta?.attachments || raw.attachments || [];
   // 中转偶尔把他画的 SVG 记成普通文件：按文件名也认一下
   const isImg = (a) => String(a.mime || '').startsWith('image/') || /\.(svg|png|jpe?g|gif|webp)$/i.test(String(a.name || a.url || ''));
@@ -173,7 +174,7 @@ export function relayMessage(raw) {
   const out = {
     id: raw.id, from: mine ? 'me' : 'him', type: 'text', text: q.text, at: raw.ts || new Date().toISOString(), quote: q.quote,
     status: raw?.meta?.api?.error ? 'failed' : (mine && raw?.meta?.deferred && !raw?.meta?.reply_requested ? 'queued' : 'sent'),
-    thinking: raw?.meta?.thinking || '', edited: Boolean(raw?.meta?.edited_at),
+    thinking: raw?.meta?.thinking || '', selfState: self.state, edited: Boolean(raw?.meta?.edited_at),
   };
   if (!mine && (raw?.meta?.api?.usage || raw?.meta?.api?.timing)) out.api = raw.meta.api; // 长按能看这一轮的账本
   // 快捷回复：只给她点，不进聊天记录；他这条被改过就不再给
@@ -516,9 +517,8 @@ async function compat(path, opts) {
   if (method === 'POST' && (m = /^\/api\/spark\/kept\/([^/]+)\/active$/.exec(p))) return loop(`imprint/spark/kept/${m[1]}/active`, opts);
   if (method === 'GET' && p === '/api/world') return loop(`imprint/world${query}`);
   // 工作区：转接 mousecrew（地址和令牌存在后端设置里）
-  // quiet401：工作区这里出 401 只在页面上说，不弹「连接我们的记录」
-  if (p === '/api/crew/config') return loop('imprint/crew/config', { ...opts, quiet401: true, ...(method === 'PUT' ? { method: 'POST' } : {}) });
-  if (p.startsWith('/api/crew/')) return loop(`imprint/crew/api/${p.slice('/api/crew/'.length)}${query}`, { ...opts, quiet401: true });
+  if (p === '/api/crew/config') return loop('imprint/crew/config', opts);
+  if (p.startsWith('/api/crew/')) return loop(`imprint/crew/api/${p.slice('/api/crew/'.length)}${query}`, opts);
   if (method === 'GET' && p === '/api/together/watch') return loop('imprint/together/watch');
   if (method === 'POST' && p === '/api/together/watch/list') return loop('imprint/together/watch/list', opts);
   if (method === 'GET' && p === '/api/music/search') return loop(`imprint/together/tracks${query}`).then((data) => ({ ...data, items: (data.items || []).map((item) => ({ ...item, url: attachmentUrl(item) })) }));

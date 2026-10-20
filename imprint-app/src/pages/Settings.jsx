@@ -356,20 +356,30 @@ function Access() {
 function ModelAccess() {
   const [secret, setSecret] = useState(savedToken());
   const [rows, setRows] = useState([]);
+  const [tab, setTab] = useState('subscription');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
+  const isSubscription = (row) => /^(claude-subscription|claude-code):\/\//.test(String(row?.url || ''));
   const load = async () => {
     setBusy(true);
     try {
       const cfg = await api('/relay/app/loop/config');
-      setRows((cfg.main_chain || []).map((x, i) => ({ ...x, index: x.index ?? i, key: '', models: x.model ? [x.model] : [] })));
-      setNote(`已连接私人后端 · ${cfg.main_chain?.length || 0} 个 API`);
+      const next = (cfg.main_chain || []).map((x, i) => ({ ...x, index: x.index ?? i, key: '', models: x.model ? [x.model] : [] }));
+      setRows(next);
+      if (next.length) setTab(isSubscription(next[0]) ? 'subscription' : 'api');
+      setNote(`已连接私人后端 · ${next.filter(isSubscription).length} 个订阅，${next.filter((x) => !isSubscription(x)).length} 个 API`);
     } catch (e) { setNote(e.status === 401 ? '访问密钥不正确，请重新保存' : `暂时连不上：${e.message}`); }
     finally { setBusy(false); }
   };
   useEffect(() => { load(); }, []);
   const update = (i, key, value) => setRows((all) => all.map((r, n) => (n === i ? { ...r, [key]: value, ...(['url', 'key'].includes(key) ? { models: [] } : {}) } : r)));
-  const move = (i, by) => setRows((all) => { const next = [...all]; const j = i + by; if (j < 0 || j >= next.length) return all; [next[i], next[j]] = [next[j], next[i]]; return next; });
+  const move = (i, by) => setRows((all) => {
+    const mine = isSubscription(all[i]);
+    const group = all.map((r, n) => (isSubscription(r) === mine ? n : -1)).filter((n) => n >= 0);
+    const at = group.indexOf(i); const j = group[at + by];
+    if (at < 0 || j == null) return all;
+    const next = [...all]; [next[i], next[j]] = [next[j], next[i]]; return next;
+  });
   const pull = async (i) => {
     const row = rows[i]; setNote(`正在从第 ${i + 1} 个服务商拉取模型…`);
     try {
@@ -387,28 +397,53 @@ function ModelAccess() {
       setNote(got.ok ? `连接成功 · ${got.latency_ms} ms` : `测试失败：${got.error || '未知错误'}`);
     } catch (e) { setNote(`测试失败：${e.message}`); }
   };
-  const save = async () => {
-    if (rows.some((r) => !r.url || !r.model || (!r.key && Number(r.index) < 0))) { setNote('每一行都需要地址、模型和 Key'); return; }
-    setBusy(true); setNote('正在保存，第一行会立刻成为当前 API…');
+  const saveRows = async (nextRows, success = '已保存 · 当前线路和备用顺序已经更新') => {
+    if (nextRows.some((r) => !r.url || !r.model || (!isSubscription(r) && !r.key && Number(r.index) < 0))) { setNote('API 需要地址、模型和 Key；订阅需要选择模型'); return false; }
+    setBusy(true); setNote('正在保存线路设置…');
     try {
-      const cfg = await api('/relay/app/loop/config', { method: 'POST', body: { main_chain: rows.map(({ models, key_masked, ...r }) => r) } });
+      const cfg = await api('/relay/app/loop/config', { method: 'POST', body: { main_chain: nextRows.map(({ models, key_masked, ...r }) => r) } });
       setRows((cfg.main_chain || []).map((x, i) => ({ ...x, index: x.index ?? i, key: '', models: x.model ? [x.model] : [] })));
-      setNote('已保存 · 第一行是当前使用，后面的只在失败时备用');
-    } catch (e) { setNote(`保存失败：${e.message}`); }
+      setNote(success); return true;
+    } catch (e) { setNote(`保存失败：${e.message}`); return false; }
     finally { setBusy(false); }
   };
+  const save = () => saveRows(rows);
+  const activate = (i) => {
+    const next = [rows[i], ...rows.filter((_, n) => n !== i)];
+    setRows(next);
+    setTab(isSubscription(next[0]) ? 'subscription' : 'api');
+    return saveRows(next, `已切换到${isSubscription(next[0]) ? '订阅' : 'API'} · ${next[0].model}`);
+  };
   const storeSecret = () => { saveToken(secret); setNote('访问密钥已只保存在这台设备'); load(); };
+  const subscriptionIndexes = rows.map((r, i) => (isSubscription(r) ? i : -1)).filter((i) => i >= 0);
+  const apiIndexes = rows.map((r, i) => (!isSubscription(r) ? i : -1)).filter((i) => i >= 0);
+  const shownIndexes = tab === 'subscription' ? subscriptionIndexes : apiIndexes;
+  const current = rows[0];
+  const currentKind = current ? (isSubscription(current) ? '订阅' : 'API') : '尚未设置';
   return (
     <div className="model-access">
-      <div className="sec-head"><span className="en">model api</span><h2 className="zh">模型与 API</h2><span className="go">第一行当前使用</span></div>
+      <div className="sec-head"><span className="en">model routes</span><h2 className="zh">模型线路</h2><span className="go">订阅和 API 分开管理</span></div>
       <div className="card ma-secret">
         <label><span>网站访问密钥</span><input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="第一次在这台设备打开时填写" /></label>
         <button type="button" className="mini-btn" onClick={storeSecret}>保存并连接</button>
       </div>
-      {rows.map((row, i) => (
+      <div className="card ma-now">
+        <span>现在由这条线路回复</span><b>{currentKind}</b><em>{current?.model || '还没有选择模型'}{isSubscription(current) && current?.effort ? ` · ${current.effort}` : ''}</em>
+      </div>
+      <div className="ma-kind" role="tablist" aria-label="模型线路分类">
+        <button type="button" role="tab" aria-selected={tab === 'subscription'} className={tab === 'subscription' ? 'on' : ''} onClick={() => setTab('subscription')}><span>订阅</span><small>{subscriptionIndexes.length}</small></button>
+        <button type="button" role="tab" aria-selected={tab === 'api'} className={tab === 'api' ? 'on' : ''} onClick={() => setTab('api')}><span>API</span><small>{apiIndexes.length}</small></button>
+      </div>
+      {tab === 'subscription' && !shownIndexes.length && <div className="card ma-empty"><b>还没有订阅线路</b><span>先在 VPS 登录 Claude 订阅，登录成功后会出现在这里。</span></div>}
+      {tab === 'api' && !shownIndexes.length && <div className="card ma-empty"><b>还没有 API</b><span>可以单独添加 Base URL、Key 和模型；不会影响已经登录的订阅。</span></div>}
+      {shownIndexes.map((i) => {
+        const row = rows[i];
+        const group = isSubscription(row) ? subscriptionIndexes : apiIndexes;
+        const pos = group.indexOf(i);
+        return (
         <div className={`card ma-row ${i === 0 ? 'active' : ''}`} key={`${row.index}-${i}`}>
           {(() => {
-            const subscription = String(row.url || '').startsWith('claude-subscription://');
+            const subscription = isSubscription(row);
             const subscriptionModels = [
               ['claude-haiku-4-5-20251001', 'Haiku 4.5 · 最快'],
               ['claude-sonnet-4-6', 'Sonnet 4.6 · 稳定'],
@@ -418,7 +453,7 @@ function ModelAccess() {
             ];
             const efforts = [['low', '低 · 省额度'], ['medium', '中'], ['high', '高 · 推荐'], ['xhigh', '超高'], ['max', '最大']];
             return <>
-          <div className="ma-head"><b>{i === 0 ? '当前使用 · 优先扣费' : `备用 API ${i}`}</b><span><button type="button" onClick={() => move(i, -1)} disabled={!i}>上移</button><button type="button" onClick={() => move(i, 1)} disabled={i === rows.length - 1}>下移</button><button type="button" className="danger" onClick={() => setRows((all) => all.filter((_, n) => n !== i))}>删除</button></span></div>
+          <div className="ma-head"><b>{i === 0 ? `当前使用 · ${subscription ? '订阅额度' : 'API 计费'}` : subscription ? `Claude 订阅 ${pos + 1}` : `API ${pos + 1}`}</b><span><button type="button" onClick={() => move(i, -1)} disabled={!pos}>上移</button><button type="button" onClick={() => move(i, 1)} disabled={pos === group.length - 1}>下移</button><button type="button" className="danger" onClick={() => setRows((all) => all.filter((_, n) => n !== i))}>删除</button></span></div>
           {!subscription && <><label>API 地址<input type="url" value={row.url || ''} onChange={(e) => update(i, 'url', e.target.value)} placeholder="https://example.com/v1" /></label>
           <label>API Key<input type="password" value={row.key || ''} onChange={(e) => update(i, 'key', e.target.value)} placeholder={row.key_masked ? `已保存 ${row.key_masked}，留空不修改` : '粘贴 Key'} /></label></>}
           {subscription ? <>
@@ -432,14 +467,14 @@ function ModelAccess() {
             {(row.cache_mode || 'auto') !== 'off' && <label>缓存时长<select value={row.cache_ttl || '5m'} onChange={(e) => update(i, 'cache_ttl', e.target.value)}><option value="5m">5 分钟（推荐）</option><option value="1h">1 小时</option></select></label>}
             <p className="ma-cache-note">当前判定：{row.cache_effective === 'explicit' || row.cache_mode === 'explicit' ? '发送缓存断点；不兼容会自动退回普通请求' : row.cache_mode === 'off' ? '不发送缓存字段' : '普通中转不加字段，避免影响回复'}</p>
           </>}
-          <div className="ma-actions"><button type="button" className="mini-btn" onClick={() => pull(i)}>拉取模型</button><button type="button" className="mini-btn" onClick={() => test(i)}>测试此接口</button></div>
+          <div className="ma-actions">{i !== 0 && <button type="button" className="mini-btn ma-use" disabled={busy} onClick={() => activate(i)}>切到这边回复</button>}{!subscription && <button type="button" className="mini-btn" onClick={() => pull(i)}>拉取模型</button>}<button type="button" className="mini-btn" onClick={() => test(i)}>{subscription ? '测试订阅' : '测试此接口'}</button></div>
             </>;
           })()}
         </div>
-      ))}
-      <div className="ma-actions"><button type="button" className="cl-link" onClick={() => setRows((all) => [...all, { index: -1, url: '', key: '', model: '', models: [] }])}><Icon name="plus" size={15} />添加 API</button><button type="button" className="btn-main" disabled={busy || !rows.length} onClick={save}>保存 API 顺序</button></div>
+      );})}
+      <div className="ma-actions">{tab === 'api' && <button type="button" className="cl-link" onClick={() => setRows((all) => [...all, { index: -1, url: '', key: '', model: '', models: [] }])}><Icon name="plus" size={15} />添加 API</button>}<button type="button" className="btn-main" disabled={busy || !rows.length} onClick={save}>保存{tab === 'subscription' ? '订阅设置' : 'API 设置'}</button></div>
       <p className="st-tip" role="status">{busy ? '正在处理…' : note}</p>
-      <p className="st-tip">这是提示词缓存，不会缓存或复用整段回复。首次请求是写入，前缀足够长且再次命中后才会显示缓存 Token。</p>
+      <p className="st-tip">订阅使用账号额度，API 使用各供应商的 Key 与账单。两边分开管理；切换标签不会改变当前回复线路，只有点“切到这边回复”才会切换。</p>
     </div>
   );
 }

@@ -176,6 +176,17 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(seen[0][:3], ("http://127.0.0.1:8787/api/orders?status=draft", "GET", "Bearer sekret"))
         self.assertEqual(seen[1][1:], ("POST", "Bearer sekret", b'{"message": "@backend hi"}'))
         self.assertEqual(len(seen), 2)
+        # mousecrew 说令牌不对：不能回 401（那会让前端以为 Imprint 登录过期）
+        Resp.status = 401
+        with mock.patch.object(imprint_store.urllib.request, "urlopen", fake_open):
+            self.assertFalse(proxy("orders", CrewRequest("GET"))["available"])
+        # 整行 {"token":"…"} 粘进来也认
+        self.call("PUT", "/crew/config", CrewRequest("PUT", b'{"url": "http://127.0.0.1:8790", "token": "{\\"token\\":\\"abc\\"}"}'))
+        seen.clear()
+        Resp.status = 200
+        with mock.patch.object(imprint_store.urllib.request, "urlopen", fake_open):
+            proxy("orders", CrewRequest("GET"))
+        self.assertEqual(seen[0][2], "Bearer abc")
 
     def test_search_and_queue_songs_together(self):
         def fake_song(n):

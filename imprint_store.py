@@ -3135,7 +3135,10 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         if url and not re.match(r"^https?://", url):
             raise HTTPException(400, "地址要以 http:// 或 https:// 开头")
         old = crew_conf()
-        token = str(body.get("token") or "").strip() or old["token"]  # 不填就沿用原来的
+        token = str(body.get("token") or "").strip().strip('{}').strip()
+        if token.startswith('"token"'):  # 整行 {"token":"…"} 粘进来了，只取引号中间那串
+            token = token.split(":", 1)[1]
+        token = token.strip().strip('"').strip() or old["token"]  # 不填就沿用原来的
         save_setting("crew", {"url": url, "token": token if url else ""})
         return {"configured": bool(url and token), "url": url}
 
@@ -3167,9 +3170,12 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
             payload = json.loads(raw.decode("utf-8") or "null")
         except ValueError:
             payload = {"error": raw.decode("utf-8", "replace")[:300]}
+        if status in (401, 403):
+            # 不能原样回 401：前端会以为是 Imprint 自己的登录过期，一直弹「连接我们的记录」
+            return {"available": False, "reason": "mousecrew 不认这个令牌：在下面「换一个 mousecrew 地址」里重新粘一次（只要引号中间那串）"}
         if status >= 400:
             msg = payload.get("error") if isinstance(payload, dict) else None
-            raise HTTPException(status, msg or f"mousecrew 返回 {status}")
+            raise HTTPException(502 if status >= 500 else 400, msg or f"mousecrew 返回 {status}")
         return payload
 
     @router.get("/world")

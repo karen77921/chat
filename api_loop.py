@@ -5336,6 +5336,8 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
                 raise HTTPException(status_code=400, detail=f"{name} must be an integer")
     if body.get("wake_driver") in {"random", "drives"}:
         cfg["wake_driver"] = body["wake_driver"]
+    if body.get("wake_drive_pace") in {"slow", "normal", "often"}:
+        cfg["wake_drive_pace"] = body["wake_drive_pace"]
     if "temperature" in body:
         try:
             cfg["temperature"] = max(0.0, min(float(body.get("temperature")), 2.0))
@@ -5667,6 +5669,12 @@ DRIVE_WAKE_TEXT = {
 }
 
 
+def drive_pace() -> str:
+    """由劲儿决定时多久来一次：slow / normal / often（心潮页里调）。"""
+    pace = str(load_config().get("wake_drive_pace") or "normal")
+    return pace if pace in {"slow", "normal", "often"} else "normal"
+
+
 def drive_mode() -> str:
     """醒来方式：random = 原来的随机唤醒（内驱力在旁边只算不做，记进账本对比）；drives = 由内驱力决定什么时候醒、醒来干嘛。"""
     return "drives" if str(load_config().get("wake_driver") or "random") == "drives" else "random"
@@ -5930,7 +5938,7 @@ async def wake_worker() -> None:
                 # 内驱力每五分钟一拍：random 模式只算不做（影子），drives 模式真的按它醒
                 _drive_tick["at"] = _time.monotonic()
                 decision = imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_tick",
-                                          {"tick_min": DRIVE_TICK_S / 60, "mode": "drives" if driver == "drives" else "shadow"})
+                                          {"tick_min": DRIVE_TICK_S / 60, "mode": "drives" if driver == "drives" else "shadow", "pace": drive_pace()})
                 if driver == "drives" and decision.get("act") and control["enabled"] and control["mode"] != "silent":
                     await run_wake_opportunity("drive", active_session_id(), motive=str(decision.get("motive") or ""))
             if driver == "drives":
@@ -7593,16 +7601,19 @@ async def books_gutenberg(number: int):
 
 @app.get("/loop/drives")
 async def loop_drives():
-    return {"available": True, "mode": drive_mode(), **imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_state", {"ledger": 60})}
+    return {"available": True, "mode": drive_mode(), "pace": drive_pace(), **imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_state", {"ledger": 60})}
 
 
 @app.post("/loop/drives/mode")
 async def loop_drives_mode(request: Request):
-    mode = str((await request.json()).get("mode") or "")
-    if mode not in {"random", "drives"}:
+    body = await request.json()
+    mode, pace = str(body.get("mode") or ""), str(body.get("pace") or "")
+    if mode and mode not in {"random", "drives"}:
         raise HTTPException(status_code=400, detail="mode must be random or drives")
-    update_config({"wake_driver": mode})
-    return {"ok": True, "mode": drive_mode()}
+    if pace and pace not in {"slow", "normal", "often"}:
+        raise HTTPException(status_code=400, detail="pace must be slow, normal or often")
+    update_config({**({"wake_driver": mode} if mode else {}), **({"wake_drive_pace": pace} if pace else {})})
+    return {"ok": True, "mode": drive_mode(), "pace": drive_pace()}
 
 
 @app.get("/loop/push")

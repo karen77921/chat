@@ -135,6 +135,11 @@ function DriveLedger() {
     try { const r = await api('/api/drives/mode', { method: 'POST', body: { mode } }); setData((d) => ({ ...d, mode: r.mode })); } catch { /* 下次刷新再看 */ }
     setBusy(false);
   };
+  const setPace = async (pace) => {
+    setBusy(true);
+    try { const r = await api('/api/drives/mode', { method: 'POST', body: { pace } }); setData((d) => ({ ...d, pace: r.pace })); } catch { /* 下次刷新再看 */ }
+    setBusy(false);
+  };
   if (!data || data.available === false) return null;
   const hm = (iso) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
   const fatigue = data.drives.find((d) => d.key === 'fatigue');
@@ -164,7 +169,7 @@ function DriveLedger() {
         ))}
         {!data.ledger.length && <p className="td-ledger-k">还没有记录。跟他说说话，账本就开始记了。</p>}
       </div>
-      <Decisions data={data} busy={busy} setMode={setMode} hm={hm} />
+      <Decisions data={data} busy={busy} setMode={setMode} setPace={setPace} hm={hm} />
       <Mind mind={data.mind} hm={hm} />
     </>
   );
@@ -211,7 +216,8 @@ function Mind({ mind, hm }) {
 }
 
 /* ---------- 醒来方式：随机唤醒 vs 由劲儿决定；影子模式下这里是「如果交给劲儿，它每一拍会怎么选」 ---------- */
-function Decisions({ data, busy, setMode, hm }) {
+const PACES = [['slow', '少一点', '原来的样子，一天一两次'], ['normal', '适中', '大约是原来的三倍'], ['often', '常来', '原来的五六倍']];
+function Decisions({ data, busy, setMode, setPace, hm }) {
   const d = data.decisions;
   if (!d) return null;
   const live = data.mode === 'drives';
@@ -226,6 +232,10 @@ function Decisions({ data, busy, setMode, hm }) {
         <div className="td-mode">
           <button type="button" className={!live ? 'on' : ''} disabled={busy} onClick={() => setMode('random')}>随机唤醒</button>
           <button type="button" className={live ? 'on' : ''} disabled={busy} onClick={() => setMode('drives')}>由劲儿决定</button>
+        </div>
+        <p className="td-ledger-k">多久来一次{live ? '' : '（切到「由劲儿决定」后生效，影子模式也按这个算）'}：{(PACES.find((x) => x[0] === (data.pace || 'normal')) || PACES[1])[2]}。劲儿越高、你越久没说话，越容易来；累了会歇。</p>
+        <div className="td-mode three">
+          {PACES.map(([id, name]) => <button key={id} type="button" className={(data.pace || 'normal') === id ? 'on' : ''} disabled={busy} onClick={() => setPace(id)}>{name}</button>)}
         </div>
         <p className="td-ledger-k">最近 24 小时算了 {d.ticks_day} 拍，{acts.length ? `想动 ${acts.reduce((n, [, c]) => n + c, 0)} 次：${acts.map(([m, c]) => `${m} ${c}`).join('、')}` : '一次都没想动'}。</p>
         {d.recent.slice(0, 12).map((r, i) => (

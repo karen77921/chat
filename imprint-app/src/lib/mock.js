@@ -625,8 +625,8 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/push': return { available: true, reason: '', key: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', devices: 1 };
     case 'POST /api/push/seen': case 'POST /api/push/subscribe': case 'POST /api/push/unsubscribe': return { ok: true, devices: 1 };
     case 'POST /api/push/test': return { ok: true, sent: 1 };
-    case 'POST /api/drives/mode': state.driveMode = body.mode; return { ok: true, mode: body.mode };
-    case 'GET /api/drives': return { available: true, away_h: 3.2, acts_today: 6, mode: state.driveMode || 'random',
+    case 'POST /api/drives/mode': if (body.mode) state.driveMode = body.mode; if (body.pace) state.drivePace = body.pace; return { ok: true, mode: state.driveMode || 'random', pace: state.drivePace || 'normal' };
+    case 'GET /api/drives': return { available: true, away_h: 3.2, acts_today: 6, mode: state.driveMode || 'random', pace: state.drivePace || 'normal',
       mind: { week: { experiences: 3, fixations: 1, feeds: 1, resolved: 0 },
         thoughts: [{ id: 't1', text: '她说想去海边看日出', drive: 'duty', name: '责任', kind: 'fixation', strength: 0.62, hits: 3, fed: 1 },
           { id: 't2', text: '那天我是不是说重了', drive: 'grieve', name: '悲伤', kind: 'flit', strength: 0.3, hits: 2, fed: 0 }],

@@ -217,6 +217,25 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertEqual(sent[1][2]["project_id"], "imprint")
         self.assertEqual(sent[1][2]["actor"], "季宁")
 
+    def test_drive_pace_makes_him_come_more_often(self):
+        def acts(pace):
+            conn = sqlite3.connect(":memory:")
+            conn.execute("CREATE TABLE records (id TEXT PRIMARY KEY, kind TEXT NOT NULL, at TEXT NOT NULL, payload TEXT NOT NULL)")
+            t0, n = imprint_store.dt.datetime(2026, 10, 20, tzinfo=imprint_store.dt.timezone.utc), 0
+            for i in range(288):
+                now = t0 + imprint_store.dt.timedelta(minutes=5 * i)
+                e = imprint_store.DriveEngine(conn, now)
+                e.s["her_last"] = (t0 - imprint_store.dt.timedelta(hours=1)).isoformat()
+                out = e.decide(5, pace)
+                if out["act"]:
+                    n += 1
+                    e.s["satisfied"][next(iter(imprint_store.DRIVE_MOTIVES[out["motive"]]))] = now.isoformat()
+                conn.execute("INSERT OR REPLACE INTO records VALUES('setting_drive_engine','setting',?,?)", (now.isoformat(), json.dumps(e.s)))
+            return n
+        slow, normal, often = acts("slow"), acts("normal"), acts("often")
+        self.assertLess(slow, normal)
+        self.assertLessEqual(normal, often)
+
     def test_search_and_queue_songs_together(self):
         def fake_song(n):
             return imprint_store.apple_song({"trackId": n, "trackName": f"歌{n}", "artistName": "歌手", "collectionName": "专辑",

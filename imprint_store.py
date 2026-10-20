@@ -228,6 +228,8 @@ def same_topic(a: set[str], b: set[str]) -> bool:
     shared = a & b
     return len(shared) >= 2 and len(shared) / max(1, min(len(a), len(b))) >= 0.2  # 宽一点：同一桩心事每次措辞都不一样  # 慢动机：几小时才饿回来
 DRIVE_ACTIVE_MIN, DRIVE_TIRED, DRIVE_HUNGER_LINE, DRIVE_CLEAR_GAP, DRIVE_EXPLORE = 15, 0.72, 0.18, 0.18, 0.15
+# 多久来一次：(出手概率放大几倍, 「饿」的线)。slow 是最早那版（她那边实测一天一两次，嫌太少）；normal 约三倍，often 再多一些
+DRIVE_PACE = {"slow": (1.0, DRIVE_HUNGER_LINE), "normal": (3.0, 0.12), "often": (5.5, 0.08)}
 
 # 她的话：每组写清涨哪股、涨多少、为什么（理由进账本）。关系类只认明确的字眼，宁漏勿滥。
 DRIVE_WORDS = [
@@ -440,8 +442,10 @@ class DriveEngine:
             self.satisfy("crave", 0.85, "跟她说上话了", "回复")
         self.acted()
 
-    def decide(self, tick_min: float = 5.0) -> dict:
-        """一拍：要不要动 → 哪种动机最饿 → 选一件事。只算不做，做不做由调用方决定。"""
+    def decide(self, tick_min: float = 5.0, pace: str = "normal") -> dict:
+        """一拍：要不要动 → 哪种动机最饿 → 选一件事。只算不做，做不做由调用方决定。
+        pace（她在心潮页调的「多久来一次」）：放大出手的概率、放低「饿」的线。slow 就是最早那版（一天一两次）。"""
+        mult, hunger_line = DRIVE_PACE.get(pace, DRIVE_PACE["normal"])
         v = self.s["v"]
         seed = int(hashlib.sha1(self.now.strftime("%Y-%m-%dT%H:%M").encode()).hexdigest(), 16)  # 按时间定骰子，可回放
         roll1, roll2, roll3 = (seed % 10_000) / 10_000, (seed // 10_000 % 10_000) / 10_000, (seed // 10**8 % 10_000) / 10_000
@@ -452,7 +456,7 @@ class DriveEngine:
             return {**out, "motive": "歇着", "why": f"太累了（疲惫 {v['fatigue']:.2f}），歇着"}
         p = (0.08 + 0.30 * v["crave"] + 0.13 * v["reflection"] + 0.09 * v["curiosity"] + 0.06 * v["social"]
              + 0.15 * v["monitor"] + 0.07 * v["possess"] - 0.22 * v["fatigue"] - 0.02 * int(self.s.get("proactive_today") or 0))
-        p_tick = max(0.0, min(0.9, p)) * tick_min / 30
+        p_tick = max(0.0, min(0.9, p * mult)) * tick_min / 30
         out["p"] = round(p_tick, 3)
         if roll1 >= p_tick:
             return {**out, "why": f"这一拍不想动（掷 {roll1:.2f} ≥ {p_tick:.2f}）"}
@@ -468,7 +472,7 @@ class DriveEngine:
                 hungry_today.append(motive)
         out["scores"] = scores
         ranked = sorted(scores, key=lambda m: -scores[m])
-        if scores[ranked[0]] < DRIVE_HUNGER_LINE:
+        if scores[ranked[0]] < hunger_line:
             return {**out, "why": f"想动，但哪样都不饿（最高 {ranked[0]} {scores[ranked[0]]:.2f}）"}
         if roll2 < DRIVE_EXPLORE and [m for m in hungry_today if scores[m] > 0]:
             pool = [m for m in hungry_today if scores[m] > 0]
@@ -1947,7 +1951,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 out = engine.think(str(body.get("text") or ""), str(body.get("drive") or "reflection"))
             elif action == "drive_tick":
                 engine.digest()
-                out = engine.decide(float(body.get("tick_min") or 5))
+                out = engine.decide(float(body.get("tick_min") or 5), str(body.get("pace") or "normal"))
                 engine.log_decision(out, str(body.get("mode") or "shadow"))
             else:
                 out = {**engine.public(int(body.get("ledger") or 40)), "decisions": engine.decisions(), "mind": engine.mind()}

@@ -18,6 +18,14 @@ export function ledgerFrom(api) {
   const output = num(u.completion_tokens ?? u.output_tokens);
   const read = num(d.cached_tokens ?? u.cache_read_input_tokens) || 0;
   const write = num(d.cache_write_tokens ?? u.cache_creation_input_tokens) || 0;
+  // OpenAI-compatible usage reports prompt_tokens as the whole prompt and
+  // cached_tokens as a subset. Anthropic reports the three input buckets
+  // separately. Dividing an Anthropic cache read by input_tokens therefore
+  // produces nonsense such as 29,109 / 2 = 1,455,450%.
+  const anthropicBuckets = u.prompt_tokens == null
+    && (u.input_tokens != null || u.cache_read_input_tokens != null || u.cache_creation_input_tokens != null);
+  const promptTotal = input == null ? null : anthropicBuckets ? input + read + write : input;
+  const cacheHit = promptTotal ? Math.round((read / promptTotal) * 100) : null;
   const calls = Array.isArray(t.model) ? t.model : [];
   const firstChunk = calls.length ? num(calls[0].first_chunk_s) : null;
 
@@ -25,9 +33,10 @@ export function ledgerFrom(api) {
   groups.push({
     title: '用量',
     rows: [
-      ['读进去', input == null ? '—' : `${tokens(input)} token`],
+      [anthropicBuckets ? '本轮新输入' : '读进去', input == null ? '—' : `${tokens(input)} token`],
+      anthropicBuckets && promptTotal != null ? ['本轮输入合计', `${tokens(promptTotal)} token`] : null,
       ['写出来', output == null ? '—' : `${tokens(output)} token`],
-      ['缓存命中', input ? `${tokens(read)} token（${Math.round((read / input) * 100)}%）` : tokens(read)],
+      ['缓存命中', cacheHit == null ? `${tokens(read)} token` : `${tokens(read)} token（${cacheHit}%）`],
       write ? ['写入缓存', `${tokens(write)} token`] : null,
     ].filter(Boolean),
   });

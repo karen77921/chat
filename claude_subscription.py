@@ -164,7 +164,7 @@ async def subscription_chat(
     think_sink: Callable[[str], Awaitable[None]],
     session_id: str = "",
 ) -> dict[str, Any]:
-    del think_sink, session_id  # private reasoning is never forwarded to the UI
+    del think_sink  # private reasoning is never forwarded to the UI
     catalog = _tool_catalog(tools)
     allowed = {item["name"] for item in catalog}
     conversation = [
@@ -203,7 +203,12 @@ async def subscription_chat(
         "--safe-mode", "--strict-mcp-config", "--tools", "",
         "--permission-mode", "dontAsk", "--permission-prompts", "none",
         "--output-format", "json", "--json-schema", json.dumps(OUTPUT_SCHEMA, separators=(",", ":")),
-        "--model", model, "--effort", effort, "--no-session-persistence",
+        "--model", model, "--effort", effort,
+        # Claude Code accepts a UUID as the provider conversation identity. Keep
+        # it deterministic for one Imprint chat so consecutive stateless calls
+        # do not look like unrelated conversations to the upstream cache.
+        "--session-id", str(uuid.uuid5(uuid.NAMESPACE_URL, "imprint:claude-subscription:" + (session_id or "__default__"))),
+        "--no-session-persistence",
         "--system-prompt-file", system_prompt_path,
     ]
     try:

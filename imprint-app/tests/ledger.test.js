@@ -29,6 +29,18 @@ test('ledger lists usage, cache hit rate, timing and request make-up', () => {
 test('anthropic-style usage keys work too', () => {
   const groups = ledgerFrom({ usage: { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 50, cache_creation_input_tokens: 10 } });
   const flat = Object.fromEntries(groups.flatMap((g) => g.rows));
-  assert.equal(flat['读进去'], '100 token');
+  assert.equal(flat['本轮新输入'], '100 token');
+  assert.equal(flat['本轮输入合计'], '160 token');
+  assert.equal(flat['缓存命中'], '50 token（31%）');
   assert.equal(flat['写入缓存'], '10 token');
+});
+
+test('anthropic cache percentage uses all input buckets instead of tiny uncached input', () => {
+  const groups = ledgerFrom({ usage: {
+    input_tokens: 2, output_tokens: 226,
+    cache_read_input_tokens: 29109, cache_creation_input_tokens: 20430,
+  } });
+  const flat = Object.fromEntries(groups.flatMap((g) => g.rows));
+  assert.equal(flat['本轮输入合计'], '49.5k token');
+  assert.equal(flat['缓存命中'], '29.1k token（59%）');
 });

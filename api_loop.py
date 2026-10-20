@@ -4946,7 +4946,14 @@ async def handle_turn(
     messages, had_images = await build_messages(text, atts, before_id=msg_id, session_id=session_id, use_context=use_context, with_images=with_images)
     timing: dict[str, Any] = {"context_s": round(asyncio.get_running_loop().time() - turn_t0, 1), "model": [], "tool_s": 0.0,
                               **CONTEXT_TIMING.get(session_id or "__default__", {})}
-    tools = sticky_tools(session_id, turn_tools(tool_context_text(text, messages), light=cfg_bool("light_chat")))
+    picked_tools = turn_tools(tool_context_text(text, messages), light=cfg_bool("light_chat"))
+    # API providers receive tools as a cacheable prefix, so keeping a stable,
+    # sorted list helps there. The Claude subscription adapter has to serialize
+    # tools inside its user envelope instead; accumulating every tool ever seen
+    # made that changing block 2–6k tokens larger on every casual message.
+    chain = main_chain()
+    tools = (picked_tools if chain and is_subscription_route(chain[0])
+             else sticky_tools(session_id, picked_tools))
     # 账本：这一轮请求里装了些什么（前端长按他的消息可以看）
     system_chars = sum(len(str(m.get("content") or "")) for m in messages if m.get("role") == "system")
     timing["request"] = {

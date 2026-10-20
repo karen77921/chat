@@ -36,7 +36,16 @@ def main() -> int:
         old = json.loads(previous.read_text(encoding="utf-8"))
         known.update(old.get("known", []))
         known.update(old.get("backend", {}).values())
-    backend = {name: sha(ROOT / name) for name in ("api_loop.py", "imprint_store.py", "claude_subscription.py")}
+    backend_files = ("api_loop.py", "imprint_store.py", "claude_subscription.py")
+    # Every committed version of a backend file counts as known too. A deploy straight from a
+    # commit (without a matching release.json) must not make the next imprint-update refuse.
+    for name in backend_files:
+        revs = subprocess.run(["git", "rev-list", "HEAD", "--", name], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+        for commit in revs:
+            blob = subprocess.run(["git", "show", f"{commit}:{name}"], cwd=ROOT, capture_output=True, check=False).stdout
+            if blob:
+                known.add(hashlib.sha256(blob).hexdigest())
+    backend = {name: sha(ROOT / name) for name in backend_files}
     js = next(name for name in dist if re.fullmatch(r"assets/index-[^/]+\.js", name))
     release = {"rev": rev, "backend": backend, "dist": dist, "entry_js": js, "known": sorted(known | set(backend.values()))}
     previous.write_text(json.dumps(release, indent=1) + "\n", encoding="utf-8")

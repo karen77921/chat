@@ -406,8 +406,19 @@ class _SdkActor:
                 incremental_events, catalog, self.tool_hashes, self.dynamic_hashes
             )
             try:
-                data, usage, provider_session = await self._query(incremental_prompt if warm or options.resume else full_prompt,
-                                                                  sink, think_sink, images)
+                try:
+                    data, usage, provider_session = await self._query(incremental_prompt if warm or options.resume else full_prompt,
+                                                                      sink, think_sink, images)
+                except Exception as exc:
+                    if not images:
+                        raise
+                    # 带图那一轮失败了：别让这张图把后面每一轮都卡死。重连，这一轮先不带图，告诉他图没送到
+                    print(f"[claude-sdk] image turn failed, retrying without images: {type(exc).__name__}: {exc}", flush=True)
+                    await self._connect(options, fingerprint)
+                    note = "\n\n（她这一轮发了图片，但图片这次没能传给你：照实跟她说没看到，请她再发一次或描述一下。）"
+                    base = incremental_prompt if options.resume else full_prompt
+                    data, usage, provider_session = await self._query(base + note, sink, think_sink)
+                    images = None
             except Exception:
                 # A saved Claude transcript can disappear or become incompatible.
                 # Retry once as a fresh SDK conversation with the complete envelope.

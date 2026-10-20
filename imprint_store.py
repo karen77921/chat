@@ -3128,6 +3128,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         return {"configured": bool(c["url"] and c["token"]), "url": c["url"]}
 
     @router.put("/crew/config")
+    @router.post("/crew/config")  # 中转只放行 GET / POST，前端走 POST
     async def crew_config_set(request: Request):
         body = await request.json()
         url = str(body.get("url") or "").strip().rstrip("/")

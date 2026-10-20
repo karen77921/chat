@@ -262,7 +262,7 @@ function NewOrder({ agents, onClose, onDone }) {
 /* ---------- 接 mousecrew：地址 + 令牌 ---------- */
 function Setup({ compact, url: current = '', onDone }) {
   const [open, setOpen] = useState(!compact);
-  const [url, setUrl] = useState(current || 'http://127.0.0.1:8787');
+  const [url, setUrl] = useState(current || 'http://127.0.0.1:8790');
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
@@ -277,7 +277,7 @@ function Setup({ compact, url: current = '', onDone }) {
     <section className="card wk-setup">
       <h3>接上 mousecrew</h3>
       {!compact && <p>工作区是 mousecrew 的手机端。先在服务器上装好 mousecrew（它自己跑在一个端口上），再把地址和令牌填在这里。令牌只存在你的后端，不会显示出来。</p>}
-      <label><span>地址</span><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:8787" /></label>
+      <label><span>地址</span><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:8790" /></label>
       <label><span>令牌</span><input value={token} onChange={(e) => setToken(e.target.value)} placeholder={compact ? '不改就留空' : 'auth.json 里的 token'} type="password" autoComplete="off" /></label>
       {note && <p className="wk-err" role="alert">{note}</p>}
       <div className="wk-acts">

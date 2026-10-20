@@ -188,6 +188,35 @@ class ImprintStoreTest(unittest.TestCase):
             proxy("orders", CrewRequest("GET"))
         self.assertEqual(seen[0][2], "Bearer abc")
 
+    def test_he_can_look_post_and_open_orders_in_the_workspace(self):
+        calls = []
+
+        def fake_call(db, method, path, query="", data=None):
+            calls.append((method, path, json.loads(data) if data else None))
+            return {
+                ("GET", "agents/status"): (200, {"claude": {"id": "claude", "state": "idle", "queueLength": 0}}),
+                ("GET", "group/history"): (200, {"messages": [{"content": "@claude 看一下", "metadata": '{"sender":"human"}', "ts": "t"}]}),
+                ("GET", "orders"): (200, [{"id": "IMP-1", "title": "a", "status": "in_progress"}, {"id": "IMP-0", "title": "b", "status": "closed"}]),
+                ("GET", "projects"): (200, [{"id": "imprint"}]),
+                ("POST", "group/chat"): (200, {"ok": True, "mentions": ["claude"]}),
+                ("POST", "orders"): (200, {"id": "IMP-2"}),
+                ("POST", "orders/IMP-2/dispatch"): (200, {"ok": True}),
+            }[(method, path)]
+
+        with mock.patch.object(imprint_store, "crew_call", fake_call), mock.patch.object(api_loop, "push_him_name", lambda: "季宁"):
+            look = json.loads(asyncio.run(api_loop.crew_tool({"operation": "look"})))
+            said = json.loads(asyncio.run(api_loop.crew_tool({"operation": "say", "text": "@claude 首页修一下"})))
+            opened = json.loads(asyncio.run(api_loop.crew_tool({"operation": "open_order", "title": "修首页", "assignee": "claude", "repo": "imprint"})))
+            self.assertIn("ERROR", asyncio.run(api_loop.crew_tool({"operation": "say", "text": "x"}, dry=True)))
+        self.assertEqual(look["recent_group"][0]["from"], "她")
+        self.assertEqual([o["id"] for o in look["open_orders"]], ["IMP-1"])
+        self.assertEqual(said, {"ok": True, "posted_as": "季宁", "woke": ["claude"]})
+        self.assertEqual(opened, {"opened": "IMP-2", "dispatched_to": "claude"})
+        sent = [c for c in calls if c[0] == "POST"]
+        self.assertEqual(sent[0][2], {"message": "@claude 首页修一下", "sender": "季宁"})
+        self.assertEqual(sent[1][2]["project_id"], "imprint")
+        self.assertEqual(sent[1][2]["actor"], "季宁")
+
     def test_search_and_queue_songs_together(self):
         def fake_song(n):
             return imprint_store.apple_song({"trackId": n, "trackName": f"歌{n}", "artistName": "歌手", "collectionName": "专辑",

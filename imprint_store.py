@@ -2588,6 +2588,48 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
     raise ValueError(f"unknown Imprint action: {action}")
 
 
+CREW_PATHS = re.compile(r"^(group/history|group/chat|agents/status|projects|orders|orders/meta/states|threads"
+                        r"|orders/[A-Za-z0-9_-]+(/(dispatch|accept|transition|pause|resume|assign))?)$")
+
+
+def crew_conf(data_path: Path) -> dict:
+    """工作区（mousecrew）的地址和令牌，存在 Imprint 设置里。"""
+    with contextlib.suppress(sqlite3.Error, ValueError, TypeError):
+        with sqlite3.connect(str(data_path), timeout=10) as conn:
+            row = conn.execute("SELECT payload FROM records WHERE id='setting_crew' AND kind='setting'").fetchone()
+        c = json.loads(row[0]) if row else {}
+        return {"url": str(c.get("url") or "").rstrip("/"), "token": str(c.get("token") or "")}
+    return {"url": "", "token": ""}
+
+
+def crew_call(data_path: Path, method: str, path: str, query: str = "", data: bytes | None = None) -> tuple[int, Any]:
+    """转接一次 mousecrew。返回 (状态码, 内容)；没配好或连不上时返回 (0, {available: False, reason})。
+    只放行 CREW_PATHS 里的接口；mousecrew 说令牌不对时也当成 (0, …)——原样回 401 会让前端以为 Imprint 登录过期。"""
+    if not CREW_PATHS.match(path):
+        return 404, {"error": "工作区不转接这个接口"}
+    c = crew_conf(data_path)
+    if not (c["url"] and c["token"]):
+        return 0, {"available": False, "reason": "工作区还没接上 mousecrew"}
+    target = f"{c['url']}/api/{path}" + (f"?{query}" if query else "")
+    req = urllib.request.Request(target, data=data, method=method,
+                                 headers={"Authorization": f"Bearer {c['token']}", "Content-Type": "application/json"})
+    try:
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                status, raw = resp.status, resp.read()
+        except urllib.error.HTTPError as e:
+            status, raw = e.code, e.read()
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        return 0, {"available": False, "reason": f"连不上 mousecrew：{getattr(e, 'reason', e)}"}
+    try:
+        payload = json.loads(raw.decode("utf-8") or "null")
+    except ValueError:
+        payload = {"error": raw.decode("utf-8", "replace")[:300]}
+    if status in (401, 403):
+        return 0, {"available": False, "reason": "mousecrew 不认这个令牌：在下面「换一个 mousecrew 地址」里重新粘一次（只要引号中间那串）"}
+    return status, payload
+
+
 def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     router = APIRouter(prefix="/loop/imprint")
 
@@ -3114,17 +3156,10 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         return imprint_action(data_path, "reading_here_set", await request.json())
 
     # 工作区：转接 mousecrew（另装在同一台服务器上的「AI 施工队」：群聊 + 工单 + 队员）。
-    # 这里只做转接：地址和令牌存在设置里（令牌不回传给前端），只放行下面这些接口。
-    CREW_PATHS = re.compile(r"^(group/history|group/chat|agents/status|projects|orders|orders/meta/states|threads"
-                            r"|orders/[A-Za-z0-9_-]+(/(dispatch|accept|transition|pause|resume|assign))?)$")
-
-    def crew_conf() -> dict:
-        c = setting("crew")
-        return {"url": str(c.get("url") or "").rstrip("/"), "token": str(c.get("token") or "")}
-
+    # 这里只做转接：地址和令牌存在设置里（令牌不回传给前端），只放行 CREW_PATHS 里的接口。
     @router.get("/crew/config")
     def crew_config():
-        c = crew_conf()
+        c = crew_conf(data_path)
         return {"configured": bool(c["url"] and c["token"]), "url": c["url"]}
 
     @router.put("/crew/config")
@@ -3134,7 +3169,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         url = str(body.get("url") or "").strip().rstrip("/")
         if url and not re.match(r"^https?://", url):
             raise HTTPException(400, "地址要以 http:// 或 https:// 开头")
-        old = crew_conf()
+        old = crew_conf(data_path)
         token = str(body.get("token") or "").strip().strip('{}').strip()
         if token.startswith('"token"'):  # 整行 {"token":"…"} 粘进来了，只取引号中间那串
             token = token.split(":", 1)[1]
@@ -3145,34 +3180,10 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.get("/crew/api/{path:path}")
     @router.post("/crew/api/{path:path}")
     async def crew_proxy(path: str, request: Request):
-        if not CREW_PATHS.match(path):
-            raise HTTPException(404, "工作区不转接这个接口")
-        c = crew_conf()
-        if not (c["url"] and c["token"]):
-            return {"available": False, "reason": "工作区还没接上 mousecrew"}
-        query = request.url.query
-        target = f"{c['url']}/api/{path}" + (f"?{query}" if query else "")
         data = await request.body() if request.method == "POST" else None
-        req = urllib.request.Request(target, data=data, method=request.method,
-                                     headers={"Authorization": f"Bearer {c['token']}", "Content-Type": "application/json"})
-
-        def go():
-            try:
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    return resp.status, resp.read()
-            except urllib.error.HTTPError as e:
-                return e.code, e.read()
-        try:
-            status, raw = await asyncio.to_thread(go)
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
-            return {"available": False, "reason": f"连不上 mousecrew：{getattr(e, 'reason', e)}"}
-        try:
-            payload = json.loads(raw.decode("utf-8") or "null")
-        except ValueError:
-            payload = {"error": raw.decode("utf-8", "replace")[:300]}
-        if status in (401, 403):
-            # 不能原样回 401：前端会以为是 Imprint 自己的登录过期，一直弹「连接我们的记录」
-            return {"available": False, "reason": "mousecrew 不认这个令牌：在下面「换一个 mousecrew 地址」里重新粘一次（只要引号中间那串）"}
+        status, payload = await asyncio.to_thread(crew_call, data_path, request.method, path, request.url.query, data)
+        if status == 404 and not CREW_PATHS.match(path):
+            raise HTTPException(404, payload["error"])
         if status >= 400:
             msg = payload.get("error") if isinstance(payload, dict) else None
             raise HTTPException(502 if status >= 500 else 400, msg or f"mousecrew 返回 {status}")

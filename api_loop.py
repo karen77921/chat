@@ -3636,6 +3636,29 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_crew",
+        "description": "The 工作区 (workspace): a group chat and work-order board shared with her and a crew of CLI coding agents "
+                       "(mousecrew). look = who is on the crew and what they are doing, the latest group messages, open work orders. "
+                       "say = post into the group as yourself; @name in the text wakes that agent. order = one work order with its timeline. "
+                       "open_order = open a new work order (draft); with assignee it is dispatched right away so that agent starts. "
+                       "Accepting or rejecting finished work is hers, not yours. Use it when she asks you to get the crew to do something "
+                       "or asks how a job is going; tell her plainly what you posted or opened.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["look", "say", "order", "open_order"]},
+                "text": {"type": "string", "description": "say: the message, e.g. '@claude 首页天数差一天，看一下'"},
+                "id": {"type": "string", "description": "order: the work order id, e.g. IMP-7"},
+                "title": {"type": "string"}, "description": {"type": "string"},
+                "assignee": {"type": "string", "description": "open_order: agent id from look"},
+                "repo": {"type": "string"}, "project_id": {"type": "string"},
+            },
+            "required": ["operation"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_world_note",
         "description": "Write your own thought under something you just looked at on the engawa (poem, painting, sky, article). "
                        "It shows under that card in 他的世界, her page of what you have seen. One or two honest sentences in Chinese; "
@@ -3813,6 +3836,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         add_builtin("imprint_inspect_home", "imprint_control_listen", "imprint_note_track", "imprint_manage_space")
     if any(word in query for word in ("他的世界", "你的世界", "檐廊", "engawa")):
         add_builtin("imprint_world_note")
+    if any(word in query for word in ("工作区", "施工队", "工单", "队员", "mousecrew", "派活", "派个活", "让 claude", "让claude", "让 codex", "让codex", "@claude", "@codex")):
+        add_builtin("imprint_crew")
     if any(word in query for word in ("歌", "一起听", "音乐", "music", "🎵", "🎧")) or (not light and music_listening()):
         add_builtin("imprint_music")
     if any(word in query for word in ("表情包", "贴纸", "照片", "收藏照片")):
@@ -3929,7 +3954,7 @@ ENGAWA_WORDS = ("檐廊", "engawa", "古诗", "一首诗", "今天的画", "看�
                 "书架", "论文", "历史上的今天", "爱好角", "读读", "读一下这个网页", "rss")
 WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛病", "老是", "总是", "改掉", "习惯", "自由", "受限",
               "prompt", "my_walls")
-TOOLBOX_TOPICS = "Claude 订阅额度 / 重置时间，檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "Claude 订阅额度 / 重置时间，工作区 / 施工队 / 工单 / 派活，檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 # 设置页「他自带的工具」：每个内置工具的中文名、一句说明、会不会改东西。加了新工具要在这里加一行（有测试盯着）
@@ -3978,6 +4003,7 @@ TOOL_GROUPS_ZH = [
     ]),
     ("檐廊和外面", [
         ("imprint_world_note", "写他的世界", "在檐廊上看完诗、画、星空后写一两句看法，显示在「他的世界」", True),
+        ("imprint_crew", "工作区", "看施工队在干嘛、在群里 @ 队员派活、开工单、看工单进度（通过和退回留给你）", True),
         ("search_public_web", "上网搜", "搜公开网页和 GitHub", False),
         ("read_public_page", "读网页", "读一个公开网页的正文", False),
         ("read_public_github_file", "读 GitHub 文件", "读公开仓库里的文件", False),
@@ -4300,6 +4326,8 @@ class Turn:
             if str(args.get("operation") or "") not in {"due", "wrong", "learn", "list", "review", "add"}:
                 return "ERROR: 单词本你只能看、抽查记录和帮她录词；删改让她自己在页面上做"
             args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
+        if public_name == "imprint_crew":
+            return await crew_tool(args, dry=self.dry)
         if public_name in imprint_actions:
             if self.dry and public_name not in {"imprint_inspect_home"} and not (public_name == "imprint_book" and args.get("operation") == "shelf") \
                     and not (public_name == "imprint_music" and args.get("action") in {"now_playing", "lyrics", "search", "share"}):
@@ -4452,6 +4480,76 @@ class Turn:
                 if saved.get("recorded"):
                     return out[:20000] + WORLD_NOTE_HINT.format(id=saved["id"])
         return out[:20000]
+
+
+async def crew_tool(args: dict, dry: bool = False) -> str:
+    """他在工作区（mousecrew）里看、说话、开工单。走的就是前端那条转接（imprint_store.crew_call）。"""
+    from imprint_store import crew_call
+    db = LOOP_CACHE_DIR / "imprint.db"
+    op = str(args.get("operation") or "look")
+
+    def call(method: str, path: str, query: str = "", body: dict | None = None):
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
+        return asyncio.to_thread(crew_call, db, method, path, query, data)
+
+    def bad(status: int, payload: Any) -> str | None:
+        if status == 0:
+            return f"工作区现在用不了：{payload.get('reason')}"
+        if status >= 400:
+            return f"ERROR: mousecrew 拒了（{status}）：{payload.get('error') if isinstance(payload, dict) else payload}"
+        return None
+
+    if op == "look":
+        (s1, agents), (s2, hist), (s3, orders) = await asyncio.gather(
+            call("GET", "agents/status"), call("GET", "group/history", "limit=20"), call("GET", "orders"))
+        for st, pl in ((s1, agents), (s2, hist), (s3, orders)):
+            if (msg := bad(st, pl)):
+                return msg
+        def sender(m: dict) -> str:
+            with contextlib.suppress(ValueError, TypeError):
+                return json.loads(m.get("metadata") or "{}").get("sender") or m.get("role", "")
+            return m.get("role", "")
+        crew = [{"id": a.get("id"), "state": a.get("state"), "queue": a.get("queueLength", 0)} for a in (agents or {}).values()]
+        msgs = [{"from": "她" if sender(m) == "human" else sender(m), "text": str(m.get("content") or "")[:400], "at": m.get("ts")}
+                for m in (hist or {}).get("messages", [])]
+        live = [{k: o.get(k) for k in ("id", "title", "status", "assignee", "repo", "updated_at")}
+                for o in (orders or []) if o.get("status") not in ("closed", "accepted")][:20]
+        return json.dumps({"crew": crew, "recent_group": msgs, "open_orders": live}, ensure_ascii=False)[:30_000]
+    if op == "order":
+        oid = str(args.get("id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", oid):
+            return "ERROR: 要给工单号，比如 IMP-7"
+        st, pl = await call("GET", f"orders/{oid}")
+        return bad(st, pl) or json.dumps({k: pl.get(k) for k in ("id", "title", "description", "status", "assignee", "repo", "timeline")},
+                                         ensure_ascii=False)[:30_000]
+    if dry:
+        return "ERROR: 这一轮是重试/演练，不往工作区里写"
+    me = push_him_name()
+    if op == "say":
+        text = str(args.get("text") or "").strip()
+        if not text:
+            return "ERROR: say 要有 text"
+        st, pl = await call("POST", "group/chat", body={"message": text[:4000], "sender": me})
+        return bad(st, pl) or json.dumps({"ok": True, "posted_as": me, "woke": pl.get("mentions")}, ensure_ascii=False)
+    if op == "open_order":
+        title = str(args.get("title") or "").strip()
+        if not title:
+            return "ERROR: open_order 要有 title"
+        body = {k: str(args[k]).strip() for k in ("description", "assignee", "repo", "project_id") if args.get(k)}
+        if "project_id" not in body:
+            st, projects = await call("GET", "projects")
+            if st == 200 and isinstance(projects, list) and projects:
+                body["project_id"] = projects[0].get("id")
+        st, order = await call("POST", "orders", body={"title": title[:200], "actor": me, **body})
+        if (msg := bad(st, order)):
+            return msg
+        if body.get("assignee"):
+            st, out = await call("POST", f"orders/{order.get('id')}/dispatch", body={"actor": me})
+            if (msg := bad(st, out)):
+                return json.dumps({"opened": order.get("id"), "dispatch_failed": msg}, ensure_ascii=False)
+            return json.dumps({"opened": order.get("id"), "dispatched_to": body["assignee"]}, ensure_ascii=False)
+        return json.dumps({"opened": order.get("id"), "status": "draft（没指派，她或你之后再派）"}, ensure_ascii=False)
+    return "ERROR: operation 只能是 look / say / order / open_order"
 
 
 WORLD_NOTE_HINT = ("\n\n（这张已经收进「他的世界」，她能看到你看了什么。id: {id}。看完用 imprint_world_note 写一两句你自己的看法，"

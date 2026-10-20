@@ -3357,6 +3357,13 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "check_claude_quota",
+        "description": "Read the real Claude subscription allowance shown on your Imprint settings desk: current model and effort, five-hour and weekly used percentages, remaining percentages, and reset times. Read-only. Use this whenever she asks how much Claude quota/allowance is left or when it resets; never guess from token counts.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "search_chat_history",
         "description": "Search every chat message you and she ever exchanged (all windows, all days), newest first, with the message before and after each hit. Use it whenever you are unsure whether something happened, when it happened, or what its latest state is (e.g. whether she already finished a workout), instead of guessing from memory. Give 1–4 short keywords as they would literally appear in the chat, e.g. 「练肩」 or 「生日 蛋糕」.",
         "parameters": {
@@ -3812,6 +3819,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         add_builtin("imprint_inspect_home", "imprint_comment_photo", "imprint_favorite_photo", "imprint_manage_space")
     if any(word in query for word in ("设置", "功能开关", "模型线路", "模型 api", "api key", "密钥", "用量", "日志", "缓存", "美化", "主题", "头像", "背景", "昵称")):
         add_builtin("imprint_inspect_settings", "imprint_manage_settings", "imprint_manage_space")
+    if any(word in query for word in ("额度", "订阅额度", "剩余量", "还剩多少", "五小时", "5小时", "周限额", "重置时间", "quota", "allowance")):
+        add_builtin("check_claude_quota")
     if any(word in query for word in ("mcp", "工具连接", "重连", "连接服务")):
         add_builtin("imprint_inspect_settings", "imprint_manage_mcp")
     if any(word in query for word in ("搜索", "查一下", "查找", "联网", "网页", "网址", "链接",
@@ -3920,7 +3929,7 @@ ENGAWA_WORDS = ("檐廊", "engawa", "古诗", "一首诗", "今天的画", "看�
                 "书架", "论文", "历史上的今天", "爱好角", "读读", "读一下这个网页", "rss")
 WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛病", "老是", "总是", "改掉", "习惯", "自由", "受限",
               "prompt", "my_walls")
-TOOLBOX_TOPICS = "檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "Claude 订阅额度 / 重置时间，檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 # 设置页「他自带的工具」：每个内置工具的中文名、一句说明、会不会改东西。加了新工具要在这里加一行（有测试盯着）
@@ -3978,6 +3987,7 @@ TOOL_GROUPS_ZH = [
         ("attach_file", "发文件", "把服务器上的文件作为附件发给你", True),
     ]),
     ("设置和他自己", [
+        ("check_claude_quota", "看 Claude 额度", "看五小时和本周还剩多少、什么时候重置（只能看）", False),
         ("imprint_my_walls", "看自己的墙", "看这一轮收到的提示词、写给自己的约定、提改规则的建议（改不改你定）", True),
         ("imprint_inspect_settings", "看设置", "看模型线路、功能开关、MCP 状态（密钥是遮住的）", False),
         ("imprint_manage_settings", "改设置", "只有你当下明确要求时才改", True),
@@ -4159,6 +4169,14 @@ class Turn:
                 args = {}
         except json.JSONDecodeError as exc:
             return f"ERROR: arguments are not valid JSON ({exc})"
+        if public_name == "check_claude_quota":
+            data = await subscription_usage(force=True)
+            route = next((item for item in main_chain() if is_subscription_route(item)), None)
+            result = {**data, "model": str((route or {}).get("model") or ""),
+                      "effort": str((route or {}).get("effort") or "high")}
+            for window in result.get("windows") or []:
+                window["remainingPercent"] = max(0, 100 - float(window.get("usedPercent") or 0))
+            return json.dumps(result, ensure_ascii=False)[:12_000]
         if public_name == "search_chat_history":
             try:
                 found = await asyncio.to_thread(search_chat_history, str(args.get("query") or ""),

@@ -99,7 +99,7 @@ def _safe_content(value: Any) -> Any:
     """Keep conversational text but do not copy large data URLs into CLI JSON."""
     if isinstance(value, str):
         if value.startswith("data:") and ";base64," in value:
-            return "[image or file data omitted; use the accompanying attachment note]"
+            return "[image: attached to this turn as an image block]"
         return value
     if isinstance(value, list):
         return [_safe_content(item) for item in value]
@@ -107,7 +107,7 @@ def _safe_content(value: Any) -> Any:
         result: dict[str, Any] = {}
         for key, item in value.items():
             if key in {"url", "image_url"} and isinstance(item, str) and item.startswith("data:"):
-                result[key] = "[inline data omitted]"
+                result[key] = "[image: attached to this turn as an image block]"
             else:
                 result[key] = _safe_content(item)
         return result
@@ -176,6 +176,28 @@ OUTPUT_SCHEMA = {
     },
     "required": ["text", "tool_calls"],
 }
+
+
+IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+MAX_IMAGES_PER_TURN = 8
+
+
+def _tail_images(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """新这一段（最后一条 assistant 之后）里她发的图，换成 Claude 的 image 内容块。
+    JSON 信封里图片只剩占位字（_safe_content），真正的图跟着这一轮的消息一起送过去，他才看得见。"""
+    last_assistant = max((i for i, m in enumerate(messages) if m.get("role") == "assistant"), default=-1)
+    blocks: list[dict[str, Any]] = []
+    for m in messages[last_assistant + 1:]:
+        content = m.get("content")
+        for part in content if isinstance(content, list) else []:
+            if not isinstance(part, dict) or part.get("type") != "image_url":
+                continue
+            url = part.get("image_url")
+            url = url.get("url") if isinstance(url, dict) else url
+            match = re.match(r"^data:([\w/+.-]+);base64,(.+)$", str(url or ""), re.S)
+            if match and match.group(1) in IMAGE_TYPES and len(blocks) < MAX_IMAGES_PER_TURN:
+                blocks.append({"type": "image", "source": {"type": "base64", "media_type": match.group(1), "data": match.group(2)}})
+    return blocks
 
 
 def _conversation(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -373,7 +395,8 @@ class _SdkActor:
 
     async def run(self, options: Any, fingerprint: str, conversation: list[dict[str, Any]],
                   incremental_events: list[dict[str, Any]], catalog: list[dict[str, Any]],
-                  sink: Callable[[str], Awaitable[None]], think_sink: Callable[[str], Awaitable[None]]) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
+                  sink: Callable[[str], Awaitable[None]], think_sink: Callable[[str], Awaitable[None]],
+                  images: list[dict[str, Any]] | None = None) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
         async with self.lock:
             warm = self.client is not None and self.fingerprint == fingerprint
             if not warm:
@@ -384,7 +407,7 @@ class _SdkActor:
             )
             try:
                 data, usage, provider_session = await self._query(incremental_prompt if warm or options.resume else full_prompt,
-                                                                  sink, think_sink)
+                                                                  sink, think_sink, images)
             except Exception:
                 # A saved Claude transcript can disappear or become incompatible.
                 # Retry once as a fresh SDK conversation with the complete envelope.
@@ -395,7 +418,7 @@ class _SdkActor:
                 fresh_options = _options_for(self.conv_id, options.model, options.effort,
                                              options.system_prompt, resume=None)
                 await self._connect(fresh_options, fingerprint)
-                data, usage, provider_session = await self._query(full_prompt, sink, think_sink)
+                data, usage, provider_session = await self._query(full_prompt, sink, think_sink, images)
             self.last_active = time.monotonic()
             self.tool_hashes = next_tools
             self.dynamic_hashes = next_dynamic
@@ -418,11 +441,19 @@ class _SdkActor:
             return data, usage, meta
 
     async def _query(self, prompt: str, sink: Callable[[str], Awaitable[None]],
-                     think_sink: Callable[[str], Awaitable[None]]) -> tuple[dict[str, Any], dict[str, Any], str]:
+                     think_sink: Callable[[str], Awaitable[None]],
+                     images: list[dict[str, Any]] | None = None) -> tuple[dict[str, Any], dict[str, Any], str]:
         _, _, ResultMessage = _sdk_types()
         if self.client is None:
             raise RuntimeError("Claude SDK 会话连接失败")
-        await self.client.query(prompt)
+        if images:
+            # 有图：这一轮发成一条带图片块的消息（文字信封在前，图在后）
+            async def one_message():
+                yield {"type": "user", "parent_tool_use_id": None,
+                       "message": {"role": "user", "content": [{"type": "text", "text": prompt}, *images]}}
+            await self.client.query(one_message())
+        else:
+            await self.client.query(prompt)
         result_message: Any = None
         async for sdk_message in self.client.receive_response():
             # Structured output is intentionally not streamed as JSON into chat.
@@ -536,6 +567,7 @@ async def subscription_chat(
         catalog,
         sink,
         think_sink,
+        _tail_images(messages),
     )
 
     calls: list[dict[str, str]] = []

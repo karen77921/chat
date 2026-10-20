@@ -137,6 +137,64 @@ class ClaudeSubscriptionSdkTest(unittest.TestCase):
         self.assertIn("NEW-2", FakeClient.instances[0].prompts[1])
         self.assertNotIn("FULL", FakeClient.instances[0].prompts[1])
 
+    def test_her_photo_is_sent_as_an_image_block(self):
+        tiny = "iVBORw0KGgo="
+        messages = [
+            {"role": "user", "content": "old"},
+            {"role": "assistant", "content": "seen"},
+            {"role": "user", "content": [{"type": "text", "text": "看这个"},
+                                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{tiny}"}}]},
+        ]
+        blocks = adapter._tail_images(messages)
+        self.assertEqual(blocks, [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": tiny}}])
+        self.assertEqual(adapter._tail_images(messages[:2]), [])  # 已经回过的图不再重发
+        self.assertNotIn(tiny, json.dumps(adapter._conversation(messages)))  # 信封里只留占位字
+
+        class FakeResult:
+            is_error, errors, result, subtype, session_id = False, [], None, "success", "s"
+            structured_output = {"text": "ok", "tool_calls": []}
+            usage = {"input_tokens": 1, "output_tokens": 1}
+
+        sent = []
+
+        class FakeClient:
+            def __init__(self, options):
+                pass
+
+            async def connect(self):
+                return None
+
+            async def disconnect(self):
+                return None
+
+            async def query(self, prompt):
+                if isinstance(prompt, str):
+                    sent.append(prompt)
+                else:
+                    async for message in prompt:
+                        sent.append(message)
+
+            async def receive_response(self):
+                yield FakeResult()
+
+        async def exercise():
+            actor = adapter._SdkActor("chat-img")
+            options = SimpleNamespace(resume=None, model="sonnet", effort="high", system_prompt="p")
+
+            async def sink(value):
+                return None
+            await actor.run(options, "f", messages, messages[2:], [], sink, sink, blocks)
+            await actor.close()
+
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(adapter, "SDK_STATE_FILE", Path(folder) / "sessions.json"), \
+                mock.patch.object(adapter, "_sdk_types", return_value=(object, FakeClient, FakeResult)):
+            import asyncio
+            asyncio.run(exercise())
+        content = sent[0]["message"]["content"]
+        self.assertEqual(content[0]["type"], "text")
+        self.assertEqual(content[1], blocks[0])
+
 
 if __name__ == "__main__":
     unittest.main()

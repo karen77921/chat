@@ -95,7 +95,7 @@ PY
 # 没有就装（装不上也不影响更新，只是那一项暂时用不了）
 PY_VENV=/root/companion-loop/venv/bin/python
 if sudo test -x "${PY_VENV}"; then
-  for spec in pypdf:pypdf cryptography:cryptography pillow:PIL; do
+  for spec in pypdf:pypdf cryptography:cryptography pillow:PIL claude-agent-sdk==0.2.97:claude_agent_sdk; do
     pkg="${spec%%:*}"
     mod="${spec##*:}"
     if ! sudo "${PY_VENV}" -c "import ${mod}" 2>/dev/null; then
@@ -105,7 +105,23 @@ if sudo test -x "${PY_VENV}"; then
         || echo "      ${pkg} 没装上（网络问题），先跳过"
     fi
   done
+  if ! sudo "${PY_VENV}" -c 'import claude_agent_sdk' 2>/dev/null; then
+    echo 'Claude Agent SDK 没装成功，停止更新，避免订阅聊天更新后不能用。' >&2
+    exit 1
+  fi
 fi
+
+# ChatNest 同款常驻 SDK 仍使用 codex-temp 的 Claude 订阅登录态；后端本身不继承 API Key，
+# 也不因此获得 Claude Code 的 Bash/文件工具权限。
+sudo tee /usr/local/bin/imprint-claude-sdk-runner >/dev/null <<'RUNNER'
+#!/usr/bin/env bash
+set -euo pipefail
+exec sudo -H -u codex-temp env -u ANTHROPIC_API_KEY \
+  HOME=/home/codex-temp USER=codex-temp LOGNAME=codex-temp \
+  PATH=/home/codex-temp/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  /home/codex-temp/.local/bin/claude "$@"
+RUNNER
+sudo chmod 755 /usr/local/bin/imprint-claude-sdk-runner
 
 echo '[3/7] 备份当前版本…'
 TAG="rel-$(date +%Y%m%d-%H%M%S)-${SHORT}"

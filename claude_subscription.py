@@ -1,19 +1,19 @@
-"""Claude Code subscription adapter for the Imprint model loop.
+"""Claude subscription adapter backed by ChatNest's persistent SDK pattern.
 
-The existing loop speaks the OpenAI-compatible chat/tool format.  This module
-keeps that contract intact while asking the locally authenticated Claude Code
-CLI for one structured turn.  Tool execution remains in api_loop.py, so the
-existing memory, MCP, audit, and UI behavior does not move into Claude Code.
+One warm ``ClaudeSDKClient`` owns the active Imprint conversation.  Consecutive
+turns send only the new user/tool-result events; the provider session is saved
+and resumed after a service restart.  Tool execution remains in api_loop.py so
+Imprint's memory, MCP, audit and UI contracts stay unchanged.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hashlib
 import json
 import os
 import pwd
-import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -25,8 +25,13 @@ import httpx
 SUBSCRIPTION_SCHEMES = ("claude-subscription://", "claude-code://")
 CLAUDE_BIN = os.environ.get("CLAUDE_SUBSCRIPTION_BIN", "/home/codex-temp/.local/bin/claude")
 CLAUDE_USER = os.environ.get("CLAUDE_SUBSCRIPTION_USER", "codex-temp")
+CLAUDE_SDK_RUNNER = os.environ.get("CLAUDE_SUBSCRIPTION_SDK_RUNNER", "/usr/local/bin/imprint-claude-sdk-runner")
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+SDK_IDLE_TTL_SECONDS = 900
+SDK_STATE_FILE = Path(__file__).resolve().parent / "loop_cache" / "claude-sdk-sessions.json"
 _usage_cache: dict[str, Any] = {"at": 0.0, "data": None}
+_sdk_actor: "_SdkActor | None" = None
+_sdk_registry_lock = asyncio.Lock()
 
 
 def is_subscription_route(route: dict[str, Any]) -> bool:
@@ -156,6 +161,223 @@ OUTPUT_SCHEMA = {
 }
 
 
+def _conversation(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"role": str(m.get("role") or "user"), "content": _safe_content(m.get("content")),
+         **({"tool_call_id": m.get("tool_call_id")} if m.get("tool_call_id") else {}),
+         **({"tool_calls": _safe_content(m.get("tool_calls"))} if m.get("tool_calls") else {})}
+        for m in messages if m.get("role") != "system"
+    ]
+
+
+def _tail_conversation(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Events not already owned by the warm SDK conversation.
+
+    A normal turn contains the newly injected recall plus the latest user
+    message after the last assistant.  A manual tool continuation contains the
+    tool results after the assistant tool-call response.
+    """
+    conversation = _conversation(messages)
+    last_assistant = -1
+    for index, item in enumerate(conversation):
+        if item.get("role") == "assistant":
+            last_assistant = index
+    tail = conversation[last_assistant + 1:]
+    return tail or conversation[-1:]
+
+
+def _prompt(events: list[dict[str, Any]], catalog: list[dict[str, Any]], *, continuation: bool) -> str:
+    lead = (
+        "Continue the existing private conversation using only the new events in this JSON envelope. "
+        if continuation else
+        "Continue the private conversation represented by the complete JSON envelope below. "
+    )
+    return (
+        lead
+        + "The system prompt supplied separately is authoritative. Preserve chronology and persona. "
+        "Return a normal reply in text, OR request tools from available_tools. Never invent a tool result. "
+        "Tool names must match exactly and arguments must satisfy the listed schema. If tools are needed, "
+        "tool_calls may contain one or more calls; otherwise it must be an empty array. Do not put JSON, "
+        "markdown fences, hidden reasoning, or analysis inside text.\n\n"
+        + json.dumps({"conversation": events, "available_tools": catalog}, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def _load_sdk_sessions() -> dict[str, str]:
+    try:
+        raw = json.loads(SDK_STATE_FILE.read_text(encoding="utf-8"))
+        return {str(key): str(value) for key, value in raw.items() if key and value}
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+        return {}
+
+
+def _save_sdk_session(conv_id: str, provider_session_id: str) -> None:
+    if not conv_id or not provider_session_id:
+        return
+    SDK_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    sessions = _load_sdk_sessions()
+    sessions[conv_id] = provider_session_id
+    temporary = SDK_STATE_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(sessions, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    temporary.replace(SDK_STATE_FILE)
+
+
+def _drop_sdk_session(conv_id: str) -> None:
+    sessions = _load_sdk_sessions()
+    if conv_id not in sessions:
+        return
+    sessions.pop(conv_id, None)
+    SDK_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = SDK_STATE_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(sessions, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    temporary.replace(SDK_STATE_FILE)
+
+
+def _sdk_types() -> tuple[Any, Any, Any]:
+    """Lazy import keeps diagnostics/tests usable before deployment installs SDK."""
+    try:
+        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage
+    except ImportError as exc:  # pragma: no cover - deployment guard
+        raise RuntimeError("Claude Agent SDK 尚未安装") from exc
+    return ClaudeAgentOptions, ClaudeSDKClient, ResultMessage
+
+
+class _SdkActor:
+    """Single-owner persistent client, matching ChatNest's ConvActor model."""
+
+    def __init__(self, conv_id: str) -> None:
+        self.conv_id = conv_id
+        self.client: Any = None
+        self.fingerprint = ""
+        self.last_active = time.monotonic()
+        self.lock = asyncio.Lock()
+
+    async def close(self) -> None:
+        if self.client is not None:
+            try:
+                await self.client.disconnect()
+            finally:
+                self.client = None
+                self.fingerprint = ""
+
+    async def _connect(self, options: Any, fingerprint: str) -> None:
+        _, ClaudeSDKClient, _ = _sdk_types()
+        await self.close()
+        client = ClaudeSDKClient(options)
+        await client.connect()
+        self.client = client
+        self.fingerprint = fingerprint
+
+    async def run(self, options: Any, fingerprint: str, full_prompt: str, incremental_prompt: str,
+                  sink: Callable[[str], Awaitable[None]], think_sink: Callable[[str], Awaitable[None]]) -> tuple[dict[str, Any], dict[str, Any]]:
+        async with self.lock:
+            warm = self.client is not None and self.fingerprint == fingerprint
+            if not warm:
+                await self._connect(options, fingerprint)
+            try:
+                data, usage, provider_session = await self._query(incremental_prompt if warm or options.resume else full_prompt,
+                                                                  sink, think_sink)
+            except Exception:
+                # A saved Claude transcript can disappear or become incompatible.
+                # Retry once as a fresh SDK conversation with the complete envelope.
+                if warm or not options.resume:
+                    await self.close()
+                    raise
+                _drop_sdk_session(self.conv_id)
+                fresh_options = _options_for(self.conv_id, options.model, options.effort,
+                                             options.system_prompt, resume=None)
+                await self._connect(fresh_options, fingerprint)
+                data, usage, provider_session = await self._query(full_prompt, sink, think_sink)
+            self.last_active = time.monotonic()
+            _save_sdk_session(self.conv_id, provider_session)
+            return data, usage
+
+    async def _query(self, prompt: str, sink: Callable[[str], Awaitable[None]],
+                     think_sink: Callable[[str], Awaitable[None]]) -> tuple[dict[str, Any], dict[str, Any], str]:
+        _, _, ResultMessage = _sdk_types()
+        if self.client is None:
+            raise RuntimeError("Claude SDK 会话连接失败")
+        await self.client.query(prompt)
+        result_message: Any = None
+        async for sdk_message in self.client.receive_response():
+            # Structured output is intentionally not streamed as JSON into chat.
+            event = getattr(sdk_message, "event", None)
+            if isinstance(event, dict) and event.get("type") == "content_block_delta":
+                delta = event.get("delta") or {}
+                if delta.get("type") == "thinking_delta" and delta.get("thinking"):
+                    await think_sink(str(delta["thinking"]))
+            if isinstance(sdk_message, ResultMessage):
+                result_message = sdk_message
+        if result_message is None:
+            raise RuntimeError("Claude SDK 连接提前结束")
+        if result_message.is_error:
+            detail = "; ".join(result_message.errors or []) or result_message.result or result_message.subtype
+            raise RuntimeError(f"Claude SDK 返回错误：{detail}")
+        data = result_message.structured_output
+        if not isinstance(data, dict):
+            try:
+                data = json.loads(str(result_message.result or "{}"))
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("Claude subscription returned invalid structured output") from exc
+        return data, dict(result_message.usage or {}), str(result_message.session_id or "")
+
+
+def _options_for(conv_id: str, model: str, effort: str, system_prompt: str, resume: str | None = None) -> Any:
+    ClaudeAgentOptions, _, _ = _sdk_types()
+    account = pwd.getpwnam(CLAUDE_USER)
+    return ClaudeAgentOptions(
+        model=model,
+        effort=effort,
+        system_prompt=system_prompt,
+        tools=[],
+        allowed_tools=[],
+        skills=[],
+        max_turns=1,
+        include_partial_messages=True,
+        resume=resume,
+        setting_sources=[],
+        strict_mcp_config=True,
+        permission_mode="dontAsk",
+        cwd=account.pw_dir,
+        cli_path=CLAUDE_SDK_RUNNER,
+        env={
+            "HOME": account.pw_dir,
+            "USER": CLAUDE_USER,
+            "LOGNAME": CLAUDE_USER,
+            "CLAUDE_AGENT_SDK_CLIENT_APP": "imprint/1.0",
+        },
+        output_format={"type": "json_schema", "schema": OUTPUT_SCHEMA},
+    )
+
+
+async def _actor_for(conv_id: str) -> _SdkActor:
+    global _sdk_actor
+    async with _sdk_registry_lock:
+        actor = _sdk_actor
+        expired = actor is not None and time.monotonic() - actor.last_active >= SDK_IDLE_TTL_SECONDS
+        switched = actor is not None and actor.conv_id != conv_id
+        if actor is not None and (expired or switched):
+            if actor.lock.locked():
+                raise RuntimeError("另一段 Claude 会话仍在回复")
+            await actor.close()
+            _sdk_actor = None
+            actor = None
+        if actor is None:
+            actor = _SdkActor(conv_id)
+            _sdk_actor = actor
+        return actor
+
+
+async def close_subscription_client() -> None:
+    global _sdk_actor
+    async with _sdk_registry_lock:
+        if _sdk_actor is not None:
+            await _sdk_actor.close()
+            _sdk_actor = None
+
+
 async def subscription_chat(
     route: dict[str, Any],
     messages: list[dict[str, Any]],
@@ -164,91 +386,30 @@ async def subscription_chat(
     think_sink: Callable[[str], Awaitable[None]],
     session_id: str = "",
 ) -> dict[str, Any]:
-    del think_sink  # private reasoning is never forwarded to the UI
     catalog = _tool_catalog(tools)
     allowed = {item["name"] for item in catalog}
-    conversation = [
-        {"role": str(m.get("role") or "user"), "content": _safe_content(m.get("content")),
-         **({"tool_call_id": m.get("tool_call_id")} if m.get("tool_call_id") else {}),
-         **({"tool_calls": _safe_content(m.get("tool_calls"))} if m.get("tool_calls") else {})}
-        for m in messages if m.get("role") != "system"
-    ]
-    prompt = (
-        "Continue the private conversation represented by the JSON envelope below. "
-        "The system prompt supplied separately is authoritative. Preserve chronology and persona. "
-        "Return a normal reply in text, OR request tools from available_tools. "
-        "Never invent a tool result. Tool names must match exactly and arguments must satisfy the listed schema. "
-        "If tools are needed, tool_calls may contain one or more calls; otherwise it must be an empty array. "
-        "Do not put JSON, markdown fences, hidden reasoning, or analysis inside text.\n\n"
-        + json.dumps({"conversation": conversation, "available_tools": catalog}, ensure_ascii=False, separators=(",", ":"))
-    )
+    conversation = _conversation(messages)
+    incremental = _tail_conversation(messages)
     model = str(route.get("model") or "sonnet").strip()
     effort = str(route.get("effort") or "high").strip().lower()
     if effort not in {"low", "medium", "high", "xhigh", "max"}:
         effort = "high"
-    account = pwd.getpwnam(CLAUDE_USER)
-    prompt_dir = Path(account.pw_dir) / ".claude" / "imprint-prompts"
-    prompt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    os.chown(prompt_dir, account.pw_uid, account.pw_gid)
-    os.chmod(prompt_dir, 0o700)
-    fd, system_prompt_path = tempfile.mkstemp(prefix="system-", suffix=".txt", dir=prompt_dir)
-    try:
-        os.write(fd, _system_text(messages).encode("utf-8"))
-    finally:
-        os.close(fd)
-    os.chown(system_prompt_path, account.pw_uid, account.pw_gid)
-    os.chmod(system_prompt_path, 0o600)
-    args = [
-        CLAUDE_BIN, "-p",
-        "--safe-mode", "--strict-mcp-config", "--tools", "",
-        "--permission-mode", "dontAsk", "--permission-prompts", "none",
-        "--output-format", "json", "--json-schema", json.dumps(OUTPUT_SCHEMA, separators=(",", ":")),
-        "--model", model, "--effort", effort,
-        # Claude Code accepts a UUID as the provider conversation identity. Keep
-        # it deterministic for one Imprint chat so consecutive stateless calls
-        # do not look like unrelated conversations to the upstream cache.
-        "--session-id", str(uuid.uuid5(uuid.NAMESPACE_URL, "imprint:claude-subscription:" + (session_id or "__default__"))),
-        "--no-session-persistence",
-        "--system-prompt-file", system_prompt_path,
-    ]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=account.pw_dir,
-            user=account.pw_uid,
-            group=account.pw_gid,
-            env={
-                "HOME": account.pw_dir,
-                "USER": CLAUDE_USER,
-                "LOGNAME": CLAUDE_USER,
-                "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                "LANG": os.environ.get("LANG", "C.UTF-8"),
-            },
-        )
-        try:
-            stdout, stderr = await proc.communicate(prompt.encode("utf-8"))
-        except asyncio.CancelledError:
-            proc.kill()
-            await proc.wait()
-            raise
-    finally:
-        try:
-            os.unlink(system_prompt_path)
-        except FileNotFoundError:
-            pass
-    if proc.returncode != 0:
-        detail = stderr.decode("utf-8", "replace").strip() or stdout.decode("utf-8", "replace").strip()
-        raise RuntimeError(f"Claude subscription CLI exited {proc.returncode}: {detail[:500]}")
-    try:
-        outer = json.loads(stdout.decode("utf-8"))
-        data = outer.get("structured_output")
-        if not isinstance(data, dict):
-            data = json.loads(str(outer.get("result") or "{}"))
-    except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
-        raise RuntimeError("Claude subscription returned invalid JSON") from exc
+    conv_id = session_id or "__default__"
+    system_prompt = _system_text(messages)
+    fingerprint = hashlib.sha256(json.dumps({
+        "model": model, "effort": effort, "system_prompt": system_prompt, "schema": OUTPUT_SCHEMA,
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    resume = _load_sdk_sessions().get(conv_id)
+    options = _options_for(conv_id, model, effort, system_prompt, resume=resume)
+    actor = await _actor_for(conv_id)
+    data, raw_usage = await actor.run(
+        options,
+        fingerprint,
+        _prompt(conversation, catalog, continuation=False),
+        _prompt(incremental, catalog, continuation=True),
+        sink,
+        think_sink,
+    )
 
     calls: list[dict[str, str]] = []
     for raw in data.get("tool_calls") or []:
@@ -263,7 +424,6 @@ async def subscription_chat(
     text = str(data.get("text") or "").strip()
     if text:
         await sink(text)
-    raw_usage = outer.get("usage") if isinstance(outer.get("usage"), dict) else {}
     input_tokens = int(raw_usage.get("input_tokens") or 0)
     output_tokens = int(raw_usage.get("output_tokens") or 0)
     usage = {
@@ -279,6 +439,6 @@ async def subscription_chat(
         "tool_calls": calls,
         "usage": usage,
         "finish": "tool_calls" if calls else "stop",
-        "prompt_cache": {"mode": "subscription", "ttl": "provider", "fallback": False},
+        "prompt_cache": {"mode": "subscription-sdk", "ttl": "persistent-session", "fallback": False},
     }
 

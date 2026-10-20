@@ -57,7 +57,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
-from claude_subscription import is_subscription_route, subscription_chat, subscription_usage
+from claude_subscription import close_subscription_client, is_subscription_route, subscription_chat, subscription_usage
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
@@ -5900,6 +5900,8 @@ async def lifespan(_: FastAPI):
             await wake_task
         with contextlib.suppress(asyncio.CancelledError):
             await backup_task
+        with contextlib.suppress(Exception):
+            await close_subscription_client()
         await mcp_manager.stop_all()
 
 

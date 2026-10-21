@@ -2610,7 +2610,7 @@ CREW_PATHS = re.compile(r"^(group/history|group/chat|agents/status|projects|orde
 def crew_conf(data_path: Path) -> dict:
     """工作区（mousecrew）的地址和令牌，存在 Imprint 设置里。"""
     with contextlib.suppress(sqlite3.Error, ValueError, TypeError):
-        with sqlite3.connect(str(data_path), timeout=10) as conn:
+        with sqlite_connection(str(data_path), timeout=10) as conn:
             row = conn.execute("SELECT payload FROM records WHERE id='setting_crew' AND kind='setting'").fetchone()
         c = json.loads(row[0]) if row else {}
         return {"url": str(c.get("url") or "").rstrip("/"), "token": str(c.get("token") or "")}
@@ -2660,7 +2660,7 @@ MAIL_SENT = ('"Sent Messages"', '"Sent"', '"已发送"', '"[Gmail]/Sent Mail"', 
 
 def mail_conf(data_path: Path) -> dict:
     with contextlib.suppress(sqlite3.Error, ValueError, TypeError):
-        with sqlite3.connect(str(data_path), timeout=10) as conn:
+        with sqlite_connection(str(data_path), timeout=10) as conn:
             row = conn.execute("SELECT payload FROM records WHERE id='setting_mail' AND kind='setting'").fetchone()
         c = json.loads(row[0]) if row else {}
         address = str(c.get("address") or "").strip()

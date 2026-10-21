@@ -110,8 +110,21 @@ type capture struct {
 func startCapture(page *rod.Page) *capture {
 	c := &capture{page: page, bodies: map[string]string{}}
 	_ = proto.NetworkEnable{}.Call(page)
-	wait := page.EachEvent(func(e *proto.NetworkResponseReceived) {
+	_ = proto.PageEnable{}.Call(page)
+	wait := page.EachEvent(func(e *proto.PageJavascriptDialogOpening) {
+		// 弹窗会把整页卡住（读不了字、跳转也不算完成）：记下它说了什么，关掉
+		logrus.Warnf("私信页弹窗（%s）：%s", e.Type, e.Message)
+		c.mu.Lock()
+		c.urls = append(c.urls, "弹窗:"+e.Message)
+		c.mu.Unlock()
+		go func() { _ = proto.PageHandleJavaScriptDialog{Accept: true}.Call(page) }()
+	}, func(e *proto.NetworkResponseReceived) {
 		u := e.Response.URL
+		if e.Type == proto.NetworkResourceTypeDocument {
+			c.mu.Lock()
+			c.urls = append(c.urls, fmt.Sprintf("页面:%s(%d)", shortURL(u), e.Response.Status))
+			c.mu.Unlock()
+		}
 		if !strings.Contains(u, "/api/") {
 			return
 		}

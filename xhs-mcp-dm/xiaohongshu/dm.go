@@ -26,12 +26,9 @@ import (
 	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
-// DMPages 依次尝试的私信页地址。
-// /im 是网页版私信页，但它一直挂着长连接，很久都不算「加载完」，不能等加载完；/message 是 404。
-var DMPages = []string{
-	"https://www.xiaohongshu.com/im",
-	"https://www.xiaohongshu.com/notification",
-}
+// 网页版私信入口：不猜地址（/im 会一直挂着不回、/message 是 404），而是像人一样从首页、
+// 通知页上找写着这些字的入口点进去。
+var dmEntryLabels = []string{"私信", "消息"}
 
 // DMChat 一个私信会话。
 type DMChat struct {
@@ -223,38 +220,80 @@ func (c *capture) seen() string {
 // 一个工具最多等 45 秒，还要算上开浏览器的时间，宁可快点报错带回线索。
 func (d *DMAction) openInbox(ctx context.Context, c *capture) (string, string, error) {
 	end := time.Now().Add(35 * time.Second)
-	tried := []string{}
-	for _, target := range DMPages {
-		left := time.Until(end)
-		if left < 5*time.Second {
-			break
-		}
-		tried = append(tried, target)
-		// 只等「开始跳转」，不等加载完：私信页的会话列表在加载过程中就会请求回来
-		if err := d.page.Timeout(min(8*time.Second, left)).Navigate(target); err != nil {
-			logrus.Infof("私信页 %s 还在加载（%v），接着等会话列表", target, err)
-		}
-		wait := 25 * time.Second
-		if len(tried) > 1 {
-			wait = 10 * time.Second
-		}
+	got := func(wait time.Duration) string {
 		deadline := time.Now().Add(min(wait, time.Until(end)))
 		for time.Now().Before(deadline) {
 			if _, body := c.find("/chats"); body != "" {
-				return d.pageURL(), body, nil
+				return body
 			}
 			if _, body := c.find("recent_chats"); body != "" {
+				return body
+			}
+			time.Sleep(400 * time.Millisecond)
+		}
+		return ""
+	}
+	for _, start := range []string{"https://www.xiaohongshu.com/explore", "https://www.xiaohongshu.com/notification"} {
+		if time.Until(end) < 6*time.Second {
+			break
+		}
+		if err := d.page.Timeout(min(15*time.Second, time.Until(end))).Navigate(start); err != nil {
+			logrus.Infof("私信入口：%s 还在加载（%v）", start, err)
+		}
+		_ = d.page.Timeout(min(8*time.Second, time.Until(end))).WaitLoad()
+		if body := got(2 * time.Second); body != "" { // 有的页面一打开就带着会话列表
+			return d.pageURL(), body, nil
+		}
+		logrus.Infof("私信入口：%s 上的入口有：%s", start, d.navLinks())
+		for _, label := range dmEntryLabels {
+			if !d.clickText(ctx, label) {
+				continue
+			}
+			logrus.Infof("私信入口：在 %s 点了「%s」，现在在 %s", start, label, d.pageURL())
+			if body := got(10 * time.Second); body != "" {
 				return d.pageURL(), body, nil
 			}
-			time.Sleep(500 * time.Millisecond)
 		}
-		logrus.Warnf("私信页 %s 没出会话列表，停在 %s；接口：%s", target, d.pageURL(), c.seen())
 	}
 	shot := d.debugShot()
 	text := d.pageText(200)
-	logrus.Warnf("私信页排查：停在 %s；页面文字：%s；截图：%s", d.pageURL(), text, shot)
-	return "", "", fmt.Errorf("没在网页版里找到私信会话列表（试了 %s，停在 %s）。页面上的字：%s。页面请求过的接口：%s",
-		strings.Join(tried, " "), d.pageURL(), text, c.seen())
+	logrus.Warnf("私信页排查：停在 %s；页面文字：%s；截图：%s；接口：%s", d.pageURL(), text, shot, c.seen())
+	return "", "", fmt.Errorf("没在网页版里找到私信会话列表（停在 %s）。页面上的字：%s。页面请求过的接口：%s",
+		d.pageURL(), text, c.seen())
+}
+
+// navLinks 页面上看得见的导航入口（文字 → 地址），给排查用。
+func (d *DMAction) navLinks() string {
+	res, err := d.page.Timeout(5 * time.Second).Eval(`() => [...document.querySelectorAll('a, [role="tab"], .reds-tab-item, li, .channel')]
+		.filter((el) => { const r = el.getBoundingClientRect(); const t = (el.innerText || '').trim(); return r.width > 0 && t && t.length <= 8; })
+		.map((el) => (el.innerText || '').trim() + (el.getAttribute('href') ? '→' + el.getAttribute('href') : ''))
+		.filter((v, i, all) => all.indexOf(v) === i).slice(0, 40).join(' | ')`)
+	if err != nil {
+		return "?"
+	}
+	return res.Value.String()
+}
+
+// clickText 点页面上文字正好是 label（或以它开头、后面跟着未读数）且看得见的最小元素。
+func (d *DMAction) clickText(ctx context.Context, label string) bool {
+	elem, err := d.page.Timeout(4*time.Second).ElementByJS(rod.Eval(`(label) => {
+		const ok = (t) => t === label || (t.startsWith(label) && /^\d*$/.test(t.slice(label.length).trim()));
+		return [...document.querySelectorAll('body *')].find((el) => {
+			if (el.children.length > 3) return false;
+			const r = el.getBoundingClientRect();
+			return r.width > 0 && r.height > 0 && ok((el.innerText || '').trim());
+		}) || null;
+	}`, label))
+	if err != nil || elem == nil {
+		return false
+	}
+	humanize.Delay(ctx, humanize.BeforeClick)
+	if err := humanize.Click(elem); err != nil {
+		logrus.Infof("私信入口：「%s」点不了：%v", label, err)
+		return false
+	}
+	humanize.Delay(ctx, humanize.AfterClick)
+	return true
 }
 
 // debugShot 把当前页面截图存到 /app/images/dm-debug.png（官方容器里这个目录挂在宿主机上）。

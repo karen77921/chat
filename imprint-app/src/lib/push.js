@@ -15,7 +15,8 @@ export function registerSW() {
   let stale = false;
   let checking = false;
   const currentEntry = () => document.querySelector('script[src*="assets/index-"]')?.getAttribute('src') || '';
-  const markLatest = (entry) => { if (entry && currentEntry() && !currentEntry().endsWith(entry)) stale = true; };
+  let latest = '';
+  const markLatest = (entry) => { if (entry && currentEntry() && !currentEntry().endsWith(entry)) { stale = true; latest = entry; } };
   const checkLatest = async () => {
     if (checking) return;
     checking = true;
@@ -31,13 +32,20 @@ export function registerSW() {
     const entry = event.data?.type === 'imprint-latest' && event.data.entry;
     markLatest(entry);
   });
+  // 每个新版本最多替她刷新一次：手机上要是拿到的页面和服务器对不上（缓存、网络慢），
+  // 不加这道闸就会开一次刷一次，iPhone 最后会报「重复出现问题」
   const refreshWhenVisible = async () => {
     if (document.visibilityState !== 'visible') return;
     await checkLatest();
-    if (stale) location.reload();
+    if (!stale || !latest) return;
+    let tried = '';
+    try { tried = sessionStorage.getItem('imprint.reloadedFor') || ''; } catch { /* 无痕模式 */ }
+    if (tried === latest) return;
+    try { sessionStorage.setItem('imprint.reloadedFor', latest); } catch { return; }
+    location.reload();
   };
   document.addEventListener('visibilitychange', refreshWhenVisible);
-  window.addEventListener('pageshow', refreshWhenVisible);
+  window.addEventListener('pageshow', (event) => { if (event.persisted) refreshWhenVisible(); });
   setTimeout(checkLatest, 1500);
 }
 

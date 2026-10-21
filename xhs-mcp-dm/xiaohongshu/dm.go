@@ -26,9 +26,9 @@ import (
 )
 
 // DMPages 依次尝试的私信页地址。
+// /im 是网页版私信页，但它一直挂着长连接，很久都不算「加载完」，不能等加载完；/message 是 404。
 var DMPages = []string{
 	"https://www.xiaohongshu.com/im",
-	"https://www.xiaohongshu.com/message",
 	"https://www.xiaohongshu.com/notification",
 }
 
@@ -121,10 +121,17 @@ func startCapture(page *rod.Page) *capture {
 			return
 		}
 		go func(id proto.NetworkRequestID, u string) {
-			// 响应体要等加载完才拿得到，稍等再取
-			time.Sleep(400 * time.Millisecond)
-			res, err := proto.NetworkGetResponseBody{RequestID: id}.Call(page)
+			// 响应体要等加载完才拿得到：稍等再取，取不到多试几次
+			var res *proto.NetworkGetResponseBodyResult
+			var err error
+			for i := 0; i < 6; i++ {
+				time.Sleep(400 * time.Millisecond)
+				if res, err = (proto.NetworkGetResponseBody{RequestID: id}).Call(page); err == nil {
+					break
+				}
+			}
 			if err != nil {
+				logrus.Warnf("私信接口 %s 的内容没取到: %v", shortURL(u), err)
 				return
 			}
 			body := res.Body
@@ -209,13 +216,15 @@ func (d *DMAction) openInbox(ctx context.Context, c *capture) (string, string, e
 			break
 		}
 		tried = append(tried, target)
-		page := d.page.Timeout(min(20*time.Second, left))
-		if err := page.Navigate(target); err != nil {
-			logrus.Warnf("私信页 %s 打不开: %v", target, err)
-			continue
+		// 只等「开始跳转」，不等加载完：私信页的会话列表在加载过程中就会请求回来
+		if err := d.page.Timeout(min(8*time.Second, left)).Navigate(target); err != nil {
+			logrus.Infof("私信页 %s 还在加载（%v），接着等会话列表", target, err)
 		}
-		_ = page.WaitLoad()
-		deadline := time.Now().Add(min(10*time.Second, time.Until(end)))
+		wait := 25 * time.Second
+		if len(tried) > 1 {
+			wait = 10 * time.Second
+		}
+		deadline := time.Now().Add(min(wait, time.Until(end)))
 		for time.Now().Before(deadline) {
 			if _, body := c.find("/chats"); body != "" {
 				return d.pageURL(), body, nil

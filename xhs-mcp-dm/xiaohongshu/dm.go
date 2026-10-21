@@ -460,6 +460,7 @@ func (d *DMAction) openChat(ctx context.Context, c *capture, userID string) (str
 		return all[0] || null;
 	}`, target.Nickname))
 	if err != nil {
+		logrus.Warnf("私信会话排查：找「%s」；页面文字：%s；截图：%s", target.Nickname, d.pageText(300), d.debugShot())
 		return "", fmt.Errorf("页面上没找到「%s」这个会话：%w", target.Nickname, err)
 	}
 	humanize.Delay(ctx, humanize.BeforeClick)
@@ -613,6 +614,7 @@ func (d *DMAction) Send(ctx context.Context, userID, content string) (*DMSendRes
 		return all[0] || null;
 	}`))
 	if err != nil {
+		logrus.Warnf("私信输入框排查：页面文字：%s；截图：%s", d.pageText(300), d.debugShot())
 		return nil, fmt.Errorf("点开了「%s」的会话，但没找到输入框: %w", name, err)
 	}
 	humanize.Delay(ctx, humanize.BeforeClick)

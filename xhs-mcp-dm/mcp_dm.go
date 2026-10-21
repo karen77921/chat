@@ -67,6 +67,7 @@ func registerDMTools(server *mcp.Server, appServer *AppServer) {
 
 func dmResult(res any, err error, action string) *MCPToolResult {
 	if err != nil {
+		logrus.Warnf("%s失败: %v", action, err)
 		return &MCPToolResult{Content: []MCPContent{{Type: "text", Text: action + "失败: " + err.Error()}}, IsError: true}
 	}
 	return marshalMCPResult(res, action)

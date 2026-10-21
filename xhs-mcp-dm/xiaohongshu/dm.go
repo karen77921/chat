@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -236,8 +237,35 @@ func (d *DMAction) openInbox(ctx context.Context, c *capture) (string, string, e
 		}
 		logrus.Warnf("私信页 %s 没出会话列表，停在 %s；接口：%s", target, d.pageURL(), c.seen())
 	}
-	return "", "", fmt.Errorf("没在网页版里找到私信会话列表（试了 %s，停在 %s）。页面请求过的接口：%s",
-		strings.Join(tried, " "), d.pageURL(), c.seen())
+	shot := d.debugShot()
+	text := d.pageText(200)
+	logrus.Warnf("私信页排查：停在 %s；页面文字：%s；截图：%s", d.pageURL(), text, shot)
+	return "", "", fmt.Errorf("没在网页版里找到私信会话列表（试了 %s，停在 %s）。页面上的字：%s。页面请求过的接口：%s",
+		strings.Join(tried, " "), d.pageURL(), text, c.seen())
+}
+
+// debugShot 把当前页面截图存到 /app/images/dm-debug.png（官方容器里这个目录挂在宿主机上）。
+func (d *DMAction) debugShot() string {
+	data, err := d.page.Timeout(10 * time.Second).Screenshot(false, nil)
+	if err != nil {
+		return "截图失败: " + err.Error()
+	}
+	path := "/app/images/dm-debug.png"
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		path = os.TempDir() + "/dm-debug.png"
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return "截图存不下: " + err.Error()
+		}
+	}
+	return path
+}
+
+func (d *DMAction) pageText(n int) string {
+	res, err := d.page.Timeout(5*time.Second).Eval(`(n) => (document.body && document.body.innerText || '').replace(/\s+/g, ' ').slice(0, n)`, n)
+	if err != nil {
+		return "?"
+	}
+	return res.Value.String()
 }
 
 func (d *DMAction) pageURL() string {

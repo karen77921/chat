@@ -105,6 +105,26 @@ class ImprintStoreTest(unittest.TestCase):
         result = self.app.routes[(method, "/loop/imprint" + path)](*args, **kwargs)
         return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
+    def test_sqlite_connection_always_closes(self):
+        class TrackedConnection(sqlite3.Connection):
+            closed = False
+
+            def close(self):
+                self.closed = True
+                super().close()
+
+        with imprint_store.sqlite_connection(self.root / "closed.db", factory=TrackedConnection) as conn:
+            conn.execute("CREATE TABLE sample(value INTEGER)")
+        self.assertTrue(conn.closed)
+
+        with self.assertRaisesRegex(RuntimeError, "rollback"):
+            with imprint_store.sqlite_connection(self.root / "closed.db", factory=TrackedConnection) as failed:
+                failed.execute("INSERT INTO sample VALUES (1)")
+                raise RuntimeError("rollback")
+        self.assertTrue(failed.closed)
+        with sqlite3.connect(self.root / "closed.db") as verify:
+            self.assertEqual(verify.execute("SELECT COUNT(*) FROM sample").fetchone()[0], 0)
+
     def test_piggy_bank_only_she_writes_and_balance_adds_up(self):
         self.call("POST", "/piggy", Request({"kind": "save", "amount": 20, "reason": "让我开心了"}))
         taken = self.call("POST", "/piggy", Request({"kind": "take", "amount": "5.5", "reason": "惹我生气"}))

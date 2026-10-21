@@ -47,6 +47,9 @@ import shutil
 import time
 import socket
 import sqlite3
+import sys
+
+from imprint_store import sqlite_connection
 import urllib.parse
 import uuid
 import xml.etree.ElementTree as ET
@@ -342,7 +345,7 @@ def previous_user_times(session_id: str, before_id: int | None) -> tuple[dt.date
         "OR json_extract(meta, '$.visible') != 0) " + cutoff
     )
     try:
-        with sqlite3.connect(str(path)) as conn:
+        with sqlite_connection(str(path)) as conn:
             global_row = conn.execute(base + " ORDER BY id DESC LIMIT 1", cutoff_args).fetchone()
             if session_id:
                 session_sql = base + " AND json_valid(meta) AND json_extract(meta, '$.api_session') = ? ORDER BY id DESC LIMIT 1"
@@ -359,7 +362,8 @@ def previous_user_times(session_id: str, before_id: int | None) -> tuple[dt.date
     )
 
 
-# 他说要去做 / 说已经做了的话。只认「去 / 帮你 / 已经」后面跟着具体动作，「我看看你」这种撒娇不算
+# Kept for callers that classify action claims; chat no longer triggers an
+# extra model request just because a reply contains one of these phrases.
 CLAIM_RE = re.compile(
     r"(?:我|这就|马上)(?:这就|马上|现在|先|也)?(?:去[\u4e00-\u9fff]{0,4}?|帮你|给你|已经帮你|已经给你|已经|刚)"
     r"(?:查|搜|找|翻|看一?下|看看|瞧瞧|记|定|设|改|写|发|放|存|封|点|派|开|加|订|提醒|排|拆|画|读|逛|问)"
@@ -368,13 +372,8 @@ CLAIM_RE = re.compile(
 
 
 def claims_action(text: str) -> bool:
-    """回复里说了要去做 / 已经做了某件事（且没有写「稍后继续」把它挪到以后）。"""
+    """Recognise action claims without automatically adding a model retry."""
     return bool(CLAIM_RE.search(text)) and "稍后继续" not in text
-
-
-CLAIM_NUDGE = ("（系统提示，不是她说的：你上面说了要去做 / 已经做了某件事，但这一轮你没有调用任何工具，所以它实际上还没发生。"
-               "现在就调用对应的工具把它做了，手边没有就先用 open_toolbox 拿；真做不了，就照实跟她说做不了，别说已经做了。"
-               "做完再用你自己的话回她，不要提这条提示。）")
 
 
 # 轻装聊天时递给他的全部「规矩」：先是怎么说话，然后几条硬底线。工具说明都在工具自己身上，不在这里念
@@ -929,7 +928,7 @@ def delete_session(session_id: str) -> dict[str, Any]:
     deleted_messages = 0
     path = Path(RELAY_DB)
     if path.exists():
-        with sqlite3.connect(str(path)) as conn:
+        with sqlite_connection(str(path)) as conn:
             cur = conn.execute(
                 "DELETE FROM messages WHERE json_valid(meta) AND json_extract(meta, '$.api_session') = ?",
                 (session_id,),
@@ -993,12 +992,13 @@ def _wake_tables(conn: sqlite3.Connection) -> None:
     )
 
 
-def _wake_conn() -> sqlite3.Connection:
+@contextlib.contextmanager
+def _wake_conn():
     path = Path(RELAY_DB)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=10)
-    _wake_tables(conn)
-    return conn
+    with sqlite_connection(str(path), timeout=10) as conn:
+        _wake_tables(conn)
+        yield conn
 
 
 def wake_control() -> dict[str, Any]:
@@ -1428,7 +1428,7 @@ def push_public_key() -> str:
 
 def push_him_name() -> str:
     with contextlib.suppress(Exception):
-        with sqlite3.connect(str(LOOP_CACHE_DIR / "imprint.db"), timeout=5) as conn:
+        with sqlite_connection(str(LOOP_CACHE_DIR / "imprint.db"), timeout=5) as conn:
             row = conn.execute("SELECT payload FROM records WHERE id='setting_contact'").fetchone()
         name = json.loads(row[0]).get("himName") if row else ""
         if name:
@@ -1523,9 +1523,15 @@ async def fetch_upload(att: dict[str, Any]) -> tuple[bytes | None, Path | None]:
         if local.is_file():
             with contextlib.suppress(OSError):
                 data = local.read_bytes()
+    # Reuse downloaded attachments: old pictures must not block every new turn
+    # on a public relay request (including text-only follow-ups).
+    if data is None:
+        cached = LOOP_CACHE_DIR / "in" / stored
+        with contextlib.suppress(OSError):
+            data = cached.read_bytes()
     if data is None and RELAY_SECRET:
         try:
-            async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=3), trust_env=False) as client:
                 resp = await client.get(f"{RELAY_URL}/uploads/{stored}", headers=relay_headers())
             if resp.status_code < 300:
                 data = resp.content
@@ -1538,7 +1544,6 @@ async def fetch_upload(att: dict[str, Any]) -> tuple[bytes | None, Path | None]:
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_bytes(data)
     return data, cache
-
 
 # ---------------------------------------------------------------------------
 # attachments → message parts
@@ -1819,7 +1824,7 @@ def relay_count(before_id: int | None, session_id: str, after_id: int = 0) -> in
     else:
         where.append("(json_extract(meta, '$.api_session') IS NULL OR json_extract(meta, '$.api_session') = '')")
     with contextlib.suppress(sqlite3.Error):
-        with sqlite3.connect(str(path)) as conn:
+        with sqlite_connection(str(path)) as conn:
             return int(conn.execute(f"SELECT COUNT(*) FROM messages WHERE {' AND '.join(where)}", params).fetchone()[0])
     return 0
 
@@ -1857,7 +1862,7 @@ def relay_rows(
         f"WHERE {' AND '.join(where)} ORDER BY id {order} LIMIT ?"
     )
     params.append(max(0, limit))
-    with sqlite3.connect(str(path)) as conn:
+    with sqlite_connection(str(path)) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(sql, params).fetchall()
     out = []
@@ -1917,7 +1922,7 @@ def patch_message(message_id: int, body: dict[str, Any]) -> dict[str, Any]:
     path = Path(RELAY_DB)
     if not path.exists():
         raise HTTPException(status_code=404, detail="message database not found")
-    with sqlite3.connect(str(path)) as conn:
+    with sqlite_connection(str(path)) as conn:
         row = conn.execute("SELECT direction, kind, text, meta FROM messages WHERE id = ?", (int(message_id),)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="message not found")
@@ -1973,7 +1978,7 @@ def delete_chat_message(message_id: int, session_id: str) -> dict[str, Any]:
     path = Path(RELAY_DB)
     if not path.exists():
         raise HTTPException(status_code=404, detail="message database not found")
-    with sqlite3.connect(str(path)) as conn:
+    with sqlite_connection(str(path)) as conn:
         row = conn.execute(
             "SELECT direction, kind, meta FROM messages WHERE id = ?", (message_id,)
         ).fetchone()
@@ -2008,7 +2013,7 @@ def batch_source(raw_ids: list[Any], session_id: str) -> dict[str, Any]:
     if not ids or len(ids) > 500 or ids != sorted(set(ids)) or ids[0] <= 0:
         raise HTTPException(status_code=400, detail="invalid batch_ids")
     placeholders = ",".join("?" for _ in ids)
-    with sqlite3.connect(RELAY_DB) as conn:
+    with sqlite_connection(RELAY_DB) as conn:
         rows = conn.execute(
             f"SELECT id, direction, kind, text, meta FROM messages WHERE id IN ({placeholders}) ORDER BY id ASC",
             ids,
@@ -2039,7 +2044,7 @@ def regeneration_source(reply_message_id: int, requested_session: str = "") -> d
     path = Path(RELAY_DB)
     if not path.exists():
         raise HTTPException(status_code=404, detail="message database not found")
-    with sqlite3.connect(str(path)) as conn:
+    with sqlite_connection(str(path)) as conn:
         reply = conn.execute(
             "SELECT direction, kind, meta FROM messages WHERE id = ?",
             (int(reply_message_id),),
@@ -2087,7 +2092,7 @@ def context_summary(session_id: str) -> tuple[str, int]:
     path = Path(RELAY_DB)
     if not path.exists():
         return "", 0
-    with sqlite3.connect(str(path)) as conn:
+    with sqlite_connection(str(path)) as conn:
         _context_table(conn)
         row = conn.execute(
             "SELECT summary, last_compacted_id FROM api_context_summaries WHERE session_id = ?",
@@ -2100,7 +2105,7 @@ def save_context_summary(session_id: str, summary: str, last_compacted_id: int) 
     path = Path(RELAY_DB)
     if not path.exists():
         return
-    with sqlite3.connect(str(path)) as conn:
+    with sqlite_connection(str(path)) as conn:
         _context_table(conn)
         timestamp = now_iso()
         conn.execute(
@@ -2135,7 +2140,7 @@ def queue_ombre_digest(session_id: str, digest: str, last_compacted_id: int) -> 
         uuid.NAMESPACE_URL, f"imprint-ombre:{session_id}:{int(last_compacted_id)}:{clean}"
     ).hex
     timestamp = now_iso()
-    with sqlite3.connect(str(RELAY_DB)) as conn:
+    with sqlite_connection(str(RELAY_DB)) as conn:
         _context_table(conn)
         conn.execute(
             """INSERT OR IGNORE INTO api_ombre_archive_queue
@@ -2150,7 +2155,7 @@ def queue_ombre_digest(session_id: str, digest: str, last_compacted_id: int) -> 
 def pending_ombre_digests(session_id: str, limit: int = 3) -> list[dict[str, Any]]:
     if not Path(RELAY_DB).exists():
         return []
-    with sqlite3.connect(str(RELAY_DB)) as conn:
+    with sqlite_connection(str(RELAY_DB)) as conn:
         conn.row_factory = sqlite3.Row
         _context_table(conn)
         rows = conn.execute(
@@ -2164,7 +2169,7 @@ def pending_ombre_digests(session_id: str, limit: int = 3) -> list[dict[str, Any
 def finish_ombre_digest(queue_id: str, error: str = "") -> None:
     if not Path(RELAY_DB).exists():
         return
-    with sqlite3.connect(str(RELAY_DB)) as conn:
+    with sqlite_connection(str(RELAY_DB)) as conn:
         _context_table(conn)
         if error:
             conn.execute(
@@ -2434,7 +2439,7 @@ def relay_message_attachments(msg_id: int | None) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
-        with sqlite3.connect(str(path)) as conn:
+        with sqlite_connection(str(path)) as conn:
             row = conn.execute("SELECT meta FROM messages WHERE id = ?", (int(msg_id),)).fetchone()
         meta = json.loads(row[0] or "{}") if row else {}
         atts = meta.get("attachments")
@@ -2731,9 +2736,6 @@ async def build_messages(
             content = str(row.get("text") or "").strip()
             row_atts = row["meta"].get("attachments") or []
             if row.get("direction") == "out":
-                api_meta = row["meta"].get("api") if isinstance(row["meta"].get("api"), dict) else {}
-                if api_meta.get("error") or content.startswith("⚠️"):
-                    continue  # 失败的那几条（「没生成成功」「被过滤」）不喂回给他：上下文里的失败会被他学成习惯
                 content = split_leaked_thinking(content)[0]  # 以前漏进正文的英文独白别再喂回给他
                 if content:
                     messages.append({"role": "assistant", "content": content})
@@ -5153,7 +5155,6 @@ async def handle_turn(
     cache_meta: dict[str, Any] = {}
     step = 0
     empty_retry = False
-    claim_retry = False
     last_finish = ""
     garden_actions: list[tuple[str, str]] = []
     try:
@@ -5210,15 +5211,6 @@ async def handle_turn(
                                  else "（刚才你只想了没说出口。请直接用中文回复她。）"})
                 tools = None
                 max_steps = 0
-                continue
-            if (not calls and step == 0 and not claim_retry and tools and max_steps > 0 and step_text
-                    and claims_action(step_text)):
-                # 他说了「我去看看 / 帮你记下了」，可这一轮一个工具都没调：事情其实没做。追一句，让他真去做
-                claim_retry = True
-                print(f"[turn] said he'd act but called no tool for {session_id or 'default'}; nudging once", flush=True)
-                texts.clear()
-                messages.append({"role": "assistant", "content": step_text})
-                messages.append({"role": "user", "content": CLAIM_NUDGE})
                 continue
             if not calls:
                 break
@@ -5533,12 +5525,12 @@ def create_backup() -> dict[str, Any]:
     copied: list[str] = []
     relay_path = Path(RELAY_DB)
     if relay_path.exists():
-        with sqlite3.connect(str(relay_path)) as source, sqlite3.connect(str(target / "relay.db")) as dest:
+        with sqlite_connection(str(relay_path)) as source, sqlite_connection(str(target / "relay.db")) as dest:
             source.backup(dest)
         copied.append("relay.db")
     imprint_path = LOOP_CACHE_DIR / "imprint.db"
     if imprint_path.exists():
-        with sqlite3.connect(str(imprint_path)) as source, sqlite3.connect(str(target / "imprint.db")) as dest:
+        with sqlite_connection(str(imprint_path)) as source, sqlite_connection(str(target / "imprint.db")) as dest:
             source.backup(dest)
         copied.append("imprint.db")
     for source, name in (
@@ -5717,7 +5709,7 @@ def space_freshness_hint(stale_hours: float = 3.0) -> str:
     if not path.exists():
         return ""
     try:
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as conn:
+        with sqlite_connection(f"file:{path}?mode=ro", uri=True, timeout=5) as conn:
             found = dict(conn.execute(
                 "SELECT id, at FROM records WHERE kind='setting' AND id IN ('setting_room_current','setting_tide_current')"
             ).fetchall())
@@ -5811,7 +5803,7 @@ def her_latest_lines(hours: int = 8, limit: int = 8) -> list[str]:
     if not path.exists():
         return []
     with contextlib.suppress(Exception):
-        with sqlite3.connect(str(path)) as conn:
+        with sqlite_connection(str(path)) as conn:
             rows = conn.execute(
                 "SELECT ts, text FROM messages WHERE direction='in' AND kind IN ('user','voice') "
                 "AND (NOT json_valid(meta) OR json_extract(meta,'$.visible') IS NULL OR json_extract(meta,'$.visible') != 0) "
@@ -6000,9 +5992,12 @@ _drive_tick = {"at": 0.0}
 
 
 async def wake_worker() -> None:
-    initialize_wake_runtime()
+    initialized = False
     while True:
         try:
+            if not initialized:
+                initialize_wake_runtime()
+                initialized = True
             now = dt.datetime.now(dt.timezone.utc)
             for item in claim_due_precise_wakes(now):
                 session_id = str(item.get("session_id") or active_session_id())
@@ -6065,9 +6060,12 @@ async def wake_worker() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            print(f"[wake] worker error: {type(exc).__name__}: {exc}", flush=True)
-            with contextlib.suppress(Exception):
+            print(f"[wake] worker error: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            try:
                 wake_audit("worker", "error", f"{type(exc).__name__}: {exc}")
+            except Exception as audit_exc:
+                print(f"[wake] audit write failed: {type(audit_exc).__name__}: {audit_exc}",
+                      file=sys.stderr, flush=True)
         await asyncio.sleep(20)
 
 
@@ -6124,7 +6122,7 @@ def search_chat_history(query: str, days: int = 0, limit: int = 10) -> str:
                "OR json_extract(meta, '$.visible') != 0)")
     where = [visible, "(" + " OR ".join("text LIKE ? ESCAPE '\\'" for _ in words) + ")"]
     params: list[Any] = ["%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" for w in words]
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
+    with sqlite_connection(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
         rows = conn.execute(f"SELECT id, ts, direction, text, meta FROM messages WHERE {' AND '.join(where)} "
                             "ORDER BY id DESC LIMIT 500", params).fetchall()
         cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days) if days and days > 0 else None
@@ -6179,7 +6177,7 @@ def day_dialogue(day: str, limit_chars: int = 40_000) -> str:
         return ""
     zone = context_zone()
     try:
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
+        with sqlite_connection(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
             found = conn.execute(
                 "SELECT ts, direction, text FROM messages WHERE kind IN ('user','voice','reply') "
                 "AND (NOT json_valid(meta) OR json_extract(meta, '$.visible') IS NULL OR json_extract(meta, '$.visible') != 0) "
@@ -6203,7 +6201,7 @@ def diary_exists(day: str) -> bool:
     if not path.exists():
         return False
     with contextlib.suppress(sqlite3.Error):
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as conn:
+        with sqlite_connection(f"file:{path}?mode=ro", uri=True, timeout=5) as conn:
             return conn.execute("SELECT 1 FROM records WHERE kind='diary' AND id=?", (f"diary_{day}",)).fetchone() is not None
     return False
 
@@ -6404,7 +6402,7 @@ async def loop_chat_recent(session_id: str, limit: int = 200):
     sid = str(session_id or "").strip()
     where = "json_extract(meta, '$.api_session') = ?" if sid else \
         "(json_extract(meta, '$.api_session') IS NULL OR json_extract(meta, '$.api_session') = '')"
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
+    with sqlite_connection(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT id, ts, direction, kind, text, meta FROM messages "

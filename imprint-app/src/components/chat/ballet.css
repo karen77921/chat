@@ -19,8 +19,9 @@ html[data-skin='ballet'] .chat:not(.own-wall) .ch-bg { background:
   radial-gradient(70% 40% at 30% 95%, #F6DCD8 0%, transparent 70%), linear-gradient(180deg, #F8E9EA, #FBF3F3); }
 html[data-skin='ballet'] .chat:not(.own-wall) .ch-bg-art, html[data-skin='ballet'] .chat:not(.own-wall) .ch-veil { display: none; }
 /* 液态玻璃：半透明 + 很强的模糊和饱和 + 一圈亮边 */
-html[data-skin='ballet'] .chat :is(.lg, .ch-head .gbtn, .ch-who, .cin-plus, .cin-field, .cin-reply, .cin-pause, .ch-day span) {
+html[data-skin='ballet'] .chat :is(.lg, .ch-head .gbtn, .ch-who, .cin-plus, .cin-field, .cin-reply, .cin-pause) {
   background: var(--lg); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge), 0 6px 18px rgba(120, 80, 92, 0.12); border: 0; }
+html[data-skin='ballet'] .chat .ch-day span { background: rgba(255, 255, 255, 0.7); box-shadow: var(--lg-edge), 0 6px 18px rgba(120, 80, 92, 0.12); border: 0; }
 
 /* 顶部：左边返回胶囊；中间头像 + 名字胶囊（点开聊天设置）；右边搜索 */
 html[data-skin='ballet'] .chat .ch-head { display: block; height: calc(env(safe-area-inset-top, 0px) + 150px); padding: 0; background: linear-gradient(180deg, rgba(248, 233, 234, 0.7), rgba(248, 233, 234, 0)); -webkit-backdrop-filter: none; backdrop-filter: none; border: 0; pointer-events: none; }
@@ -50,7 +51,7 @@ html[data-skin='ballet'] .chat .ch-tip { font-size: 11.5px; color: #8E7A7F; }
 html[data-skin='ballet'] .chat .cm-last .cm-row { padding-bottom: 8px; }
 html[data-skin='ballet'] .chat .cm-bubble { position: relative; max-width: 270px; padding: 8px 14px; border-radius: 19px; font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif; font-size: 16px; line-height: 22px; letter-spacing: 0.2px; }
 html[data-skin='ballet'][data-bubble='glass'] .chat .cm-bubble.him, html[data-skin='ballet']:not([data-bubble]) .chat .cm-bubble.him {
-  background: rgba(255, 255, 255, 0.5); color: #2E2226; -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08); }
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.66)); color: #2E2226; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08); }
 html[data-skin='ballet'][data-bubble='glass'] .chat .cm-bubble.me, html[data-skin='ballet']:not([data-bubble]) .chat .cm-bubble.me {
   background: linear-gradient(180deg, #E9A6B6, #D98C9F); color: #fff; -webkit-backdrop-filter: none; backdrop-filter: none;
   box-shadow: inset 0 1px 0.5px rgba(255, 255, 255, 0.45), 0 4px 14px rgba(200, 120, 140, 0.25); }
@@ -64,10 +65,12 @@ html[data-skin='ballet'][data-bubble='glass'] .chat .cm-last .cm-bubble.me:not(.
 html[data-skin='ballet'] .chat .cm-bubble.me .cm-quote, html[data-skin='ballet'] .chat .cm-bubble.me .cm-quote-who { color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.6); }
 html[data-skin='ballet'] .chat .cm-bubble.me .cm-edited { color: rgba(255, 255, 255, 0.8); }
 html[data-skin='ballet'] .chat .cm-time { font-family: -apple-system, 'PingFang SC', sans-serif; font-style: normal; font-size: 11px; color: #8E7A7F; margin: 4px 8px 4px; }
-html[data-skin='ballet'] .chat .cm-react { background: var(--lg-strong); -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge), 0 3px 8px rgba(120, 80, 92, 0.15); }
+html[data-skin='ballet'] .chat .cm-react { background: var(--lg-strong); box-shadow: var(--lg-edge), 0 3px 8px rgba(120, 80, 92, 0.15); }
 
-/* 卡片类（歌、草稿、文件、图片、思考、快捷回复）都是玻璃 */
-html[data-skin='ballet'] .chat :is(.cm-song, .cm-draft, .cm-file, .cm-imgs, .cm-think-b, .ch-opt) { background: rgba(255, 255, 255, 0.45) !important; -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08) !important; }
+/* 卡片类（歌、草稿、文件、图片、思考、快捷回复）都是玻璃。
+ * 滚动列表里的东西一律不开 backdrop-filter：每条都实时模糊一遍，几十条叠起来 iPhone 会内存不够、整页崩掉。
+ * 底是安静的渐变，模糊本来也看不出差别，用半透明白 + 亮边做出玻璃感；真模糊只留给顶栏和输入框 */
+html[data-skin='ballet'] .chat :is(.cm-song, .cm-draft, .cm-file, .cm-imgs, .cm-think-b, .cm-heart-b, .cm-heart-t, .ch-opt) { background: rgba(255, 255, 255, 0.7) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08) !important; }
 html[data-skin='ballet'] .chat .cm-row.me .cm-voice { background: linear-gradient(180deg, #E9A6B6, #D98C9F) !important; color: #fff; }
 html[data-skin='ballet'] .chat .cm-row.me .cm-voice .cm-wave, html[data-skin='ballet'] .chat .cm-row.me .cm-voice .cm-dur { color: #fff; }
 html[data-skin='ballet'] .chat .cm-row.me .cm-voice .cm-play { background: rgba(255, 255, 255, 0.3); }

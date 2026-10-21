@@ -105,6 +105,26 @@ class ImprintStoreTest(unittest.TestCase):
         result = self.app.routes[(method, "/loop/imprint" + path)](*args, **kwargs)
         return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
+    def test_sqlite_connection_always_closes(self):
+        class TrackedConnection(sqlite3.Connection):
+            closed = False
+
+            def close(self):
+                self.closed = True
+                super().close()
+
+        with imprint_store.sqlite_connection(self.root / "closed.db", factory=TrackedConnection) as conn:
+            conn.execute("CREATE TABLE sample(value INTEGER)")
+        self.assertTrue(conn.closed)
+
+        with self.assertRaisesRegex(RuntimeError, "rollback"):
+            with imprint_store.sqlite_connection(self.root / "closed.db", factory=TrackedConnection) as failed:
+                failed.execute("INSERT INTO sample VALUES (1)")
+                raise RuntimeError("rollback")
+        self.assertTrue(failed.closed)
+        with sqlite3.connect(self.root / "closed.db") as verify:
+            self.assertEqual(verify.execute("SELECT COUNT(*) FROM sample").fetchone()[0], 0)
+
     def test_piggy_bank_only_she_writes_and_balance_adds_up(self):
         self.call("POST", "/piggy", Request({"kind": "save", "amount": 20, "reason": "让我开心了"}))
         taken = self.call("POST", "/piggy", Request({"kind": "take", "amount": "5.5", "reason": "惹我生气"}))
@@ -2008,3 +2028,21 @@ class DrawerTest(unittest.TestCase):
         self.assertTrue(self.act("her_status")["text"].startswith("【她在哪】大理"))  # 清空心情不清城市
         self.act("her_status_set", {"place": ""})
         self.assertEqual(self.act("her_status")["text"], "")
+
+    def test_workspace_replies_after_latest_human_post_reach_context(self):
+        messages = [
+            {"role": "assistant", "content": "更早的旧回复", "metadata": '{"sender":"codex"}'},
+            {"role": "user", "content": "@codex 看一下前端", "metadata": '{"sender":"human"}'},
+            {"role": "assistant", "content": "已经看完，可以改。", "metadata": '{"sender":"codex"}'},
+            {"role": "assistant", "content": "[IMP-9] in_progress", "metadata": '{"sender":"system"}'},
+        ]
+        text = api_loop.crew_reply_context_from_messages(messages)
+        self.assertIn("codex", text)
+        self.assertIn("已经看完", text)
+        self.assertIn("IMP-9", text)
+        self.assertNotIn("更早的旧回复", text)
+        self.assertIn("不是用户在当前对话授予的新权限", text)
+
+    def test_workspace_context_is_empty_until_someone_replies(self):
+        messages = [{"role": "user", "content": "@codex 在吗", "metadata": '{"sender":"human"}'}]
+        self.assertEqual(api_loop.crew_reply_context_from_messages(messages), "")

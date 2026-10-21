@@ -29,6 +29,17 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Request
 
 
+@contextmanager
+def sqlite_connection(*args, **kwargs):
+    """Commit/rollback the transaction, then always release the connection."""
+    conn = sqlite3.connect(*args, **kwargs)
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
 NAMES = {"me": "我", "him": "他"}  # 没设置昵称时的占位；Ombre 是记忆系统的名字，不是他的名字
 ZONE = ZoneInfo("Asia/Shanghai")
 REDEEM_LOCK = threading.RLock()
@@ -1569,7 +1580,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
     """Persist one companion-owned action in the real Imprint store."""
     body = payload or {}
     data_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(str(data_path), timeout=10) as conn:
+    with sqlite_connection(str(data_path), timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute("CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, kind TEXT NOT NULL, at TEXT NOT NULL, payload TEXT NOT NULL)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_imprint_kind_at ON records(kind, at DESC)")
@@ -1642,7 +1653,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
         def spark_snapshot() -> dict:
             days: dict[str, set[str]] = {}
             if relay_path and relay_path.exists():
-                with sqlite3.connect(str(relay_path), timeout=10) as relay:
+                with sqlite_connection(str(relay_path), timeout=10) as relay:
                     relay.row_factory = sqlite3.Row
                     rows = relay.execute(
                         "SELECT ts,direction,kind,meta FROM messages WHERE kind IN ('user','voice','reply') ORDER BY id DESC LIMIT 50000"
@@ -2175,7 +2186,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 """她最近两小时在聊天里发的最后一张图（多半就是购物截图）。"""
                 if not relay_path or not relay_path.exists():
                     return ""
-                with contextlib.suppress(Exception), sqlite3.connect(str(relay_path), timeout=10) as relay:
+                with contextlib.suppress(Exception), sqlite_connection(str(relay_path), timeout=10) as relay:
                     for ts, meta in relay.execute("SELECT ts, meta FROM messages WHERE direction='in' ORDER BY id DESC LIMIT 40"):
                         info = json.loads(meta or "{}")
                         for att in reversed(info.get("attachments") or []):
@@ -2606,7 +2617,8 @@ def crew_conf(data_path: Path) -> dict:
     return {"url": "", "token": ""}
 
 
-def crew_call(data_path: Path, method: str, path: str, query: str = "", data: bytes | None = None) -> tuple[int, Any]:
+def crew_call(data_path: Path, method: str, path: str, query: str = "", data: bytes | None = None,
+              timeout_s: float = 15) -> tuple[int, Any]:
     """转接一次 mousecrew。返回 (状态码, 内容)；没配好或连不上时返回 (0, {available: False, reason})。
     只放行 CREW_PATHS 里的接口；mousecrew 说令牌不对时也当成 (0, …)——原样回 401 会让前端以为 Imprint 登录过期。"""
     if not CREW_PATHS.match(path):
@@ -2619,7 +2631,7 @@ def crew_call(data_path: Path, method: str, path: str, query: str = "", data: by
                                  headers={"Authorization": f"Bearer {c['token']}", "Content-Type": "application/json"})
     try:
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=max(0.2, float(timeout_s))) as resp:
                 status, raw = resp.status, resp.read()
         except urllib.error.HTTPError as e:
             status, raw = e.code, e.read()
@@ -2858,7 +2870,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         events = []
         if not relay_path.exists():
             return []
-        with sqlite3.connect(str(relay_path), timeout=10) as conn:
+        with sqlite_connection(str(relay_path), timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             recent = conn.execute("SELECT id,ts,direction,kind,text,meta FROM messages "
                                   "WHERE direction='out' AND kind IN ('reply','act') "
@@ -2922,7 +2934,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         if message_id < 1 or not sticker:
             raise HTTPException(400, "消息和表情不能为空")
         if relay_path.exists():
-            with sqlite3.connect(str(relay_path), timeout=10) as conn:
+            with sqlite_connection(str(relay_path), timeout=10) as conn:
                 if not conn.execute("SELECT 1 FROM messages WHERE id=?", (message_id,)).fetchone():
                     raise HTTPException(404, "消息不存在")
         values = setting("chat_reactions")
@@ -3018,7 +3030,7 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def relay_messages() -> list[sqlite3.Row]:
         if not relay_path.exists():
             return []
-        with sqlite3.connect(str(relay_path), timeout=10) as conn:
+        with sqlite_connection(str(relay_path), timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             return conn.execute("SELECT id,ts,direction,kind,text,meta FROM messages ORDER BY id DESC LIMIT 50000").fetchall()
 

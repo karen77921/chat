@@ -223,10 +223,11 @@ func (d *DMAction) openInbox(ctx context.Context, c *capture) (string, string, e
 	got := func(wait time.Duration) string {
 		deadline := time.Now().Add(min(wait, time.Until(end)))
 		for time.Now().Before(deadline) {
-			if _, body := c.find("/chats"); body != "" {
+			// 要认准私信列表本身：/im/web/chats/group 是群聊列表，先到的话会被误当成私信列表（空的）
+			if _, body := c.find("/im/web/v3/chats"); body != "" {
 				return body
 			}
-			if _, body := c.find("recent_chats"); body != "" {
+			if _, body := c.find("/get_recent_chats"); body != "" {
 				return body
 			}
 			time.Sleep(400 * time.Millisecond)

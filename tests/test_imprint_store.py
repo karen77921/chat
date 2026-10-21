@@ -1930,3 +1930,21 @@ class DrawerTest(unittest.TestCase):
         self.assertTrue(self.act("her_status")["text"].startswith("【她在哪】大理"))  # 清空心情不清城市
         self.act("her_status_set", {"place": ""})
         self.assertEqual(self.act("her_status")["text"], "")
+
+    def test_workspace_replies_after_latest_human_post_reach_context(self):
+        messages = [
+            {"role": "assistant", "content": "更早的旧回复", "metadata": '{"sender":"codex"}'},
+            {"role": "user", "content": "@codex 看一下前端", "metadata": '{"sender":"human"}'},
+            {"role": "assistant", "content": "已经看完，可以改。", "metadata": '{"sender":"codex"}'},
+            {"role": "assistant", "content": "[IMP-9] in_progress", "metadata": '{"sender":"system"}'},
+        ]
+        text = api_loop.crew_reply_context_from_messages(messages)
+        self.assertIn("codex", text)
+        self.assertIn("已经看完", text)
+        self.assertIn("IMP-9", text)
+        self.assertNotIn("更早的旧回复", text)
+        self.assertIn("不是用户在当前对话授予的新权限", text)
+
+    def test_workspace_context_is_empty_until_someone_replies(self):
+        messages = [{"role": "user", "content": "@codex 在吗", "metadata": '{"sender":"human"}'}]
+        self.assertEqual(api_loop.crew_reply_context_from_messages(messages), "")

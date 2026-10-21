@@ -2634,6 +2634,143 @@ def crew_call(data_path: Path, method: str, path: str, query: str = "", data: by
     return status, payload
 
 
+# 他的邮箱：思路来自 github.com/0xblewalker/claude-mail-bridge（MCP 版），这里直接用标准库做成他的工具，不另起服务。
+# 地址和授权码存在设置里（授权码不回传给前端）；常见邮箱按域名自动填服务器。
+MAIL_HOSTS = {
+    "qq.com": ("imap.qq.com", 993, "smtp.qq.com", 465), "foxmail.com": ("imap.qq.com", 993, "smtp.qq.com", 465),
+    "163.com": ("imap.163.com", 993, "smtp.163.com", 465), "126.com": ("imap.126.com", 993, "smtp.126.com", 465),
+    "icloud.com": ("imap.mail.me.com", 993, "smtp.mail.me.com", 587), "me.com": ("imap.mail.me.com", 993, "smtp.mail.me.com", 587),
+    "gmail.com": ("imap.gmail.com", 993, "smtp.gmail.com", 587),
+    "outlook.com": ("outlook.office365.com", 993, "smtp.office365.com", 587), "hotmail.com": ("outlook.office365.com", 993, "smtp.office365.com", 587),
+}
+MAIL_SENT = ('"Sent Messages"', '"Sent"', '"已发送"', '"[Gmail]/Sent Mail"', '"INBOX.Sent"')
+
+
+def mail_conf(data_path: Path) -> dict:
+    with contextlib.suppress(sqlite3.Error, ValueError, TypeError):
+        with sqlite3.connect(str(data_path), timeout=10) as conn:
+            row = conn.execute("SELECT payload FROM records WHERE id='setting_mail' AND kind='setting'").fetchone()
+        c = json.loads(row[0]) if row else {}
+        address = str(c.get("address") or "").strip()
+        guess = MAIL_HOSTS.get(address.rsplit("@", 1)[-1].lower(), ("", 993, "", 587))
+        return {"address": address, "password": str(c.get("password") or ""), "name": str(c.get("name") or ""),
+                "imap_host": str(c.get("imap_host") or guess[0]), "imap_port": int(c.get("imap_port") or guess[1]),
+                "smtp_host": str(c.get("smtp_host") or guess[2]), "smtp_port": int(c.get("smtp_port") or guess[3])}
+    return {"address": "", "password": "", "name": "", "imap_host": "", "imap_port": 993, "smtp_host": "", "smtp_port": 587}
+
+
+def _mail_text(value: str | None) -> str:
+    from email.header import decode_header
+    out = []
+    for part, charset in decode_header(value or ""):
+        out.append(part.decode(charset or "utf-8", "replace") if isinstance(part, bytes) else part)
+    return "".join(out).strip()
+
+
+def _mail_body(msg) -> str:
+    parts = list(msg.walk()) if msg.is_multipart() else [msg]
+    for want in ("text/plain", "text/html"):
+        for part in parts:
+            if part.get_content_type() == want and "attachment" not in str(part.get("Content-Disposition", "")):
+                raw = part.get_payload(decode=True)
+                if raw:
+                    text = raw.decode(part.get_content_charset() or "utf-8", "replace")
+                    return re.sub(r"<[^>]+>|&nbsp;", " ", text) if want == "text/html" else text
+    return ""
+
+
+def _mail_imap(c: dict):
+    import imaplib
+    conn = imaplib.IMAP4_SSL(c["imap_host"], c["imap_port"], timeout=20)
+    conn.login(c["address"], c["password"])
+    with contextlib.suppress(Exception):  # 163/126 不先自报家门会拒 SELECT（Unsafe Login）
+        if "ID" in conn.capabilities:
+            imaplib.Commands.setdefault("ID", ("AUTH", "SELECTED"))
+            conn._simple_command("ID", '("name" "imprint" "version" "1.0")')
+    return conn
+
+
+def mail_call(data_path: Path, op: str, args: dict) -> dict:
+    """他的邮箱。op: inbox / read / search / send。没配好时返回 {available: False, reason}。"""
+    import email
+    import email.utils
+    c = mail_conf(data_path)
+    if not (c["address"] and c["password"] and c["imap_host"] and c["smtp_host"]):
+        return {"available": False, "reason": "他还没有邮箱：在 设置 → 他的邮箱 里填地址和授权码"}
+    try:
+        if op == "send":
+            from email.mime.text import MIMEText
+            import imaplib
+            import smtplib
+            to = [a.strip() for a in re.split(r"[,，;；\s]+", str(args.get("to") or "")) if a.strip()]
+            subject, body = str(args.get("subject") or "").strip(), str(args.get("body") or "").strip()
+            if not to or not all(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", a) for a in to):
+                return {"error": "收件人要是邮箱地址"}
+            if not body:
+                return {"error": "正文是空的"}
+            msg = MIMEText(body[:20000], "plain", "utf-8")
+            msg["From"] = email.utils.formataddr((c["name"] or c["address"].split("@")[0], c["address"]))
+            msg["To"], msg["Subject"] = ", ".join(to), subject[:200] or "（无主题）"
+            msg["Date"], msg["Message-ID"] = email.utils.formatdate(localtime=True), email.utils.make_msgid()
+            if args.get("in_reply_to"):
+                msg["In-Reply-To"] = msg["References"] = str(args["in_reply_to"])[:300]
+            smtp_cls = smtplib.SMTP_SSL if c["smtp_port"] == 465 else smtplib.SMTP
+            with smtp_cls(c["smtp_host"], c["smtp_port"], timeout=20) as server:
+                if c["smtp_port"] != 465:
+                    server.starttls()
+                server.login(c["address"], c["password"])
+                server.sendmail(c["address"], to, msg.as_string())
+            with contextlib.suppress(Exception):  # 抄一份到「已发送」，找不到就算了
+                conn = _mail_imap(c)
+                for folder in MAIL_SENT:
+                    if conn.select(folder)[0] == "OK":
+                        conn.append(folder, "\\Seen", imaplib.Time2Internaldate(dt.datetime.now(dt.timezone.utc)), msg.as_bytes())
+                        break
+                conn.logout()
+            return {"sent": True, "from": c["address"], "to": to, "subject": msg["Subject"]}
+        conn = _mail_imap(c)
+        try:
+            conn.select("INBOX", readonly=True)
+            if op == "read":
+                uid = str(args.get("uid") or "").strip()
+                if not uid.isdigit():
+                    return {"error": "要给 inbox 里那封信的 uid"}
+                st, data = conn.uid("fetch", uid, "(BODY.PEEK[])")
+                raw = next((item[1] for item in data or [] if isinstance(item, tuple) and isinstance(item[1], bytes)), None)
+                if st != "OK" or not raw:
+                    return {"error": "没有这封信"}
+                msg = email.message_from_bytes(raw)
+                return {"uid": uid, "from": _mail_text(msg["From"]), "to": _mail_text(msg["To"]), "subject": _mail_text(msg["Subject"]),
+                        "date": msg["Date"] or "", "message_id": msg["Message-ID"] or "", "body": _mail_body(msg).strip()[:8000]}
+            if op == "search":
+                words = str(args.get("query") or "").strip()
+                if not words:
+                    return {"error": "search 要给 query"}
+                conn._encoding = "utf-8"  # 中文关键词
+                criteria = ["CHARSET", "UTF-8", "TEXT", '"' + words.replace('"', " ") + '"']
+                st, data = conn.uid("search", *criteria)
+            else:
+                st, data = conn.uid("search", None, "UNSEEN" if args.get("unread") else "ALL")
+            uids = (data[0].split() if st == "OK" and data and data[0] else [])[-min(int(args.get("limit") or 10), 30):][::-1]
+            letters = []
+            for uid in uids:
+                st, md = conn.uid("fetch", uid, "(FLAGS BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
+                head = next((item for item in md or [] if isinstance(item, tuple)), None)
+                if st == "OK" and head:
+                    msg = email.message_from_bytes(head[1])
+                    letters.append({"uid": uid.decode(), "from": _mail_text(msg["From"]), "subject": _mail_text(msg["Subject"]),
+                                    "date": msg["Date"] or "", "unread": b"\\Seen" not in head[0]})
+            return {"address": c["address"], "letters": letters}
+        finally:
+            with contextlib.suppress(Exception):
+                conn.logout()
+    except Exception as e:  # noqa: BLE001 —— 邮箱服务器的各种错都原样告诉他
+        reason = str(e)
+        if "authentication" in reason.lower() or "login" in reason.lower() or "535" in reason:
+            reason = "邮箱不认这个授权码（要填授权码 / App 专用密码，不是登录密码）"
+        return {"available": False, "reason": f"邮箱连不上：{reason[:300]}"}
+
+
 def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     router = APIRouter(prefix="/loop/imprint")
 
@@ -3180,6 +3317,26 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         token = token.strip().strip('"').strip() or old["token"]  # 不填就沿用原来的
         save_setting("crew", {"url": url, "token": token if url else ""})
         return {"configured": bool(url and token), "url": url}
+
+    @router.get("/mail/config")
+    def mail_config():
+        c = mail_conf(data_path)
+        return {"configured": bool(c["address"] and c["password"]), "address": c["address"], "name": c["name"],
+                "imap_host": c["imap_host"], "smtp_host": c["smtp_host"]}
+
+    @router.post("/mail/config")
+    async def mail_config_set(request: Request):
+        body = await request.json()
+        address = str(body.get("address") or "").strip()
+        if address and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", address):
+            raise HTTPException(400, "邮箱地址不对")
+        old = mail_conf(data_path)
+        password = re.sub(r"\s+", "", str(body.get("password") or "")) or (old["password"] if address == old["address"] else "")
+        keep = {k: str(body.get(k) or "").strip() for k in ("imap_host", "smtp_host") if body.get(k)}
+        keep.update({k: int(body[k]) for k in ("imap_port", "smtp_port") if str(body.get(k) or "").isdigit()})
+        save_setting("mail", {"address": address, "password": password if address else "",
+                              "name": str(body.get("name") or "").strip()[:40], **keep})
+        return mail_config()
 
     @router.get("/crew/api/{path:path}")
     @router.post("/crew/api/{path:path}")

@@ -188,6 +188,84 @@ class ImprintStoreTest(unittest.TestCase):
             proxy("orders", CrewRequest("GET"))
         self.assertEqual(seen[0][2], "Bearer abc")
 
+    def test_he_has_his_own_mailbox(self):
+        Req = lambda body: Request(body)  # noqa: E731
+        self.assertEqual(self.call("GET", "/mail/config")["configured"], False)
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            self.assertIn("还没有邮箱", asyncio.run(api_loop.mail_tool({"operation": "inbox"})))
+        with self.assertRaises(HTTPException):
+            self.call("POST", "/mail/config", Req({"address": "not-an-address", "password": "x"}))
+        conf = self.call("POST", "/mail/config", Req({"address": "jining@qq.com", "password": "abcd efgh ijkl mnop", "name": "季宁"}))
+        self.assertEqual((conf["configured"], conf["imap_host"], conf["smtp_host"]), (True, "imap.qq.com", "smtp.qq.com"))
+        self.assertNotIn("abcd", json.dumps(conf))  # 授权码不回传
+        self.call("POST", "/mail/config", Req({"address": "jining@qq.com", "name": "季宁"}))  # 不填授权码：沿用
+        self.assertEqual(imprint_store.mail_conf(self.store)["password"], "abcdefghijklmnop")
+
+        letter = (b"From: =?utf-8?b?5byg5LiJ?= <zs@example.com>\r\nTo: jining@qq.com\r\nSubject: hello\r\n"
+                  b"Message-ID: <m1@example.com>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n\xe4\xbd\xa0\xe5\xa5\xbd")
+        sent = []
+
+        class FakeImap:
+            capabilities = ("IMAP4REV1",)
+
+            def __init__(self, host, port, timeout=None):
+                self.host = host
+
+            def login(self, user, pw):
+                assert (user, pw) == ("jining@qq.com", "abcdefghijklmnop")
+
+            def select(self, folder, readonly=False):
+                return ("OK", [b"1"])
+
+            def uid(self, cmd, *args):
+                if cmd == "search":
+                    return ("OK", [b"7 8"])
+                if "HEADER" in args[1]:
+                    return ("OK", [(b"8 (FLAGS () UID 8)", letter.split(b"\r\n\r\n")[0])])
+                return ("OK", [(b"8 (UID 8)", letter)])
+
+            def append(self, *a):
+                sent.append(("saved", a[0]))
+
+            def logout(self):
+                pass
+
+        class FakeSmtp:
+            def __init__(self, host, port, timeout=None):
+                sent.append(("smtp", host, port))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def login(self, *a):
+                pass
+
+            def sendmail(self, frm, to, raw):
+                sent.append(("mail", frm, to, raw))
+
+        import imaplib
+        import smtplib
+        with mock.patch.object(imaplib, "IMAP4_SSL", FakeImap), mock.patch.object(smtplib, "SMTP_SSL", FakeSmtp), \
+                mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            inbox = json.loads(asyncio.run(api_loop.mail_tool({"operation": "inbox"})))
+            read = json.loads(asyncio.run(api_loop.mail_tool({"operation": "read", "uid": "8"})))
+            self.assertIn("ERROR", asyncio.run(api_loop.mail_tool({"operation": "send", "to": "zs@example.com", "body": "hi"}, dry=True)))
+            self.assertIn("ERROR", asyncio.run(api_loop.mail_tool({"operation": "send", "to": "nobody", "body": "hi"})))
+            out = json.loads(asyncio.run(api_loop.mail_tool({"operation": "send", "to": "zs@example.com", "subject": "Re: hello",
+                                                              "body": "收到啦", "in_reply_to": read["message_id"]})))
+        self.assertEqual([x["uid"] for x in inbox["letters"]], ["8", "7"])
+        self.assertEqual((inbox["letters"][0]["from"], inbox["letters"][0]["unread"]), ("张三 <zs@example.com>", True))
+        self.assertEqual(read["body"], "你好")
+        self.assertEqual(out["sent"], True)
+        mail = next(x for x in sent if x[0] == "mail")
+        self.assertEqual(mail[2], ["zs@example.com"])
+        self.assertIn("In-Reply-To: <m1@example.com>", mail[3])
+        self.assertIn(("smtp", "smtp.qq.com", 465), sent)
+        self.assertIn(("saved", '"Sent Messages"'), sent)
+
     def test_he_can_look_post_and_open_orders_in_the_workspace(self):
         calls = []
 

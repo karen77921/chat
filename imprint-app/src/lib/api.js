@@ -516,6 +516,7 @@ async function compat(path, opts) {
   if (method === 'POST' && p === '/api/spark/redeem') return loop('imprint/spark/redeem', opts);
   if (method === 'POST' && (m = /^\/api\/spark\/kept\/([^/]+)\/active$/.exec(p))) return loop(`imprint/spark/kept/${m[1]}/active`, opts);
   if (method === 'GET' && p === '/api/world') return loop(`imprint/world${query}`);
+  if (p === '/api/mail/config') return loop('imprint/mail/config', opts);
   // 工作区：转接 mousecrew（地址和令牌存在后端设置里）
   if (p === '/api/crew/config') return loop('imprint/crew/config', opts);
   if (p.startsWith('/api/crew/')) return loop(`imprint/crew/api/${p.slice('/api/crew/'.length)}${query}`, opts);

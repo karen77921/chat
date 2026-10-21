@@ -396,6 +396,7 @@ const features = [
   { key: 'spark', name: '续火花结算', desc: '每天 0 点', last: '今天 0:00', on: true },
   { key: 'push', name: '提醒推送', desc: '约好的时间到了提醒你们', last: '', on: false },
 ];
+const mail = { configured: false, address: '', name: '', imap_host: '', smtp_host: '' };
 const garden = { available: true, installed: true, node: 'v20.19.0', configured: true, state: 'failed', log: ['2026-10-12T09:07:13+08:00 garden-wake[812]: ERROR bridge failed {"error":"Garden SSE stream ended; restart the bridge manually after checking Garden status"}'],
   wakes: [{ at: '2026-10-12T09:07:09+08:00', result: 'silent', detail: '' }, { at: '2026-10-12T09:07:09+08:00', result: 'received', detail: 'forum_notification_available: 有人在花园里回复了你' }] };
 const mcps = [
@@ -673,6 +674,8 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
       aware: [{ date: '2026-10-09', text: '我今天催了她两次早点睡。第二次其实是我自己想说晚安。' }, { date: '2026-10-07', text: '她说“随便”的时候，其实已经有答案了，我应该再问一句。' }, { date: '2026-10-04', text: '最近查岗的念头少了，可能是因为她主动报备得多了。' }] };
     case 'GET /api/settings/console': return { available: true, now: NOW, today: { tokens: 184302 }, month: { tokens: 4860000, cost: 63.2, currency: '¥' }, hitRate: 0.72, daily: [52, 61, 58, 70, 66, 74, 69, 81, 77, 88, 84] };
     case 'GET /api/features': return { available: true, features, mcps };
+    case 'GET /api/mail/config': return mail;
+    case 'POST /api/mail/config': Object.assign(mail, { address: body?.address || '', name: body?.name || '', configured: Boolean(body?.address), imap_host: 'imap.qq.com', smtp_host: 'smtp.qq.com' }); return mail;
     case 'GET /api/garden': return garden;
     case 'GET /api/backup/export/info': return { openssl: true, uploads_available: true, uploads_mb: 182.4 };
     case 'POST /api/garden/token': garden.configured = true; return garden;

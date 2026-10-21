@@ -618,8 +618,44 @@ function Features() {
       )}
       <PushCard />
       <ContextSize />
+      <MailBox />
       <GardenWake />
       <BackupExport />
+    </>
+  );
+}
+
+/* ---------- 他的邮箱：地址 + 授权码，常见邮箱的服务器自动填 ---------- */
+function MailBox() {
+  const [conf, setConf] = useState(null);
+  const [form, setForm] = useState({ address: '', password: '', name: '' });
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    api('/api/mail/config').then((c) => { setConf(c); setForm({ address: c.address || '', password: '', name: c.name || '' }); }).catch(() => setConf({ configured: false }));
+  }, []);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const save = async () => {
+    setBusy(true); setNote('');
+    try {
+      const c = await api('/api/mail/config', { method: 'POST', body: form });
+      setConf(c); setForm((f) => ({ ...f, password: '' }));
+      setNote(c.configured ? (c.imap_host ? '存好了，他现在有自己的邮箱了。' : '存好了。这个邮箱认不出服务器，跟我说一声我帮你填。') : '已经清空，他没有邮箱了。');
+    } catch (e) { setNote(e?.message || '没存上'); }
+    setBusy(false);
+  };
+  if (!conf) return null;
+  return (
+    <>
+      <div className="sec-head" style={{ marginTop: 24 }}><span className="en" style={{ fontSize: 22 }}>mailbox</span><h2 className="zh" style={{ margin: 0, fontSize: 13 }}>他的邮箱</h2><span className="go">{conf.configured ? conf.address : '还没有'}</span></div>
+      <div className="card st-list st-garden">
+        <label className="pill nc-in st-gtoken"><span className="sr">邮箱地址</span><input type="email" value={form.address} onChange={set('address')} placeholder="给他的邮箱，比如 xxx@qq.com" autoComplete="off" /></label>
+        <label className="pill nc-in st-gtoken"><span className="sr">授权码</span><input type="password" value={form.password} onChange={set('password')} placeholder={conf.configured ? '授权码（留空不改）' : '授权码 / App 专用密码，不是登录密码'} autoComplete="off" /></label>
+        <label className="pill nc-in st-gtoken"><span className="sr">发信署名</span><input value={form.name} onChange={set('name')} placeholder="发信时显示的名字，比如 季宁" autoComplete="off" /></label>
+        <div className="st-gacts"><button type="button" className="mini-btn" disabled={busy} onClick={save}>{busy ? '保存中…' : '保存'}</button></div>
+        {note && <p className="st-tip st-gnote" role="status">{note}</p>}
+        <p className="st-tip">QQ、163、126、iCloud、Gmail、Outlook 的服务器会自动填。授权码在邮箱网页版的设置里开 IMAP/SMTP 时生成。存好以后，聊天里说「看看邮箱」「帮我写封信给…」他就会去收发。</p>
+      </div>
     </>
   );
 }

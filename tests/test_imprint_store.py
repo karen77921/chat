@@ -236,6 +236,12 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertLess(slow, normal)
         self.assertLessEqual(normal, often)
 
+    def test_he_is_caught_when_he_says_he_did_something_without_a_tool(self):
+        for said in ("我去檐廊看看今天的诗", "好，我帮你记下来了", "等我一下", "我已经帮你定好闹钟了", "我这就去查天气", "我去花园逛逛"):
+            self.assertTrue(api_loop.claims_action(said), said)
+        for said in ("我看看你", "想你了", "嗯我去洗澡了", "我去睡觉了", "⟦稍后继续 5分钟：查天气⟧ 我这就去查天气"):
+            self.assertFalse(api_loop.claims_action(said), said)
+
     def test_search_and_queue_songs_together(self):
         def fake_song(n):
             return imprint_store.apple_song({"trackId": n, "trackName": f"歌{n}", "artistName": "歌手", "collectionName": "专辑",

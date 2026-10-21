@@ -359,6 +359,24 @@ def previous_user_times(session_id: str, before_id: int | None) -> tuple[dt.date
     )
 
 
+# 他说要去做 / 说已经做了的话。只认「去 / 帮你 / 已经」后面跟着具体动作，「我看看你」这种撒娇不算
+CLAIM_RE = re.compile(
+    r"(?:我|这就|马上)(?:这就|马上|现在|先|也)?(?:去[\u4e00-\u9fff]{0,4}?|帮你|给你|已经帮你|已经给你|已经|刚)"
+    r"(?:查|搜|找|翻|看一?下|看看|瞧瞧|记|定|设|改|写|发|放|存|封|点|派|开|加|订|提醒|排|拆|画|读|逛|问)"
+    r"|等我(?:一下|一会|会儿)"
+)
+
+
+def claims_action(text: str) -> bool:
+    """回复里说了要去做 / 已经做了某件事（且没有写「稍后继续」把它挪到以后）。"""
+    return bool(CLAIM_RE.search(text)) and "稍后继续" not in text
+
+
+CLAIM_NUDGE = ("（系统提示，不是她说的：你上面说了要去做 / 已经做了某件事，但这一轮你没有调用任何工具，所以它实际上还没发生。"
+               "现在就调用对应的工具把它做了，手边没有就先用 open_toolbox 拿；真做不了，就照实跟她说做不了，别说已经做了。"
+               "做完再用你自己的话回她，不要提这条提示。）")
+
+
 # 轻装聊天时递给他的全部「规矩」：先是怎么说话，然后几条硬底线。工具说明都在工具自己身上，不在这里念
 LIGHT_CHAT_GUIDE = (
     "\n\n【你说话的样子】\n"
@@ -2664,6 +2682,9 @@ async def build_messages(
             content = str(row.get("text") or "").strip()
             row_atts = row["meta"].get("attachments") or []
             if row.get("direction") == "out":
+                api_meta = row["meta"].get("api") if isinstance(row["meta"].get("api"), dict) else {}
+                if api_meta.get("error") or content.startswith("⚠️"):
+                    continue  # 失败的那几条（「没生成成功」「被过滤」）不喂回给他：上下文里的失败会被他学成习惯
                 content = split_leaked_thinking(content)[0]  # 以前漏进正文的英文独白别再喂回给他
                 if content:
                     messages.append({"role": "assistant", "content": content})
@@ -5083,6 +5104,7 @@ async def handle_turn(
     cache_meta: dict[str, Any] = {}
     step = 0
     empty_retry = False
+    claim_retry = False
     last_finish = ""
     garden_actions: list[tuple[str, str]] = []
     try:
@@ -5139,6 +5161,15 @@ async def handle_turn(
                                  else "（刚才你只想了没说出口。请直接用中文回复她。）"})
                 tools = None
                 max_steps = 0
+                continue
+            if (not calls and step == 0 and not claim_retry and tools and max_steps > 0 and step_text
+                    and claims_action(step_text)):
+                # 他说了「我去看看 / 帮你记下了」，可这一轮一个工具都没调：事情其实没做。追一句，让他真去做
+                claim_retry = True
+                print(f"[turn] said he'd act but called no tool for {session_id or 'default'}; nudging once", flush=True)
+                texts.clear()
+                messages.append({"role": "assistant", "content": step_text})
+                messages.append({"role": "user", "content": CLAIM_NUDGE})
                 continue
             if not calls:
                 break

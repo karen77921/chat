@@ -198,32 +198,45 @@ func (c *capture) seen() string {
 	return strings.Join(out, ", ")
 }
 
-// openInbox 打开私信页，等到拿到会话列表的响应。
+// openInbox 打开私信页，等到拿到会话列表的响应。整体不超过 35 秒——调用方（Imprint）
+// 一个工具最多等 45 秒，还要算上开浏览器的时间，宁可快点报错带回线索。
 func (d *DMAction) openInbox(ctx context.Context, c *capture) (string, string, error) {
-	page := d.page.Timeout(90 * time.Second)
+	end := time.Now().Add(35 * time.Second)
+	tried := []string{}
 	for _, target := range DMPages {
+		left := time.Until(end)
+		if left < 5*time.Second {
+			break
+		}
+		tried = append(tried, target)
+		page := d.page.Timeout(min(20*time.Second, left))
 		if err := page.Navigate(target); err != nil {
+			logrus.Warnf("私信页 %s 打不开: %v", target, err)
 			continue
 		}
 		_ = page.WaitLoad()
-		humanize.Delay(ctx, humanize.AfterNavigate)
-		deadline := time.Now().Add(12 * time.Second)
+		deadline := time.Now().Add(min(10*time.Second, time.Until(end)))
 		for time.Now().Before(deadline) {
 			if _, body := c.find("/chats"); body != "" {
-				return page.MustInfo().URL, body, nil
+				return d.pageURL(), body, nil
 			}
 			if _, body := c.find("recent_chats"); body != "" {
-				return page.MustInfo().URL, body, nil
+				return d.pageURL(), body, nil
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
+		logrus.Warnf("私信页 %s 没出会话列表，停在 %s；接口：%s", target, d.pageURL(), c.seen())
 	}
-	info, _ := d.page.Info()
-	where := ""
-	if info != nil {
-		where = info.URL
+	return "", "", fmt.Errorf("没在网页版里找到私信会话列表（试了 %s，停在 %s）。页面请求过的接口：%s",
+		strings.Join(tried, " "), d.pageURL(), c.seen())
+}
+
+func (d *DMAction) pageURL() string {
+	info, err := d.page.Timeout(3 * time.Second).Info()
+	if err != nil || info == nil {
+		return "?"
 	}
-	return "", "", fmt.Errorf("没在网页版里找到私信会话列表（停在 %s）。页面请求过的接口：%s", where, c.seen())
+	return info.URL
 }
 
 // List 读取私信会话列表。

@@ -3316,7 +3316,9 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
         "description": "Her vocabulary book (单词本) with Ebbinghaus reviews on day 1/2/4/7/15/30. due = words due today "
                        "(wrong ones first); wrong = her mistake list; learn = today's new words from her imported books; list = all (q to search); review = record one answer when "
                        "you quiz her (id or word + correct true/false: right pushes the next review later, wrong restarts it); "
-                       "add = add words she tells you (words: one per line, 'apple 苹果'). Quiz her one word at a time and "
+                       "add = add words she tells you (words: one per line, 'apple 苹果'; up to 500 per call, call again for more). "
+                       "For a big list (more than ~30 words) set queue=true so they wait in 待学 and come in a few a day instead of "
+                       "all being due tomorrow, and give book a short name for the list. Quiz her one word at a time and "
                        "record each answer right away. Never invent words she did not give you.",
         "parameters": {
             "type": "object",
@@ -3324,6 +3326,8 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
                 "operation": {"type": "string", "enum": ["due", "wrong", "learn", "list", "review", "add"]},
                 "id": {"type": "string"}, "word": {"type": "string"}, "correct": {"type": "boolean"},
                 "words": {"type": "string", "description": "add only: one word per line, e.g. 'apple 苹果'"},
+                "queue": {"type": "boolean", "description": "add only: put new words in 待学 (a few a day) instead of due tomorrow"},
+                "book": {"type": "string", "description": "add only: which list these words belong to, e.g. '四级核心词'"},
                 "q": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200},
             },
             "required": ["operation"],

@@ -541,6 +541,16 @@ class ImprintStoreTest(unittest.TestCase):
             turn = api_loop.Turn("s", dry=False)
             msg = asyncio.run(turn.run_tool("imprint_vocab", json.dumps({"operation": "delete", "word": "apple"})))
         self.assertTrue(msg.startswith("ERROR"))
+        # 她发来一大本：他放进待学、按书名分好，不会全压到明天
+        words = "\n".join(f"big{i} 大{i}" for i in range(40))
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            out = json.loads(asyncio.run(turn.run_tool("imprint_vocab", json.dumps(
+                {"operation": "add", "words": words, "queue": True, "book": "旧单词本"}))))
+        self.assertEqual(len(out["added"]), 40)
+        self.assertTrue(all(x["new"] and x["by"] == "him" and x["book"] == "旧单词本" for x in out["added"]))
+        self.assertEqual(out["stats"]["due"], self.call("GET", "/vocab", "due")["stats"]["due"])
+        for x in out["added"]:
+            self.call("DELETE", "/vocab/{rec_id}", x["id"])
         self.call("DELETE", "/vocab/{rec_id}", apple["id"])
         self.assertEqual(self.call("GET", "/vocab", "all")["stats"]["total"], 2)
 

@@ -563,8 +563,12 @@ class ImprintStoreTest(unittest.TestCase):
         turn = api_loop.Turn("s", dry=False)
         run = lambda args: asyncio.run(turn.run_tool("imprint_study", json.dumps(args)))  # noqa: E731
         with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent), mock.patch.object(api_loop, "RELAY_DB", str(self.relay)):
-            saved = json.loads(run({"operation": "save_note", "title": "定语从句", "subject": "英语", "text": "which 指物，who 指人", "photos": 1}))
+            saved = json.loads(run({"operation": "save_note", "title": "定语从句", "subject": "英语", "text": "which 指物，who 指人", "photos": 1,
+                                    "summary": "指物 which，指人 who"}))
             note = saved["note"]
+            self.assertEqual(note["summary"], "指物 which，指人 who")
+            redo = json.loads(run({"operation": "edit_note", "id": note["id"], "summary": "关系代词看先行词"}))
+            self.assertEqual((redo["note"]["summary"], redo["note"]["text"]), ("关系代词看先行词", "which 指物，who 指人"))
             self.assertEqual((note["by"], note["images"]), ("him", [photo]))  # 只挂照片，PDF 不算
             listed = json.loads(run({"operation": "notes"}))
             self.assertEqual(listed["items"][0]["preview"], "which 指物，who 指人")

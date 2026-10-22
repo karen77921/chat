@@ -101,3 +101,11 @@
 .sd-fb small { background: #eaf4fe; color: #3c6fa8; }
 .sd-fb { color: #4a5063; }
 .sd-fix { margin-top: 8px; border: 0; cursor: pointer; font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 999px; background: #eaf4fe; color: #3c6fa8; }
+
+/* 他的总结：贴在笔记底下的一张便利贴 */
+.sd-sum { position: relative; margin-top: 6px; padding: 16px 16px 14px; border-radius: 4px 4px 14px 4px; background: var(--vb-yellow);
+  box-shadow: 0 1px 0 rgba(46, 52, 69, .06), 0 10px 18px -12px rgba(46, 52, 69, .45); rotate: -.6deg; }
+.sd-pin { position: absolute; top: -7px; left: 50%; translate: -50% 0; width: 14px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ff9d8f, #e0574a); box-shadow: 0 2px 3px rgba(0, 0, 0, .25); }
+.sd-sum h3 { margin: 0 0 6px; font-size: 12px; font-weight: 800; letter-spacing: .16em; color: #8a6d1f; }
+.sd-sum p { margin: 0; white-space: pre-line; font-size: 14px; line-height: 1.8; color: var(--vb-ink); }

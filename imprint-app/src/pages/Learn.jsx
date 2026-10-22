@@ -227,6 +227,13 @@ function NoteSheet({ id, him, today, onClose, onChanged }) {
               <div className="sd-strip">{n.images.map((img) => <AuthImg key={img.url} src={img.url} alt="" onClick={() => setBig(img.url)} />)}</div>
             )}
             {n.text ? <div className="sd-body">{n.text}</div> : <p className="vb-tip">只有照片。在聊天里把照片发给{him}，他就能把内容写进来。</p>}
+            {n.summary ? (
+              <section className="sd-sum">
+                <i className="sd-pin" aria-hidden="true" />
+                <h3>{him}的总结</h3>
+                <p>{n.summary}</p>
+              </section>
+            ) : n.text ? <p className="vb-tip">还没有总结。跟{him}说「把《{n.title}》总结一下」，他写好会贴在这里。</p> : null}
             {data.practice?.length > 0 && (
               <>
                 <h3 className="sd-h">练过的题</h3>

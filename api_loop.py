@@ -3341,7 +3341,8 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
         "name": "imprint_study",
         "description": "Her Study notes (笔记) and practice log, next to the 单词本. save_note = file notes she photographed or "
                        "typed for you: write out what the photo says in text (keep her structure, fix nothing silently), "
-                       "title + subject; photos=N attaches the last N photos she sent in this chat. notes / due = list "
+                       "title + subject, and always a summary: the key points in your own words, short, shown under the note "
+                       "(edit_note with summary to add or redo one); photos=N attaches the last N photos she sent in this chat. notes / due = list "
                        "(due = notes whose review day has come, on day 1/2/4/7/15/30); read = one note in full with past practice. "
                        "To review, ask her questions or have her make sentences (造句) from a note, one at a time, then "
                        "record = save that exercise right away (question, her answer, your short feedback, good true/false; "
@@ -3354,6 +3355,7 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
                 "id": {"type": "string", "description": "note id"},
                 "title": {"type": "string"}, "subject": {"type": "string", "description": "e.g. 英语 / 高数 / 日语"},
                 "text": {"type": "string", "description": "save_note / edit_note: the note written out"},
+                "summary": {"type": "string", "description": "save_note / edit_note: your summary of the key points"},
                 "photos": {"type": "integer", "minimum": 0, "maximum": 12, "description": "save_note: attach her last N photos from this chat"},
                 "kind": {"type": "string", "description": "record: 造句 / 问答 / 默写 / 翻译"},
                 "question": {"type": "string"}, "answer": {"type": "string"}, "feedback": {"type": "string"},
@@ -4735,6 +4737,7 @@ async def study_tool(args: dict, session_id: str, dry: bool = False) -> str:
     if op in {"notes", "due"}:  # 列表只给摘要，全文用 read 看
         out["items"] = [{k: x.get(k) for k in ("id", "title", "subject", "due", "practiced", "mastered")}
                         | {"preview": str(x.get("text") or "")[:80], "photos": len(x.get("images") or []),
+                           "has_summary": bool(x.get("summary")),
                            "photo_only": not x.get("text") and bool(x.get("images"))} for x in out.get("items", [])]
     if op == "read" and out.get("note") and not out["note"].get("text") and out["note"].get("images"):
         out["hint"] = "这条只有照片，你看不到照片内容：请她把照片在聊天里发给你，你再用 edit_note 把内容写进去"

@@ -2065,6 +2065,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 if not (title or text or images):
                     raise ValueError("笔记是空的：至少要有标题、内容或照片")
                 item = {"title": title or "未命名笔记", "subject": str(body.get("subject") or "").strip()[:24], "text": text,
+                        "summary": str(body.get("summary") or "").strip()[:4000],
                         "images": images, "by": "him" if body.get("by") == "him" else "me",
                         "stage": 0, "start": today.isoformat(), "practiced": 0}
                 note_schedule(item)
@@ -2074,7 +2075,7 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             if op == "edit_note":
                 items = notes_all()
                 item = note_find(items)
-                for key, limit in (("title", 80), ("subject", 24), ("text", 20000)):
+                for key, limit in (("title", 80), ("subject", 24), ("text", 20000), ("summary", 4000)):
                     if body.get(key) is not None and (key != "title" or str(body[key]).strip()):
                         item[key] = str(body[key]).strip()[:limit]
                 if body.get("images") is not None:

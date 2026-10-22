@@ -286,6 +286,58 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertIn(("smtp", "smtp.qq.com", 465), sent)
         self.assertIn(("saved", '"Sent Messages"'), sent)
 
+    def test_new_mail_wakes_him_but_ads_do_not(self):
+        self.call("POST", "/mail/config", Request({"address": "jining@qq.com", "password": "abcd"}))
+        box = {"uids": [1, 2]}
+        heads = {
+            3: b"From: Xiaolu <lu@example.com>\r\nSubject: hi\r\n",
+            4: b"From: Shop <news@shop.com>\r\nSubject: sale 50% off\r\nList-Unsubscribe: <mailto:x>\r\n",
+            5: b"From: =?utf-8?b?5Lqs5Lic?= <noreply@jd.com>\r\nSubject: code 123456\r\n",
+        }
+
+        class FakeImap:
+            capabilities = ("IMAP4REV1",)
+
+            def __init__(self, *a, **k):
+                pass
+
+            def login(self, *a):
+                pass
+
+            def select(self, *a, **k):
+                return ("OK", [b"1"])
+
+            def response(self, code):
+                return (code, [b"777"])
+
+            def uid(self, cmd, *args):
+                if cmd == "search":
+                    return ("OK", [" ".join(map(str, box["uids"])).encode()])
+                return ("OK", [(b"x", heads[int(args[0])])])
+
+            def logout(self):
+                pass
+
+        import imaplib
+        woke = []
+
+        async def fake_wake(kind, session_id, **kw):
+            woke.append((kind, kw.get("mail")))
+            return "silent"
+
+        with mock.patch.object(imaplib, "IMAP4_SSL", FakeImap), mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent), \
+                mock.patch.object(api_loop, "run_wake_opportunity", fake_wake), mock.patch.object(api_loop, "active_session_id", lambda: "s"), \
+                mock.patch.object(api_loop, "wake_control", lambda: {"enabled": True, "mode": "normal"}), \
+                mock.patch.object(api_loop, "wake_audit", lambda *a: None):
+            asyncio.run(api_loop.check_new_mail())  # 第一次只记起点，旧信不叫醒
+            self.assertEqual(woke, [])
+            box["uids"] = [1, 2, 3, 4, 5]
+            asyncio.run(api_loop.check_new_mail())
+            self.assertEqual(len(woke), 1)
+            self.assertEqual([m["uid"] for m in woke[0][1]], ["3"])  # 广告和验证码不叫醒
+            asyncio.run(api_loop.check_new_mail())  # 同一批不会再叫第二次
+            self.assertEqual(len(woke), 1)
+
     def test_he_can_look_post_and_open_orders_in_the_workspace(self):
         calls = []
 

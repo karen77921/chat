@@ -2882,6 +2882,35 @@ def _mail_imap(c: dict):
     return conn
 
 
+# 广告、通知、验证码这类信不叫醒他
+MAIL_BULK_FROM = re.compile(r"no-?reply|do-?not-?reply|notification|newsletter|mailer-daemon|marketing|promo|service@|news@|info@", re.I)
+MAIL_BULK_SUBJECT = re.compile(r"验证码|校验码|动态码|verification code|one-time|otp\b|退订|unsubscribe|促销|优惠|折扣|特价|广告|推广|订阅|账单|发票|"
+                               r"sale\b|discount|% off|newsletter|webinar|invoice|receipt|【.{0,8}(活动|福利|通知)】", re.I)
+
+
+def mail_is_bulk(headers: dict) -> bool:
+    """群发 / 自动发的信：有退订头、Precedence bulk、自动回复、noreply 地址、或者标题像广告、验证码。"""
+    if any(str(headers.get(k) or "").strip() for k in ("list-unsubscribe", "list-id")):
+        return True
+    if str(headers.get("precedence") or "").lower() in {"bulk", "list", "junk"}:
+        return True
+    if str(headers.get("auto-submitted") or "no").lower() not in {"", "no"}:
+        return True
+    return bool(MAIL_BULK_FROM.search(str(headers.get("from") or "")) or MAIL_BULK_SUBJECT.search(str(headers.get("subject") or "")))
+
+
+def mail_seen(data_path: Path, value: dict | None = None) -> dict:
+    """收件箱看到哪一封了（UID），用来只报新信。"""
+    with sqlite_connection(str(data_path), timeout=10) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, kind TEXT NOT NULL, at TEXT NOT NULL, payload TEXT NOT NULL)")
+        if value is not None:
+            conn.execute("INSERT OR REPLACE INTO records(id,kind,at,payload) VALUES('setting_mail_seen','setting',?,?)",
+                         (iso_now(), json.dumps(value)))
+            return value
+        row = conn.execute("SELECT payload FROM records WHERE id='setting_mail_seen'").fetchone()
+        return json.loads(row[0]) if row else {}
+
+
 def mail_call(data_path: Path, op: str, args: dict) -> dict:
     """他的邮箱。op: inbox / read / search / send。没配好时返回 {available: False, reason}。"""
     import email
@@ -2922,7 +2951,33 @@ def mail_call(data_path: Path, op: str, args: dict) -> dict:
             return {"sent": True, "from": c["address"], "to": to, "subject": msg["Subject"]}
         conn = _mail_imap(c)
         try:
-            conn.select("INBOX", readonly=True)
+            st, sel = conn.select("INBOX", readonly=True)
+            if op == "new":
+                # 只报上次之后到的信。第一次（或者换了邮箱）先记个起点，不把旧信全翻出来
+                validity = ""
+                with contextlib.suppress(Exception):
+                    validity = str(conn.response("UIDVALIDITY")[1][0].decode())
+                seen = mail_seen(data_path)
+                st, data = conn.uid("search", None, "ALL")
+                uids = [int(u) for u in (data[0].split() if st == "OK" and data and data[0] else [])]
+                top = max(uids, default=0)
+                if seen.get("address") != c["address"] or seen.get("validity") != validity:
+                    mail_seen(data_path, {"address": c["address"], "validity": validity, "uid": top})
+                    return {"letters": [], "baseline": top}
+                fresh = [u for u in uids if u > int(seen.get("uid") or 0)][-20:]
+                letters = []
+                for uid in fresh:
+                    st, md = conn.uid("fetch", str(uid), "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE LIST-UNSUBSCRIBE LIST-ID PRECEDENCE AUTO-SUBMITTED)])")
+                    head = next((item for item in md or [] if isinstance(item, tuple)), None)
+                    if st != "OK" or not head:
+                        continue
+                    msg = email.message_from_bytes(head[1])
+                    hdr = {k.lower(): _mail_text(v) for k, v in msg.items()}
+                    letters.append({"uid": str(uid), "from": hdr.get("from", ""), "subject": hdr.get("subject", ""),
+                                    "date": hdr.get("date", ""), "bulk": mail_is_bulk(hdr)})
+                if top > int(seen.get("uid") or 0):
+                    mail_seen(data_path, {**seen, "uid": top})
+                return {"letters": letters}
             if op == "read":
                 uid = str(args.get("uid") or "").strip()
                 if not uid.isdigit():

@@ -554,6 +554,47 @@ class ImprintStoreTest(unittest.TestCase):
         self.call("DELETE", "/vocab/{rec_id}", apple["id"])
         self.assertEqual(self.call("GET", "/vocab", "all")["stats"]["total"], 2)
 
+    def test_study_notes_from_her_photos_and_practice(self):
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        photo = {"url": "/uploads/n1.jpg", "name": "n1.jpg", "mime": "image/jpeg"}
+        with sqlite3.connect(self.relay) as conn:
+            conn.execute("INSERT INTO messages(ts,direction,kind,text,meta) VALUES(?,?,?,?,?)",
+                         (now, "in", "user", "这是我的笔记", json.dumps({"api_session": "s", "attachments": [photo, {"url": "/uploads/a.pdf", "name": "a.pdf"}]})))
+        turn = api_loop.Turn("s", dry=False)
+        run = lambda args: asyncio.run(turn.run_tool("imprint_study", json.dumps(args)))  # noqa: E731
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent), mock.patch.object(api_loop, "RELAY_DB", str(self.relay)):
+            saved = json.loads(run({"operation": "save_note", "title": "定语从句", "subject": "英语", "text": "which 指物，who 指人", "photos": 1}))
+            note = saved["note"]
+            self.assertEqual((note["by"], note["images"]), ("him", [photo]))  # 只挂照片，PDF 不算
+            listed = json.loads(run({"operation": "notes"}))
+            self.assertEqual(listed["items"][0]["preview"], "which 指物，who 指人")
+            # 他不能删
+            self.assertTrue(run({"operation": "delete_note", "id": note["id"]}).startswith("ERROR"))
+            rec = json.loads(run({"operation": "record", "id": note["id"], "kind": "造句", "question": "用 which 造句",
+                                  "answer": "The book which I read is good.", "feedback": "对了", "good": True}))
+            self.assertEqual((rec["practice"]["note_title"], rec["note"]["practiced"]), ("定语从句", 1))
+            run({"operation": "record", "id": note["id"], "question": "who 指什么", "answer": "物", "good": False})
+            self.assertEqual(len(json.loads(run({"operation": "practice", "missed": True}))["items"]), 1)
+            dry = api_loop.Turn("s", dry=True)
+            self.assertIn("ERROR", asyncio.run(dry.run_tool("imprint_study", json.dumps({"operation": "save_note", "title": "x"}))))
+        # 页面上：她自己拍的笔记、看练习、标「后来会了」、删
+        mine = self.call("POST", "/study/notes", Request({"title": "导数", "subject": "高数", "images": [photo]}))
+        self.assertEqual(mine["note"]["by"], "me")
+        page = self.call("GET", "/study/notes/{view}", "all")
+        self.assertEqual([x["title"] for x in page["items"]], ["导数", "定语从句"])
+        self.assertEqual(sorted(x["name"] for x in page["stats"]["subjects"]), ["英语", "高数"])
+        self.assertEqual(self.call("GET", "/study/notes/{view}", "due")["stats"]["due"], 0)  # 明天才第一次复习
+        missed = self.call("GET", "/study/practice/{view}", "missed")["items"]
+        self.call("POST", "/study/practice/{rec_id}/fix", missed[0]["id"], Request({"fixed": True}))
+        self.assertEqual(self.call("GET", "/study/practice/{view}", "missed")["items"], [])
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            read = json.loads(asyncio.run(api_loop.Turn("s", dry=False).run_tool("imprint_study", json.dumps({"operation": "read", "id": mine["note"]["id"]}))))
+        self.assertIn("hint", read)  # 只有照片：提醒他让她在聊天里发
+        self.call("DELETE", "/study/note/{rec_id}", mine["note"]["id"])
+        self.assertEqual(self.call("GET", "/study/notes/{view}", "all")["stats"]["total"], 1)
+        with self.assertRaises(HTTPException):
+            self.call("POST", "/study/notes", Request({}))
+
     def test_purchase_request_review_and_withdraw_keep_a_timeline(self):
         item = imprint_action(self.store, "purchase_create", {"title": "冰淇淋", "price": "5", "reason": "想吃"})
         self.assertEqual((item["status"], item["price"]), ("pending", 5.0))

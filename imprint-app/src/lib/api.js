@@ -416,6 +416,14 @@ async function compat(path, opts) {
   if ((method === 'GET' || method === 'PUT') && (m = /^\/api\/chats\/([^/]+)\/reply-options$/.exec(p))) {
     return loop(`reply-options/${m[1]}`, method === 'PUT' ? { ...opts, method: 'POST' } : undefined);
   }
+  // Study：笔记和练习
+  if (method === 'GET' && (m = /^\/api\/study\/(notes|practice)\/(all|due|missed)$/.exec(p))) return loop(`imprint/study/${m[1]}/${m[2]}`);
+  if (method === 'GET' && (m = /^\/api\/study\/note\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/study/note/${m[1]}`);
+  if (method === 'POST' && p === '/api/study/notes') return loop('imprint/study/notes', { ...opts, timeout: 60000 });
+  if (method === 'POST' && (m = /^\/api\/study\/note\/([0-9a-f]+)\/edit$/.exec(p))) return loop(`imprint/study/note/${m[1]}/edit`, opts);
+  if (method === 'DELETE' && (m = /^\/api\/study\/note\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/study/note/${m[1]}`, { method: 'DELETE' });
+  if (method === 'POST' && (m = /^\/api\/study\/practice\/([0-9a-f]+)\/fix$/.exec(p))) return loop(`imprint/study/practice/${m[1]}/fix`, opts);
+  if (method === 'DELETE' && (m = /^\/api\/study\/practice\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/study/practice/${m[1]}`, { method: 'DELETE' });
   if (method === 'GET' && (m = /^\/api\/vocab\/(due|wrong|all|mastered|new)$/.exec(p))) return loop(`imprint/vocab/list/${m[1]}`);
   if (method === 'POST' && p === '/api/vocab') return loop('imprint/vocab', { ...opts, timeout: 60000 });
   if (method === 'POST' && (m = /^\/api\/vocab\/do\/(learn|settings|delete_book)$/.exec(p))) return loop(`imprint/vocab/do/${m[1]}`, opts);

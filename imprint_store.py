@@ -1969,6 +1969,158 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             engine.save()
             return out
 
+        if action == "study":
+            # Study 里的笔记和练习：她拍笔记（或在聊天里发给他整理），按艾宾浩斯排复习；
+            # 他拿笔记考她、让她造句，每一次练习（题、她的回答、他的点评）都记下来
+            op = str(body.get("operation") or "notes").strip().lower()
+            today = dt.datetime.now(ZONE).date()
+
+            def notes_all() -> list[dict]:
+                rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='study_note' ORDER BY at DESC").fetchall()
+                return [{**json.loads(r["payload"]), "id": r["id"], "at": r["at"]} for r in rows]
+
+            def note_save(item: dict) -> dict:
+                payload = {k: v for k, v in item.items() if k not in {"id", "at"}}
+                conn.execute("UPDATE records SET payload=? WHERE id=? AND kind='study_note'", (json.dumps(payload, ensure_ascii=False), item["id"]))
+                return item
+
+            def note_find(items: list[dict]) -> dict:
+                rec_id = str(body.get("id") or body.get("note_id") or "")
+                title = str(body.get("title") or "").strip().casefold()
+                hit = next((x for x in items if x["id"] == rec_id), None) or \
+                    (next((x for x in items if title and x.get("title", "").casefold() == title), None) if not rec_id else None)
+                if not hit:
+                    raise ValueError("没有这条笔记")
+                return hit
+
+            def note_due(item: dict) -> bool:
+                return bool(item.get("due")) and not item.get("mastered") and item["due"] <= today.isoformat()
+
+            def note_schedule(item: dict) -> None:
+                stage = int(item.get("stage") or 0)
+                if stage >= len(VOCAB_OFFSETS):
+                    item["mastered"], item["due"] = True, ""
+                    return
+                start = dt.date.fromisoformat(item.get("start") or today.isoformat())
+                item["mastered"] = False
+                item["due"] = max(today + dt.timedelta(days=1), start + dt.timedelta(days=VOCAB_OFFSETS[stage])).isoformat()
+
+            def practice_all(note_id: str = "") -> list[dict]:
+                rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='study_practice' ORDER BY at DESC").fetchall()
+                out = [{**json.loads(r["payload"]), "id": r["id"], "at": r["at"]} for r in rows]
+                return [x for x in out if x.get("note_id") == note_id] if note_id else out
+
+            def study_stats(items: list[dict]) -> dict:
+                practice = practice_all()
+                subjects: dict[str, int] = {}
+                for x in items:
+                    if x.get("subject"):
+                        subjects[x["subject"]] = subjects.get(x["subject"], 0) + 1
+                today_s = today.isoformat()
+                return {"total": len(items), "due": sum(1 for x in items if note_due(x)),
+                        "mastered": sum(1 for x in items if x.get("mastered")),
+                        "subjects": [{"name": k, "total": v} for k, v in sorted(subjects.items(), key=lambda kv: -kv[1])],
+                        "practice": len(practice), "practice_today": sum(1 for x in practice if str(x.get("at", "")).startswith(today_s)),
+                        "missed": sum(1 for x in practice if x.get("good") is False and not x.get("fixed")),
+                        "today": today_s, "offsets": VOCAB_OFFSETS}
+
+            def clean_images(raw: object) -> list[dict]:
+                out = []
+                for img in raw if isinstance(raw, list) else []:
+                    if isinstance(img, dict) and str(img.get("url") or "").strip():
+                        out.append({k: img[k] for k in ("url", "name", "mime", "w", "h", "size") if img.get(k) not in (None, "")})
+                return out[:12]
+
+            if op == "add_note":
+                title = str(body.get("title") or "").strip()[:80]
+                text = str(body.get("text") or "").strip()[:20000]
+                images = clean_images(body.get("images"))
+                if not (title or text or images):
+                    raise ValueError("笔记是空的：至少要有标题、内容或照片")
+                item = {"title": title or "未命名笔记", "subject": str(body.get("subject") or "").strip()[:24], "text": text,
+                        "images": images, "by": "him" if body.get("by") == "him" else "me",
+                        "stage": 0, "start": today.isoformat(), "practiced": 0}
+                note_schedule(item)
+                saved = add("study_note", item)
+                return {"note": saved, "stats": study_stats(notes_all())}
+
+            if op == "edit_note":
+                items = notes_all()
+                item = note_find(items)
+                for key, limit in (("title", 80), ("subject", 24), ("text", 20000)):
+                    if body.get(key) is not None and (key != "title" or str(body[key]).strip()):
+                        item[key] = str(body[key]).strip()[:limit]
+                if body.get("images") is not None:
+                    item["images"] = clean_images(body["images"])
+                return {"note": note_save(item)}
+
+            if op == "delete_note":
+                item = note_find(notes_all())
+                conn.execute("DELETE FROM records WHERE kind='study_note' AND id=?", (item["id"],))
+                return {"ok": True, "deleted": item["id"], "stats": study_stats(notes_all())}
+
+            if op == "note":
+                item = note_find(notes_all())
+                return {"note": item, "practice": practice_all(item["id"])[:30]}
+
+            if op == "record_practice":
+                question = str(body.get("question") or "").strip()[:1000]
+                if not question:
+                    raise ValueError("练习要有题目")
+                good = body.get("good")
+                good = None if good is None else bool(good)
+                kind = str(body.get("kind") or "问答").strip()[:12] or "问答"
+                note = None
+                if body.get("note_id") or body.get("id"):
+                    items = notes_all()
+                    note = note_find(items)
+                    note["practiced"] = int(note.get("practiced") or 0) + 1
+                    note["last"] = today.isoformat()
+                    if good is not None and note_due(note):  # 到期那天考过：会了往后推，不会从头来
+                        if good:
+                            note["stage"] = int(note.get("stage") or 0) + 1
+                        else:
+                            note.update(stage=0, start=today.isoformat())
+                        note_schedule(note)
+                    note_save(note)
+                rec = add("study_practice", {
+                    "note_id": note["id"] if note else "", "note_title": note.get("title", "") if note else "",
+                    "kind": kind, "question": question, "answer": str(body.get("answer") or "").strip()[:2000],
+                    "feedback": str(body.get("feedback") or "").strip()[:2000], "good": good,
+                    "by": "him" if body.get("by") == "him" else "me"})
+                return {"practice": rec, "note": note, "stats": study_stats(notes_all())}
+
+            if op == "fix_practice":  # 她把一道没答好的标成「后来会了」
+                rec_id = str(body.get("id") or "")
+                row = conn.execute("SELECT payload FROM records WHERE kind='study_practice' AND id=?", (rec_id,)).fetchone()
+                if not row:
+                    raise ValueError("没有这条练习")
+                payload = {**json.loads(row["payload"]), "fixed": bool(body.get("fixed", True))}
+                conn.execute("UPDATE records SET payload=? WHERE id=?", (json.dumps(payload, ensure_ascii=False), rec_id))
+                return {"practice": {**payload, "id": rec_id}}
+
+            if op == "delete_practice":
+                conn.execute("DELETE FROM records WHERE kind='study_practice' AND id=?", (str(body.get("id") or ""),))
+                return {"ok": True}
+
+            if op == "practice":
+                limit = max(1, min(int(body.get("limit") or 60), 300))
+                rows = practice_all(str(body.get("note_id") or ""))
+                if body.get("missed"):
+                    rows = [x for x in rows if x.get("good") is False and not x.get("fixed")]
+                return {"items": rows[:limit], "stats": study_stats(notes_all())}
+
+            items = notes_all()
+            if op == "due":
+                picked = sorted([x for x in items if note_due(x)], key=lambda x: x.get("due") or "")
+            else:
+                q = str(body.get("q") or "").strip().casefold()
+                subject = str(body.get("subject") or "").strip()
+                picked = [x for x in items if (not subject or x.get("subject") == subject)
+                          and (not q or q in (x.get("title", "") + x.get("text", "") + x.get("subject", "")).casefold())]
+            limit = max(1, min(int(body.get("limit") or 100), 300))
+            return {"items": picked[:limit], "stats": study_stats(items)}
+
         if action == "vocab":
             # 单词本：她录词，按艾宾浩斯安排复习；她自己复习或者他来抽查，答对往后推，答错重新计时
             op = str(body.get("operation") or "list").strip().lower()
@@ -3178,6 +3330,45 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     def piggy_remove(rec_id: str):
         delete("piggy", rec_id)
         return {"ok": True}
+
+    # Study：笔记和练习（中转会丢掉 ?query，参数都放路径里）
+    def study_call(body: dict) -> dict:
+        try:
+            return imprint_action(data_path, "study", body)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.get("/study/notes/{view}")
+    def study_notes(view: str):
+        return {"available": True, "names": public_names(), **study_call({"operation": "due" if view == "due" else "notes"})}
+
+    @router.get("/study/note/{rec_id}")
+    def study_note(rec_id: str):
+        return study_call({"operation": "note", "id": rec_id})
+
+    @router.post("/study/notes")
+    async def study_note_add(request: Request):
+        return study_call({**(await request.json()), "operation": "add_note", "by": "me"})
+
+    @router.post("/study/note/{rec_id}/edit")
+    async def study_note_edit(rec_id: str, request: Request):
+        return study_call({**(await request.json()), "operation": "edit_note", "id": rec_id})
+
+    @router.delete("/study/note/{rec_id}")
+    def study_note_delete(rec_id: str):
+        return study_call({"operation": "delete_note", "id": rec_id})
+
+    @router.get("/study/practice/{view}")
+    def study_practice(view: str):
+        return {"available": True, "names": public_names(), **study_call({"operation": "practice", "missed": view == "missed", "limit": 200})}
+
+    @router.post("/study/practice/{rec_id}/fix")
+    async def study_practice_fix(rec_id: str, request: Request):
+        return study_call({"operation": "fix_practice", "id": rec_id, "fixed": bool((await request.json()).get("fixed", True))})
+
+    @router.delete("/study/practice/{rec_id}")
+    def study_practice_delete(rec_id: str):
+        return study_call({"operation": "delete_practice", "id": rec_id})
 
     @router.get("/vocab")
     def vocab_list(filter: str = "all", q: str = ""):

@@ -3336,6 +3336,33 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_study",
+        "description": "Her Study notes (笔记) and practice log, next to the 单词本. save_note = file notes she photographed or "
+                       "typed for you: write out what the photo says in text (keep her structure, fix nothing silently), "
+                       "title + subject; photos=N attaches the last N photos she sent in this chat. notes / due = list "
+                       "(due = notes whose review day has come, on day 1/2/4/7/15/30); read = one note in full with past practice. "
+                       "To review, ask her questions or have her make sentences (造句) from a note, one at a time, then "
+                       "record = save that exercise right away (question, her answer, your short feedback, good true/false; "
+                       "good on a due note pushes its next review later, not good restarts it). practice = past exercises "
+                       "(missed=true for the ones she got wrong). Never invent content that is not in her notes.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["notes", "due", "read", "save_note", "edit_note", "record", "practice"]},
+                "id": {"type": "string", "description": "note id"},
+                "title": {"type": "string"}, "subject": {"type": "string", "description": "e.g. 英语 / 高数 / 日语"},
+                "text": {"type": "string", "description": "save_note / edit_note: the note written out"},
+                "photos": {"type": "integer", "minimum": 0, "maximum": 12, "description": "save_note: attach her last N photos from this chat"},
+                "kind": {"type": "string", "description": "record: 造句 / 问答 / 默写 / 翻译"},
+                "question": {"type": "string"}, "answer": {"type": "string"}, "feedback": {"type": "string"},
+                "good": {"type": "boolean"}, "missed": {"type": "boolean"}, "q": {"type": "string"},
+            },
+            "required": ["operation"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_book",
         "description": "The 书房: books you and she read together, each with your own bookmark. read = continue from YOUR bookmark "
                        "(~6000 chars, paragraphs prefixed [ch.para]; her highlights/notes on them come along; your bookmark moves "
@@ -3913,6 +3940,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         add_builtin("search_chat_history")
     if any(word in query for word in ("单词", "背词", "背单词", "复习", "抽查", "抽我", "考考", "考我", "听写", "错词", "vocab")) or (not light and vocab_due_count()):
         add_builtin("imprint_vocab")
+    if any(word in query for word in ("笔记", "复习", "考考", "考我", "提问", "造句", "默写", "study", "学习", "知识点")):
+        add_builtin("imprint_study")
     if any(word in query for word in ("书房", "共读", "读书", "看书", "一起读", "这本书", "那本书", "批注", "划线", "读到", "章", "📖", "imprint_book")) or (not light and book_reading()):
         add_builtin("imprint_book")
     if garden or any(word in query for word in WALL_WORDS):
@@ -4065,7 +4094,7 @@ ENGAWA_WORDS = ("檐廊", "engawa", "古诗", "一首诗", "今天的画", "看�
                 "书架", "论文", "历史上的今天", "爱好角", "读读", "读一下这个网页", "rss")
 WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛病", "老是", "总是", "改掉", "习惯", "自由", "受限",
               "prompt", "my_walls")
-TOOLBOX_TOPICS = "Claude 订阅额度 / 重置时间，工作区 / 施工队 / 工单 / 派活，邮箱 / 邮件 / 写信，檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "Claude 订阅额度 / 重置时间，工作区 / 施工队 / 工单 / 派活，邮箱 / 邮件 / 写信，檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，Study / 笔记 / 复习 / 造句，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 # 设置页「他自带的工具」：每个内置工具的中文名、一句说明、会不会改东西。加了新工具要在这里加一行（有测试盯着）
@@ -4101,6 +4130,7 @@ TOOL_GROUPS_ZH = [
     ]),
     ("一起读和学习", [
         ("imprint_book", "一起读书", "接着读、看你的划线和批注、写批注、回你", True),
+        ("imprint_study", "Study 笔记", "把你拍的笔记整理进 Study、拿笔记考你、让你造句，记下每次练习", True),
         ("imprint_vocab", "单词本", "看今天该复习的词、抽查你、帮你录词", True),
         ("read_pdf", "读 PDF", "读你在聊天里发给他的 PDF", False),
     ]),
@@ -4440,6 +4470,8 @@ class Turn:
             args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
         if public_name == "imprint_crew":
             return await crew_tool(args, dry=self.dry)
+        if public_name == "imprint_study":
+            return await study_tool(args, self.session_id, dry=self.dry)
         if public_name == "imprint_mail":
             return await mail_tool(args, dry=self.dry)
         if public_name in imprint_actions:
@@ -4594,6 +4626,67 @@ class Turn:
                 if saved.get("recorded"):
                     return out[:20000] + WORLD_NOTE_HINT.format(id=saved["id"])
         return out[:20000]
+
+
+STUDY_OPS = {"notes": "notes", "due": "due", "read": "note", "save_note": "add_note", "edit_note": "edit_note",
+             "record": "record_practice", "practice": "practice"}
+
+
+def her_recent_images(session_id: str, count: int, hours: float = 6) -> list[dict[str, Any]]:
+    """她在这个窗口最近发的 count 张照片（旧的在前），给他把笔记照片挂到 Study 里。"""
+    path = Path(RELAY_DB)
+    if count <= 0 or not path.exists():
+        return []
+    where = ["direction='in'", "json_valid(meta)", "json_extract(meta, '$.attachments') IS NOT NULL"]
+    params: list[Any] = []
+    if session_id:
+        where.append("json_extract(meta, '$.api_session') = ?")
+        params.append(session_id)
+    with contextlib.suppress(Exception), sqlite_connection(str(path)) as conn:
+        rows = conn.execute(f"SELECT ts, meta FROM messages WHERE {' AND '.join(where)} ORDER BY id DESC LIMIT 40", params).fetchall()
+        now = dt.datetime.now(dt.timezone.utc)
+        found: list[dict[str, Any]] = []
+        for ts, meta in rows:
+            when = parse_message_time(ts)
+            if when and (now - when).total_seconds() > hours * 3600:
+                break
+            atts = (json.loads(meta or "{}") or {}).get("attachments") or []
+            for att in reversed(atts):
+                mime = str(att.get("mime") or mimetypes.guess_type(str(att.get("name") or ""))[0] or "")
+                if isinstance(att, dict) and mime.startswith("image/") and mime != "image/svg+xml" and att.get("url"):
+                    found.append({k: att[k] for k in ("url", "name", "mime", "w", "h", "size") if att.get(k) not in (None, "")})
+                    if len(found) >= count:
+                        return list(reversed(found))
+        return list(reversed(found))
+    return []
+
+
+async def study_tool(args: dict, session_id: str, dry: bool = False) -> str:
+    """Study 里的笔记和练习。删笔记、删练习只能她在页面上做。"""
+    op = str(args.get("operation") or "notes")
+    if op not in STUDY_OPS:
+        return "ERROR: operation 只有 " + " / ".join(STUDY_OPS)
+    if dry and op in {"save_note", "edit_note", "record"}:
+        return "ERROR: 这一轮是重试/演练，不往 Study 里写"
+    body = {k: v for k, v in args.items() if k not in {"operation", "photos", "images", "by"}}
+    body.update(operation=STUDY_OPS[op], by="him")
+    if op == "save_note" and int(args.get("photos") or 0) > 0:
+        body["images"] = await asyncio.to_thread(her_recent_images, session_id, min(int(args["photos"]), 12))
+        if not body["images"]:
+            return "ERROR: 这个窗口最近没找到她发的照片；照片没挂上，笔记也还没存"
+    if op == "record" and args.get("id") and not args.get("note_id"):
+        body["note_id"] = args["id"]
+    try:
+        out = await asyncio.to_thread(imprint_action, LOOP_CACHE_DIR / "imprint.db", "study", body)
+    except ValueError as exc:
+        return f"ERROR: {exc}"
+    if op in {"notes", "due"}:  # 列表只给摘要，全文用 read 看
+        out["items"] = [{k: x.get(k) for k in ("id", "title", "subject", "due", "practiced", "mastered")}
+                        | {"preview": str(x.get("text") or "")[:80], "photos": len(x.get("images") or []),
+                           "photo_only": not x.get("text") and bool(x.get("images"))} for x in out.get("items", [])]
+    if op == "read" and out.get("note") and not out["note"].get("text") and out["note"].get("images"):
+        out["hint"] = "这条只有照片，你看不到照片内容：请她把照片在聊天里发给你，你再用 edit_note 把内容写进去"
+    return json.dumps(out, ensure_ascii=False)[:30_000]
 
 
 async def mail_tool(args: dict, dry: bool = False) -> str:

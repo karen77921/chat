@@ -474,6 +474,24 @@ const vStats = () => ({ done_today: vocab.reduce((n, x) => n + (x.log || []).fil
   learn_left: Math.max(0, vDaily - vocab.filter((x) => x.learned === dayISO()).length),
   books: [...new Set(vocab.map((x) => x.book || ''))].map((name) => ({ name, total: vocab.filter((x) => (x.book || '') === name).length, new: vocab.filter((x) => (x.book || '') === name && x.new).length })), total: vocab.length, due: vocab.filter((x) => !x.new && !x.mastered && x.due <= dayISO()).length, wrong: vocab.filter((x) => x.wrong && !x.mastered).length,
   mastered: vocab.filter((x) => x.mastered).length, today: dayISO(), offsets: OFFS });
+/** Study 的笔记和练习（假数据）：照片用一张手画的横线纸 */
+const notePic = (ink, bg) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="${bg}"/>${Array.from({ length: 16 }, (_, i) => `<line x1="20" x2="280" y1="${40 + i * 22}" y2="${40 + i * 22}" stroke="#c9d8ea"/>`).join('')}${Array.from({ length: 11 }, (_, i) => `<path d="M30 ${56 + i * 22} q${30 + (i % 3) * 12} -8 ${70 + (i * 37) % 120} 0 t${40 + (i * 13) % 50} 0" stroke="${ink}" fill="none" stroke-width="2.4" stroke-linecap="round"/>`).join('')}</svg>`)}`;
+let studyNotes = [
+  { id: 'n1', title: '定语从句', subject: '英语', by: 'him', text: '1. which 指物，who 指人，that 两个都行\n2. 介词 + which：the house in which I live\n3. 非限定从句（逗号后面）不能用 that', images: [{ url: notePic('#3b5bdb', '#fffdf6') }, { url: notePic('#c2255c', '#fffdf6') }], stage: 1, due: dayISO(), practiced: 2 },
+  { id: 'n2', title: '导数的四则运算', subject: '高数', by: 'me', text: '', images: [{ url: notePic('#2b8a3e', '#fbfff4') }], stage: 0, due: new Date(Date.now() + 86400000).toISOString().slice(0, 10), practiced: 0 },
+  { id: 'n3', title: 'て形的变法', subject: '日语', by: 'him', text: '一段动词：去る + て（食べる→食べて）\n五段动词：う・つ・る→って，む・ぶ・ぬ→んで，く→いて，ぐ→いで，す→して\n例外：行く→行って', images: [], stage: 2, due: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10), practiced: 4 },
+];
+let studyPractice = [
+  { id: 'p1', at: new Date().toISOString(), note_id: 'n1', note_title: '定语从句', kind: '造句', question: '用 in which 造一个句子', answer: 'This is the room in which we first met.', feedback: '很好，介词提前用对了。下次试试 where 换掉 in which。', good: true },
+  { id: 'p2', at: new Date().toISOString(), note_id: 'n1', note_title: '定语从句', kind: '问答', question: '非限定定语从句能不能用 that？', answer: '能吧…', feedback: '不能哦，逗号后面只能用 which / who。', good: false },
+  { id: 'p3', at: new Date(Date.now() - 86400000).toISOString(), note_id: 'n3', note_title: 'て形的变法', kind: '默写', question: '「読む」的て形？', answer: '読んで', feedback: '对，む结尾变んで。', good: true },
+];
+const sStats = () => {
+  const subj = {}; studyNotes.forEach((n) => { if (n.subject) subj[n.subject] = (subj[n.subject] || 0) + 1; });
+  return { total: studyNotes.length, due: studyNotes.filter((n) => n.due && n.due <= dayISO()).length, mastered: 0, today: dayISO(), offsets: OFFS,
+    subjects: Object.entries(subj).map(([name, total]) => ({ name, total })), practice: studyPractice.length,
+    practice_today: studyPractice.filter((x) => x.at.slice(0, 10) === dayISO()).length, missed: studyPractice.filter((x) => x.good === false && !x.fixed).length };
+};
 function vocabView(v) {
   const items = v === 'new' ? vocab.filter((x) => x.new) : v === 'due' ? vocab.filter((x) => !x.new && !x.mastered && x.due <= dayISO()) : v === 'wrong' ? vocab.filter((x) => x.wrong && !x.mastered) : v === 'mastered' ? vocab.filter((x) => x.mastered) : vocab;
   return { available: true, names: { me: 'Lumi', him: 'Ash' }, items, stats: vStats() };
@@ -614,6 +632,11 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
         routes: [{ index: 0, model: 'claude-opus-4-6', host: 'fucheers.top' }, { index: 1, model: 'claude-sonnet-4-5', host: 'openrouter.ai' }] };
     }
     case 'POST /api/cache-check': if (state.cc && !body.force) return { running: false, reused: true, result: state.cc }; state.ccUntil = Date.now() + 3000; return { running: true, step: '准备' };
+    case 'GET /api/study/notes/all': return { available: true, names: { him: 'Ash' }, items: studyNotes, stats: sStats() };
+    case 'GET /api/study/notes/due': return { available: true, names: { him: 'Ash' }, items: studyNotes.filter((n) => n.due <= dayISO()), stats: sStats() };
+    case 'GET /api/study/practice/all': return { available: true, names: { him: 'Ash' }, items: studyPractice, stats: sStats() };
+    case 'GET /api/study/practice/missed': return { available: true, names: { him: 'Ash' }, items: studyPractice.filter((x) => x.good === false && !x.fixed), stats: sStats() };
+    case 'POST /api/study/notes': { const n = { id: `n${Date.now()}`, ...body, by: 'me', stage: 0, due: new Date(Date.now() + 86400000).toISOString().slice(0, 10), practiced: 0 }; studyNotes = [n, ...studyNotes]; return { note: n, stats: sStats() }; }
     case 'GET /api/vocab/due': case 'GET /api/vocab/wrong': case 'GET /api/vocab/all': case 'GET /api/vocab/mastered': return vocabView(p.split('/')[3]);
     case 'POST /api/vocab': return vocabAdd(body);
     case 'GET /api/vocab/new': return vocabView('new');
@@ -739,6 +762,9 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     default: {
       // 带 id 的聊天接口：/api/chats/{id}/...
       let m;
+      if ((m = /^GET \/api\/study\/note\/(.+)$/.exec(key))) return { note: studyNotes.find((n) => n.id === m[1]), practice: studyPractice.filter((x) => x.note_id === m[1]) };
+      if ((m = /^DELETE \/api\/study\/note\/(.+)$/.exec(key))) { studyNotes = studyNotes.filter((n) => n.id !== m[1]); return { ok: true }; }
+      if ((m = /^POST \/api\/study\/practice\/(.+)\/fix$/.exec(key))) { const x = studyPractice.find((y) => y.id === m[1]); if (x) x.fixed = true; return { practice: x }; }
       if ((m = /^DELETE \/api\/piggy\/(.+)$/.exec(key))) { state.piggy = state.piggy.filter((x) => x.id !== m[1]); return { ok: true }; }
       if ((m = /^GET \/api\/chats\/([^/]+)$/.exec(key))) return chatState(m[1], qs);
       if ((m = /^PATCH \/api\/chats\/([^/]+)$/.exec(key))) { Object.assign(chats[m[1]], body); return { ok: true }; }

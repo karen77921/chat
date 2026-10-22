@@ -36,7 +36,7 @@ const KIND = {
 /** 百宝箱：底栏已经有的（首页 / 小屋 / 聊天 / 心潮 / 设置）不再重复，其余的小功能都收在这里，以后加新的也往这里放 */
 const TREASURES = [
   ['一起', 'musicbox', '#/together'], ['留言板', 'feather', '#/notes'], ['搜留言', 'mirror', '#/notes?search=1'], ['续火花', 'perfume', '#/spark'],
-  ['买买申请', 'tiara', '#/approvals'], ['存钱罐', 'pearls', '#/piggy'], ['单词本', 'menuet', '#/words'], ['抽屉', 'jewelbox', '#/drawer'],
+  ['买买申请', 'tiara', '#/approvals'], ['存钱罐', 'pearls', '#/piggy'], ['Study', 'menuet', '#/words'], ['抽屉', 'jewelbox', '#/drawer'],
   ['他的世界', 'swan', '#/world'],
 ];
 /** 芭蕾小画贴纸（她给的素材抠出来的） */

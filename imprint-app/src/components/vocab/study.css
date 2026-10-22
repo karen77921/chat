@@ -1,0 +1,103 @@
+/* Study：沿用单词本的书桌风（方格纸、荧光笔、便利贴），上面三张索引卡切换 单词 / 笔记 / 练习 */
+.sd-head h1 { flex-wrap: wrap; }
+.sd-head mark { font-family: 'Pinyon Script', 'Great Vibes', cursive; font-weight: 400; font-size: 46px; letter-spacing: 0; line-height: 1; padding: 0 8px 0 2px; }
+
+/* 三张索引卡：选中的那张往上抬、颜色实一点 */
+.sd-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.sd-tab { position: relative; text-align: left; padding: 14px 12px 12px; border-radius: 6px 6px 14px 14px; border: 0; cursor: pointer;
+  background: var(--vb-paper); box-shadow: var(--vb-shadow); color: var(--vb-ink); display: flex; flex-direction: column; gap: 2px;
+  transition: transform .2s ease, box-shadow .2s ease; border-top: 5px solid var(--sd-c); }
+.sd-tab.c0 { --sd-c: var(--vb-sky); --sd-bg: #eaf4fe; }
+.sd-tab.c1 { --sd-c: var(--vb-pink); --sd-bg: #fdeef3; }
+.sd-tab.c2 { --sd-c: var(--vb-mint); --sd-bg: #eaf8f1; }
+.sd-tab small { font-size: 9.5px; font-weight: 800; letter-spacing: .22em; color: var(--vb-soft); }
+.sd-tab b { font-size: 18px; font-weight: 800; letter-spacing: .12em; }
+.sd-tab em { font-style: normal; font-size: 11px; color: var(--vb-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sd-tab em strong { font-size: 15px; color: var(--vb-ink); margin-right: 2px; }
+.sd-tab.on { background: var(--sd-bg); transform: translateY(-4px); box-shadow: 0 2px 0 rgba(46, 52, 69, .08), 0 16px 26px -14px rgba(46, 52, 69, .45); }
+.sd-tab.on b { background: linear-gradient(transparent 58%, var(--sd-c) 58%, var(--sd-c) 92%, transparent 92%); align-self: flex-start; padding: 0 2px; }
+
+/* 单词那一栏：原来整页的东西直接排进来 */
+.vb-embed { display: flex; flex-direction: column; gap: 16px; }
+
+/* 笔记 */
+.sd-notes, .sd-practice { display: flex; flex-direction: column; gap: 14px; }
+.sd-bar { display: flex; gap: 10px; align-items: center; }
+.sd-add { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px; border-radius: 12px; cursor: pointer;
+  font-size: 14px; font-weight: 800; letter-spacing: .08em; color: var(--vb-ink); background: var(--vb-pink); border: 2px solid var(--vb-ink); box-shadow: 3px 3px 0 var(--vb-ink); }
+.sd-add:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--vb-ink); }
+.sd-search { flex: 1; min-width: 0; height: 40px; margin: 0; box-sizing: border-box; }
+.sd-subjects { margin: 0; }
+.sd-h { margin: 6px 2px 0; font-size: 13px; font-weight: 800; letter-spacing: .14em; color: var(--vb-ink); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.sd-h em { font-style: normal; font-weight: 500; letter-spacing: .02em; font-size: 11.5px; color: var(--vb-soft); }
+
+.sd-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; padding-top: 6px; }
+.sd-card { position: relative; text-align: left; border: 0; cursor: pointer; padding: 8px 8px 10px; border-radius: 4px; background: #fff;
+  box-shadow: var(--vb-shadow); color: var(--vb-ink); display: flex; flex-direction: column; gap: 8px; transform: rotate(calc(var(--tape) * .25)); }
+.sd-tape { position: absolute; top: -9px; left: 50%; width: 58px; height: 18px; translate: -50% 0; rotate: var(--tape); opacity: .85;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .35) 0 4px, transparent 4px 8px), var(--vb-yellow); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.sd-card:nth-child(3n+2) .sd-tape { background-color: var(--vb-sky); }
+.sd-card:nth-child(3n) .sd-tape { background-color: var(--vb-pink); }
+.sd-thumb { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 2px; background: #f4f1ea; display: block; }
+.sd-lines { margin: 0; aspect-ratio: 3 / 4; padding: 8px 10px; border-radius: 2px; font-size: 12px; line-height: 22px; color: var(--vb-ink); overflow: hidden;
+  white-space: pre-line; background: #fffdf6 repeating-linear-gradient(transparent 0 21px, var(--vb-line) 21px 22px); border-left: 2px solid var(--vb-margin); }
+.sd-count { position: absolute; top: 14px; right: 14px; padding: 2px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700; color: #fff; background: rgba(46, 52, 69, .62); }
+.sd-meta { display: flex; flex-direction: column; gap: 5px; padding: 0 2px; }
+.sd-meta b { font-size: 14px; font-weight: 800; line-height: 1.3; }
+.sd-meta > span { display: flex; flex-wrap: wrap; gap: 5px; }
+.sd-meta small { font-size: 10.5px; color: var(--vb-soft); }
+.sd-subj, .sd-due { font-style: normal; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
+.sd-subj { background: #f1ece0; color: var(--vb-ink); }
+.sd-due { color: var(--vb-soft); border: 1px solid var(--vb-line); }
+.sd-due.now { color: #fff; background: var(--vb-coral); border-color: var(--vb-coral); }
+
+.sd-empty { padding: 20px 18px; text-align: center; }
+.sd-empty b { font-size: 15px; letter-spacing: .1em; }
+.sd-empty p { margin: 8px 0 0; font-size: 12.5px; line-height: 1.8; color: var(--vb-soft); }
+
+/* 拍笔记 */
+.sd-form { display: flex; flex-direction: column; gap: 12px; }
+.sd-pics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.sd-pic { position: relative; aspect-ratio: 3 / 4; border-radius: 8px; overflow: hidden; background: #f4f1ea; }
+.sd-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sd-pic button { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: rgba(46, 52, 69, .7); color: #fff; font-size: 14px; line-height: 1; cursor: pointer; }
+.sd-pic.add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; border: 2px dashed var(--vb-line); color: var(--vb-soft); background: #fffdf6; }
+.sd-pic.add em { font-style: normal; font-size: 10.5px; }
+.sd-in { width: 100%; box-sizing: border-box; height: 44px; padding: 0 14px; border-radius: 12px; font-size: 15px; border: 0; color: var(--vb-ink); }
+.sd-subjrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sd-subjrow .sd-in { flex: 1 1 140px; }
+.sd-text { min-height: 90px; }
+
+/* 看一篇笔记 */
+.sd-read h2 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: .06em; }
+.sd-sub { margin: -6px 0 0; font-size: 12px; color: var(--vb-soft); }
+.sd-strip { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; }
+.sd-strip img { flex: none; height: 220px; width: auto; max-width: 80%; border-radius: 6px; scroll-snap-align: start; box-shadow: var(--vb-shadow); cursor: zoom-in; }
+.sd-body { white-space: pre-line; font-size: 14px; line-height: 26px; padding: 6px 12px 6px 16px; border-radius: 6px; color: var(--vb-ink);
+  background: #fffdf6 repeating-linear-gradient(transparent 0 25px, var(--vb-line) 25px 26px); border-left: 2px solid var(--vb-margin); }
+.sd-del { align-self: center; margin-top: 6px; }
+.sd-del.on { color: var(--vb-coral); }
+.sd-big { position: fixed; inset: 0; z-index: 200; border: 0; padding: 16px; background: rgba(20, 22, 30, .88); display: grid; place-items: center; cursor: zoom-out; }
+.sd-big img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+
+/* 练习：一张张题卡，右上角盖章 */
+.sd-day { display: flex; flex-direction: column; gap: 10px; }
+.sd-q { position: relative; background: var(--vb-paper); border-radius: 12px; padding: 12px 14px; box-shadow: var(--vb-shadow); border-left: 4px solid var(--vb-line); }
+.sd-q.ok { border-left-color: var(--vb-mint); }
+.sd-q.bad { border-left-color: var(--vb-coral); }
+.sd-q.fixed { border-left-color: var(--vb-sky); }
+.sd-q.compact { box-shadow: none; background: #fbf7ee; padding: 10px 12px; }
+.sd-q header { display: flex; align-items: center; gap: 8px; min-height: 22px; padding-right: 64px; }
+.sd-kind { font-style: normal; font-size: 10.5px; font-weight: 800; letter-spacing: .12em; padding: 2px 8px; border-radius: 6px; background: var(--vb-yellow); color: var(--vb-ink); }
+.sd-from { font-size: 11.5px; color: var(--vb-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sd-stamp { position: absolute; top: 10px; right: 12px; padding: 1px 8px; font-size: 12px; font-weight: 800; letter-spacing: .12em; border: 2px solid; border-radius: 6px; rotate: 8deg; background: rgba(255, 255, 255, .6); }
+.sd-stamp.ok { color: #2f9e6e; }
+.sd-stamp.bad { color: var(--vb-coral); }
+.sd-stamp.fixed { color: #4f8fd6; }
+.sd-ask { margin: 8px 0 0; font-size: 15px; font-weight: 700; line-height: 1.55; }
+.sd-ans, .sd-fb { margin: 6px 0 0; font-size: 13.5px; line-height: 1.65; display: flex; gap: 8px; }
+.sd-ans small, .sd-fb small { flex: none; font-size: 10.5px; font-weight: 800; padding: 2px 6px; border-radius: 6px; height: fit-content; margin-top: 1px; }
+.sd-ans small { background: #fdeef3; color: #b5476a; }
+.sd-fb small { background: #eaf4fe; color: #3c6fa8; }
+.sd-fb { color: #4a5063; }
+.sd-fix { margin-top: 8px; border: 0; cursor: pointer; font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 999px; background: #eaf4fe; color: #3c6fa8; }

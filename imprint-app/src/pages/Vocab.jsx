@@ -42,7 +42,7 @@ function Level({ x, total }) {
   return <span className="vb-lv" title={`第 ${x.stage || 0} 轮`}>Lv.{(x.stage || 0) + 1}<i style={{ width: `${(((x.stage || 0) + 1) / total) * 100}%` }} /></span>;
 }
 
-export default function Vocab() {
+export default function Vocab({ embedded = false }) {
   const [view, setView] = useState('due');
   const [q, setQ] = useState('');
   const { data, setData, reload } = useLoad(`/api/vocab/${view}`);
@@ -84,12 +84,14 @@ export default function Vocab() {
   const pct = st ? Math.round((st.done_today / Math.max(1, st.done_today + left)) * 100) : 0;
 
   return (
-    <main className="vb">
-      <header className="vb-head">
-        <a href="#/" className="vb-back" aria-label="返回"><Icon name="back" size={18} stroke={1.6} /></a>
-        <span className="vb-date">{now.getMonth() + 1}.{now.getDate()} 周{WEEK[now.getDay()]}</span>
-        <h1><mark>单词本</mark><small>WORD BOOK</small></h1>
-      </header>
+    <Wrap embedded={embedded}>
+      {!embedded && (
+        <header className="vb-head">
+          <a href="#/" className="vb-back" aria-label="返回"><Icon name="back" size={18} stroke={1.6} /></a>
+          <span className="vb-date">{now.getMonth() + 1}.{now.getDate()} 周{WEEK[now.getDay()]}</span>
+          <h1><mark>单词本</mark><small>WORD BOOK</small></h1>
+        </header>
+      )}
 
       {!data && <div className="vb-paper vb-pad">正在翻本子…</div>}
       {data?.available === false && <div className="vb-paper vb-pad">暂时连不上，过一会儿再来。</div>}
@@ -161,8 +163,13 @@ export default function Vocab() {
       {studying && <Study list={studying.list} learn={studying.learn} onClose={() => { setStudying(null); reload(); }} />}
       {picked && <WordSheet item={picked} today={st?.today} onClose={() => setPicked(null)}
         onChange={(it, gone) => { setPicked(null); setData((d) => ({ ...d, items: gone ? d.items.filter((x) => x.id !== it.id) : d.items.map((x) => (x.id === it.id ? it : x)) })); if (gone) reload(); }} />}
-    </main>
+    </Wrap>
   );
+}
+
+/** 单独打开是一整页；放进 Study 里时只是其中一栏 */
+function Wrap({ embedded, children }) {
+  return embedded ? <div className="vb-embed">{children}</div> : <main className="vb">{children}</main>;
 }
 
 function AddWords({ onClose, onDone }) {

@@ -63,11 +63,30 @@ const withoutSongs = (text) => String(text || '').replace(SONG, '').replace(/\[�
 const XHS = /\[小红书：([0-9a-zA-Z]{8,40})｜([^｜\]\n]*)｜([^｜\]\n]*)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
 const xhsIn = (text) => [...String(text || '').matchAll(XHS)].map((m) => ({ id: m[1], token: m[2].trim(), title: m[3].trim(), author: m[4].trim(), cover: m[5].trim() }));
 
+// 手机上：先用小红书 App 自己的链接直接打开这篇（xhsdiscover://item/…）；没装 App、没跳走，就退到网页版的分享链接。
+// 原来的 /explore/ 是电脑网页的地址，在手机上会被带去首页，看不到那一篇
+function openXhs(e, x) {
+  e.preventDefault(); e.stopPropagation();
+  const web = `https://www.xiaohongshu.com/discovery/item/${x.id}${x.token ? `?xsec_token=${encodeURIComponent(x.token)}&xsec_source=app_share` : ''}`;
+  const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (!mobile) { window.open(web, '_blank', 'noopener'); return; }
+  let left = false;
+  const away = () => { left = true; };
+  document.addEventListener('visibilitychange', away, { once: true });
+  window.addEventListener('pagehide', away, { once: true });
+  location.href = `xhsdiscover://item/${x.id}`;
+  setTimeout(() => {
+    document.removeEventListener('visibilitychange', away);
+    window.removeEventListener('pagehide', away);
+    if (!left && document.visibilityState === 'visible') window.open(web, '_blank', 'noopener');
+  }, 1500);
+}
+
 function XhsCard({ x }) {
   const [broken, setBroken] = useState(!x.cover);
-  const href = `https://www.xiaohongshu.com/explore/${x.id}${x.token ? `?xsec_token=${encodeURIComponent(x.token)}&xsec_source=pc_feed` : ''}`;
+  const href = `https://www.xiaohongshu.com/discovery/item/${x.id}${x.token ? `?xsec_token=${encodeURIComponent(x.token)}&xsec_source=app_share` : ''}`;
   return (
-    <a className="cm-xhs glass" href={href} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+    <a className="cm-xhs glass" href={href} target="_blank" rel="noreferrer" onClick={(e) => openXhs(e, x)}>
       <span className="cm-xhs-cover">
         {broken ? <span className="cm-xhs-ph" aria-hidden="true">📕</span>
           : <img src={x.cover} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />}

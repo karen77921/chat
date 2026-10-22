@@ -5449,6 +5449,7 @@ async def handle_turn(
     if cancelled:
         reply = (reply + "\n\n" if reply else "") + "（已停止生成）"
     if error:
+        print(f"[turn] model failed for {session_id or 'default'}: {error[:1500]}", flush=True)  # 上游原话进日志，排查时不用翻账本
         reply = (reply + "\n\n" if reply else "") + f"⚠️ {friendly_model_error(error)}"
     reply, reply_options = split_reply_options(reply)
     follow = FOLLOWUP_TOKEN_RE.search(reply)

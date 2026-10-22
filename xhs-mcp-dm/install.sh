@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 给小红书 MCP（xpzouying/xiaohongshu-mcp）加上私信：list_dm_chats / read_dm / send_dm。
+# 给小红书 MCP（xpzouying/xiaohongshu-mcp）加上私信：list_dm_chats / read_dm / send_dm，
+# 顺手修好搜索老是 60 秒超时（上游 issue #813 #836 #874）。
 # 用法：curl -fsSL https://raw.githubusercontent.com/karen77921/chat/claude/frontend-deployment-check-3dedhf/xhs-mcp-dm/install.sh | sudo bash
 #
 # 做的事：拉上游源码（固定版本）→ 放进私信的两个文件 → 编译 → 找到正在跑的那个 MCP，
@@ -40,6 +41,10 @@ curl -fsSL "${RAW}/xiaohongshu/dm.go" -o xiaohongshu/dm.go
 grep -q 'registerDMTools(server, appServer)' mcp_server.go \
   || sed -i 's/^\tlogrus.Infof("Registered %d MCP tools", 18)/\tregisterDMTools(server, appServer)\n&/' mcp_server.go
 grep -q 'registerDMTools(server, appServer)' mcp_server.go || { echo "没能把私信工具挂进去（上游代码变了），先停下"; exit 1; }
+echo "      修搜索（等结果而不是等整页稳定）…"
+curl -fsSL "${RAW}/xiaohongshu/search_wait.go" -o xiaohongshu/search_wait.go
+curl -fsSL "${RAW}/patch_search.py" -o /tmp/xhs_patch_search.py
+python3 /tmp/xhs_patch_search.py xiaohongshu/search.go
 
 echo "[4/5] 编译…"
 CGO_ENABLED=0 go build -ldflags="-s -w" -o "${WORK}/xiaohongshu-mcp" .  # 静态编译：放进容器里也能跑

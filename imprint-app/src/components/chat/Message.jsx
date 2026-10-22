@@ -57,7 +57,27 @@ function Text({ text, q }) {
 // 他发的歌卡：[歌：曲目id｜歌名｜歌手]，单独一行；点一下就在一起听里放
 const SONG = /\[歌：([^｜\]\n]+)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
 const songsIn = (text) => [...String(text || '').matchAll(SONG)].map((m) => ({ id: m[1].trim(), title: m[2].trim(), artist: m[3].trim() }));
-const withoutSongs = (text) => String(text || '').replace(SONG, '').replace(/\[申请草稿：[^\]\n]*\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
+const withoutSongs = (text) => String(text || '').replace(SONG, '').replace(/\[申请草稿：[^\]\n]*\]/g, '').replace(XHS, '').replace(/\n{3,}/g, '\n\n').trim();
+
+// 他分享的小红书帖子：[小红书：笔记id｜xsec_token｜标题｜作者｜封面]，点开去小红书看原帖
+const XHS = /\[小红书：([0-9a-zA-Z]{8,40})｜([^｜\]\n]*)｜([^｜\]\n]*)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
+const xhsIn = (text) => [...String(text || '').matchAll(XHS)].map((m) => ({ id: m[1], token: m[2].trim(), title: m[3].trim(), author: m[4].trim(), cover: m[5].trim() }));
+
+function XhsCard({ x }) {
+  const [broken, setBroken] = useState(!x.cover);
+  const href = `https://www.xiaohongshu.com/explore/${x.id}${x.token ? `?xsec_token=${encodeURIComponent(x.token)}&xsec_source=pc_feed` : ''}`;
+  return (
+    <a className="cm-xhs glass" href={href} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+      <span className="cm-xhs-cover">
+        {broken ? <span className="cm-xhs-ph" aria-hidden="true">📕</span>
+          : <img src={x.cover} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />}
+        <i className="cm-xhs-tag">小红书</i>
+      </span>
+      <b>{x.title}</b>
+      <span className="cm-xhs-foot">{x.author && <em>@{x.author}</em>}<span>去看看 ›</span></span>
+    </a>
+  );
+}
 
 function SongCard({ song }) {
   const L = useListen();
@@ -228,7 +248,7 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
             <div key={index} className="cm-sticker"><Sticker sticker={{ id: stickerToken(part) }} size={88} /></div>
           ) : (
             <Fragment key={index}>
-              {(withoutSongs(part) || (index === 0 && m.quote) || !(songsIn(part).length || draftsIn(part).length)) && (
+              {(withoutSongs(part) || (index === 0 && m.quote) || !(songsIn(part).length || draftsIn(part).length || xhsIn(part).length)) && (
                 <div data-part={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
                   {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
                   <Text text={withoutSongs(part)} q={q} />
@@ -237,6 +257,7 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
               )}
               {songsIn(part).map((song) => <SongCard key={song.id} song={song} />)}
               {draftsIn(part).map((d) => <DraftCard key={d.id} d={d} />)}
+              {xhsIn(part).map((x) => <XhsCard key={x.id} x={x} />)}
             </Fragment>
           )))}
         </div>

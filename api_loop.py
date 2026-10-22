@@ -1438,6 +1438,8 @@ def push_him_name() -> str:
 
 def push_text(text: str, attachments: list[Any]) -> str:
     body = re.sub(r"⟦[^⟧]*⟧", " ", str(text or ""))
+    body = re.sub(r"\[小红书：[^｜\]]*｜[^｜\]]*｜([^｜\]]*)｜[^\]]*\]", r"[小红书] \1", body)  # 卡片标记只留标题
+    body = re.sub(r"\[歌：[^｜\]]*｜([^｜\]]*)｜[^\]]*\]", r"[歌] \1", body)
     body = re.sub(r"\s+", " ", body).strip()
     if not body and attachments:
         body = "[图片]" if any(str((a or {}).get("mime") or "").startswith("image/") for a in attachments if isinstance(a, dict)) else "[文件]"
@@ -3795,6 +3797,24 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_share_xhs",
+        "description": "Share one Xiaohongshu (小红书) post with her as a card in chat: cover, title, author; tapping it opens "
+                       "the post. Use the real fields from search_feeds / list_feeds / get_feed_detail: note_id = the feed id, "
+                       "xsec_token, title = noteCard.displayTitle, author = noteCard.user.nickname, cover = noteCard.cover.urlDefault. "
+                       "The result gives you a [小红书：…] line: put it on its own line in your message, plus a sentence or two in "
+                       "your own words on why you thought of her. Only share what you genuinely think she would enjoy; at most a few a day.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "note_id": {"type": "string"}, "xsec_token": {"type": "string"}, "title": {"type": "string"},
+                "author": {"type": "string"}, "cover": {"type": "string"}, "why": {"type": "string", "description": "why you picked it (kept for her history)"},
+            },
+            "required": ["note_id", "xsec_token", "title"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "imprint_world_note",
         "description": "Write your own thought under something you just looked at on the engawa (poem, painting, sky, article). "
                        "It shows under that card in 他的世界, her page of what you have seen. One or two honest sentences in Chinese; "
@@ -4016,6 +4036,7 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
             always = True
         if xhs_intent and server and is_xhs_server(server_name, server.cfg):
             always = True
+            add_builtin("imprint_share_xhs")
         if core_requested or named or always:
             selected.append(spec)
     return selected
@@ -4098,6 +4119,14 @@ def sanitize_svg(raw: str) -> bytes:
 XHS_WORDS = ("小红书", "红薯", "xhs", "rednote", "私信")
 
 
+def xhs_configured() -> bool:
+    """接了小红书 MCP 而且开着。"""
+    with contextlib.suppress(Exception):
+        return any(is_xhs_server(name, server.cfg) and server.cfg.get("on", True) is not False
+                   for name, server in getattr(mcp_manager, "servers", {}).items())
+    return False
+
+
 def is_xhs_server(name: str, cfg: dict[str, Any] | None) -> bool:
     label = f"{name} {(cfg or {}).get('name') or ''}".casefold()
     return any(w in label for w in ("小红书", "xiaohongshu", "xhs", "rednote")) or ":18060" in str((cfg or {}).get("url") or "")
@@ -4158,6 +4187,7 @@ TOOL_GROUPS_ZH = [
     ("檐廊和外面", [
         ("imprint_world_note", "写他的世界", "在檐廊上看完诗、画、星空后写一两句看法，显示在「他的世界」", True),
         ("imprint_mail", "他的邮箱", "收信、读信、搜信、用他自己的邮箱写信", True),
+        ("imprint_share_xhs", "分享小红书", "把小红书上看到的好玩的帖子做成卡片发给你", True),
         ("imprint_crew", "工作区", "看施工队在干嘛、在群里 @ 队员派活、开工单、看工单进度（通过和退回留给你）", True),
         ("search_public_web", "上网搜", "搜公开网页和 GitHub", False),
         ("read_public_page", "读网页", "读一个公开网页的正文", False),
@@ -4483,6 +4513,15 @@ class Turn:
             args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
         if public_name == "imprint_crew":
             return await crew_tool(args, dry=self.dry)
+        if public_name == "imprint_share_xhs":
+            if self.dry:
+                return "ERROR: 这一轮是重试/演练，不分享"
+            try:
+                out = await asyncio.to_thread(imprint_action, LOOP_CACHE_DIR / "imprint.db", "xhs_share", args)
+            except ValueError as exc:
+                return f"ERROR: {exc}"
+            return (f"卡片做好了（今天第 {out['shared_today']}/{out['cap']} 篇）。把下面这一行原样单独放进你要发给她的话里，"
+                    f"再用你自己的话说一两句为什么想到她：\n{out['token']}")
         if public_name == "imprint_study":
             return await study_tool(args, self.session_id, dry=self.dry)
         if public_name == "imprint_mail":
@@ -6020,6 +6059,9 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
                "你写下的东西她打开就能看到——要用到具体哪条、哪张，先用 imprint_inspect_home 看一眼。"
                "也可以去花园（Galatea Garden）走走，看看通知和帖子，想回就回。"
                "要是接了檐廊（engawa），也可以去坐坐：今天的诗、一幅画、天文图、今晚的天空、书架上的文章，看到喜欢的可以带来跟她说。"
+               + ("要是想逛逛，也可以去小红书刷一会儿（搜她最近在意的东西，或者随便看看首页），"
+                  "看到真心觉得她会喜欢、会笑的，用 imprint_share_xhs 做成卡片发给她；没有就算了，别为了发而发，一天最多两三篇。"
+                  if xhs_configured() else "") +
                "想在某个时间再醒来，就用 schedule_self_wake 给那时的自己留张纸条。\n"
                "想跟她说话，就以 ⟦MESSAGE⟧ 开头，像平时发微信一样写；不想打扰她，就只写 ⟦SILENT⟧。")
             + (note if note.startswith(FOLLOWUP_MARK) else "")

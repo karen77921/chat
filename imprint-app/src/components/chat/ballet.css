@@ -70,7 +70,7 @@ html[data-skin='ballet'] .chat .cm-react { background: var(--lg-strong); box-sha
 /* 卡片类（歌、草稿、文件、图片、思考、快捷回复）都是玻璃。
  * 滚动列表里的东西一律不开 backdrop-filter：每条都实时模糊一遍，几十条叠起来 iPhone 会内存不够、整页崩掉。
  * 底是安静的渐变，模糊本来也看不出差别，用半透明白 + 亮边做出玻璃感；真模糊只留给顶栏和输入框 */
-html[data-skin='ballet'] .chat :is(.cm-song, .cm-draft, .cm-file, .cm-imgs, .cm-think-b, .cm-heart-b, .cm-heart-t, .ch-opt) { background: rgba(255, 255, 255, 0.7) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08) !important; }
+html[data-skin='ballet'] .chat :is(.cm-song, .cm-draft, .cm-xhs, .cm-file, .cm-imgs, .cm-think-b, .cm-heart-b, .cm-heart-t, .ch-opt) { background: rgba(255, 255, 255, 0.7) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; box-shadow: var(--lg-edge), 0 4px 14px rgba(120, 80, 92, 0.08) !important; }
 html[data-skin='ballet'] .chat .cm-row.me .cm-voice { background: linear-gradient(180deg, #E9A6B6, #D98C9F) !important; color: #fff; }
 html[data-skin='ballet'] .chat .cm-row.me .cm-voice .cm-wave, html[data-skin='ballet'] .chat .cm-row.me .cm-voice .cm-dur { color: #fff; }
 html[data-skin='ballet'] .chat .cm-row.me .cm-voice .cm-play { background: rgba(255, 255, 255, 0.3); }
@@ -139,6 +139,6 @@ html[data-skin='ballet'] .chat .cm-row { margin: 0; padding: 0 0 2px; }
 html[data-skin='ballet'] .chat.own-wall { --lg: rgba(255, 255, 255, 0.34); --lg-strong: rgba(255, 255, 255, 0.55); --lg-blur: blur(22px) saturate(1.6) brightness(1.06); }
 html[data-skin='ballet'][data-bubble='glass'] .chat.own-wall .cm-bubble.him, html[data-skin='ballet']:not([data-bubble]) .chat.own-wall .cm-bubble.him { background: rgba(255, 255, 255, 0.66); }
 html[data-skin='ballet'][data-bubble='glass'] .chat.own-wall .cm-last .cm-bubble.him::after, html[data-skin='ballet']:not([data-bubble]) .chat.own-wall .cm-last .cm-bubble.him::after { background: rgba(255, 255, 255, 0.8); }
-html[data-skin='ballet'] .chat.own-wall :is(.cm-song, .cm-draft, .cm-file, .cm-imgs, .cm-think-b, .ch-opt) { background: rgba(255, 255, 255, 0.72) !important; }
+html[data-skin='ballet'] .chat.own-wall :is(.cm-song, .cm-draft, .cm-xhs, .cm-file, .cm-imgs, .cm-think-b, .ch-opt) { background: rgba(255, 255, 255, 0.72) !important; }
 html[data-skin='ballet'] .chat.own-wall :is(.cm-time, .cm-transcript, .ch-tip, .ch-status, .ch-st) { color: #3E2E33; text-shadow: 0 0 3px #fff, 0 0 6px #fff, 0 0 10px rgba(255, 255, 255, 0.9); }
 html[data-skin='ballet'] .chat.own-wall .ch-head { background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0)); }

@@ -1170,6 +1170,22 @@ class ImprintStoreTest(unittest.TestCase):
         self.assertTrue(api_loop.is_xhs_server("mcp1", {"url": "http://127.0.0.1:18060/mcp"}))
         self.assertFalse(api_loop.is_xhs_server("engawa", {"url": "https://x/mcp"}))
 
+    def test_he_shares_xiaohongshu_posts_as_cards(self):
+        turn = api_loop.Turn("s", dry=False)
+        share = lambda **kw: asyncio.run(turn.run_tool("imprint_share_xhs", json.dumps(kw)))  # noqa: E731
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", self.store.parent):
+            out = share(note_id="65a1b2c3d4e5f6a7b8c9d0e1", xsec_token="ABtok=", title="周末｜咖啡店]", author="小鹿",
+                        cover="https://sns-webpic-qc.xhscdn.com/202610/abc.jpg", why="她说想找安静的店")
+            self.assertIn("[小红书：65a1b2c3d4e5f6a7b8c9d0e1｜ABtok=｜周末 咖啡店｜小鹿｜https://sns-webpic-qc.xhscdn.com/202610/abc.jpg]", out)
+            self.assertIn("ERROR", share(note_id="65a1b2c3d4e5f6a7b8c9d0e1", xsec_token="x", title="again"))  # 同一篇不重复发
+            odd = share(note_id="aaaa1111", xsec_token="t", title="t", cover="https://evil.example/x.jpg")
+            self.assertIn("｜t｜｜]", odd)  # 不是小红书的图不放进卡片
+            for i in range(3):
+                share(note_id=f"bbbb000{i}", xsec_token="t", title="t")
+            self.assertIn("今天已经分享了 5 篇", share(note_id="cccc0000", xsec_token="t", title="t"))
+            self.assertIn("ERROR", asyncio.run(api_loop.Turn("s", dry=True).run_tool("imprint_share_xhs", json.dumps({"note_id": "dddd0000", "title": "t"}))))
+        self.assertEqual(api_loop.push_text("看这个\n[小红书：65a1｜tok｜咖啡店｜小鹿｜https://x]", []), "看这个 [小红书] 咖啡店")
+
     def test_normal_turn_only_exposes_core_mcp_tools(self):
         specs, index = [], {}
         for server, real in (("ombre", "hold"), ("ombre", "breath_advanced"),

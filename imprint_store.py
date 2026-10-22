@@ -1969,6 +1969,33 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             engine.save()
             return out
 
+        if action == "xhs_share":
+            # 他把小红书上看到的帖子分享给她：记一笔（一天有上限，免得刷屏），回给他一行卡片标记
+            day = dt.datetime.now(ZONE).date().isoformat()
+            shared = [json.loads(r["payload"]) | {"at": r["at"]} for r in conn.execute(
+                "SELECT at, payload FROM records WHERE kind='xhs_share' ORDER BY at DESC LIMIT 200").fetchall()]
+            if str(body.get("operation") or "share") == "list":
+                return {"items": shared[:50]}
+            note_id = str(body.get("note_id") or "").strip()
+            if not re.fullmatch(r"[0-9a-zA-Z]{8,40}", note_id):
+                raise ValueError("note_id 不对：用搜索结果里那篇笔记的 id")
+            if any(x.get("note_id") == note_id for x in shared):
+                raise ValueError("这篇已经分享给她过了")
+            today = [x for x in shared if str(x.get("day")) == day]
+            cap = int(body.get("cap") or 5)
+            if len(today) >= cap:
+                raise ValueError(f"今天已经分享了 {len(today)} 篇，够了，明天再发")
+            clean = lambda v, n: re.sub(r"[｜\]\[\n\r]+", " ", str(v or "")).strip()[:n]  # noqa: E731
+            cover = str(body.get("cover") or "").strip()
+            host = urllib.parse.urlparse(cover).hostname or ""
+            if not (cover.startswith("https://") and (host.endswith("xhscdn.com") or host.endswith("xiaohongshu.com"))):
+                cover = ""
+            item = {"note_id": note_id, "xsec_token": clean(body.get("xsec_token"), 200), "title": clean(body.get("title"), 60) or "一篇小红书",
+                    "author": clean(body.get("author"), 30), "cover": cover, "why": str(body.get("why") or "").strip()[:300], "day": day}
+            add("xhs_share", item)
+            token = f"[小红书：{note_id}｜{item['xsec_token']}｜{item['title']}｜{item['author']}｜{cover}]"
+            return {"token": token, "shared_today": len(today) + 1, "cap": cap}
+
         if action == "study":
             # Study 里的笔记和练习：她拍笔记（或在聊天里发给他整理），按艾宾浩斯排复习；
             # 他拿笔记考她、让她造句，每一次练习（题、她的回答、他的点评）都记下来

@@ -2950,10 +2950,10 @@ class McpServer:
             await self.start()
         if self.session is None:
             raise RuntimeError(f"MCP server '{self.name}' is {self.status}: {self.error or 'not connected'}")
-        return await asyncio.wait_for(
-            self.session.call_tool(tool, args or {}),
-            timeout=cfg_int("mcp_tool_timeout_seconds", 10, 180),
-        )
+        timeout = cfg_int("mcp_tool_timeout_seconds", 10, 180)
+        if is_xhs_server(self.name, self.cfg):  # 小红书每次都要开浏览器、等页面，45 秒常常不够
+            timeout = max(timeout, 120)
+        return await asyncio.wait_for(self.session.call_tool(tool, args or {}), timeout=timeout)
 
     def public(self) -> dict[str, Any]:
         cfg = dict(self.cfg)
@@ -3998,6 +3998,7 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
     garden_intent = garden or any(word in query for word in GARDEN_WORDS)
     # 檐廊（engawa MCP）：诗、画、天文图、今晚的天空、书架。聊到这些、或者他自己醒来时递给他
     engawa_intent = garden or any(word in query for word in ENGAWA_WORDS)
+    xhs_intent = any(word in query for word in XHS_WORDS)
     for spec in mcp_manager.openai_tools():
         public_name = str(spec.get("function", {}).get("name") or "")
         server_name, real_name = mcp_manager.index.get(public_name, ("", public_name))
@@ -4012,6 +4013,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         if garden_intent and server and is_garden_url(server.cfg.get("url")):
             always = True  # 花园唤醒：花园的 MCP 一定要在手边
         if engawa_intent and server_name.casefold() == "engawa":
+            always = True
+        if xhs_intent and server and is_xhs_server(server_name, server.cfg):
             always = True
         if core_requested or named or always:
             selected.append(spec)
@@ -4088,6 +4091,16 @@ def sanitize_svg(raw: str) -> bytes:
     root.attrib.setdefault("height", "512")
     ET.register_namespace("", SVG_NS)
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
+
+
+# 小红书 MCP（xpzouying/xiaohongshu-mcp，默认 18060 端口）：聊到小红书就把它整套工具递给他。
+# 「小红书」只有三个字，按名字匹配（至少四个字）永远对不上，所以单独认
+XHS_WORDS = ("小红书", "红薯", "xhs", "rednote", "私信")
+
+
+def is_xhs_server(name: str, cfg: dict[str, Any] | None) -> bool:
+    label = f"{name} {(cfg or {}).get('name') or ''}".casefold()
+    return any(w in label for w in ("小红书", "xiaohongshu", "xhs", "rednote")) or ":18060" in str((cfg or {}).get("url") or "")
 
 
 ENGAWA_WORDS = ("檐廊", "engawa", "古诗", "一首诗", "今天的画", "看画", "天文", "星空", "月亮", "月相", "行星", "日落",

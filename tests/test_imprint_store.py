@@ -1153,6 +1153,23 @@ class ImprintStoreTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 api_loop._public_https_url(unsafe)
 
+    def test_talking_about_xiaohongshu_hands_him_that_mcp(self):
+        specs, index = [], {}
+        for real in ("search_feeds", "send_dm"):
+            public = f"xhs__{real}"
+            specs.append({"type": "function", "function": {"name": public, "parameters": {"type": "object"}}})
+            index[public] = ("xhs", real)
+        server = types.SimpleNamespace(cfg={"name": "小红书", "url": "http://127.0.0.1:18060/mcp"})
+        fake = types.SimpleNamespace(openai_tools=lambda: specs, index=index, servers={"xhs": server})
+        with mock.patch.object(api_loop, "mcp_manager", fake):
+            light = {x["function"]["name"] for x in api_loop.turn_tools("帮我在小红书搜一下穿搭", light=True)}
+            plain = {x["function"]["name"] for x in api_loop.turn_tools("今天吃什么", light=True)}
+        self.assertTrue({"xhs__search_feeds", "xhs__send_dm"} <= light)
+        self.assertFalse(plain & {"xhs__search_feeds", "xhs__send_dm"})
+        self.assertTrue(api_loop.is_xhs_server("rednote", {}))
+        self.assertTrue(api_loop.is_xhs_server("mcp1", {"url": "http://127.0.0.1:18060/mcp"}))
+        self.assertFalse(api_loop.is_xhs_server("engawa", {"url": "https://x/mcp"}))
+
     def test_normal_turn_only_exposes_core_mcp_tools(self):
         specs, index = [], {}
         for server, real in (("ombre", "hold"), ("ombre", "breath_advanced"),

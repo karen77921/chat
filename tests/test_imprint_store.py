@@ -2186,3 +2186,40 @@ class DrawerTest(unittest.TestCase):
     def test_workspace_context_is_empty_until_someone_replies(self):
         messages = [{"role": "user", "content": "@codex 在吗", "metadata": '{"sender":"human"}'}]
         self.assertEqual(api_loop.crew_reply_context_from_messages(messages), "")
+
+
+class WindowChoiceTest(unittest.TestCase):
+    def setUp(self):
+        self.cfg = {"sessions": [
+            {"id": "a", "title": "日常", "updated_at": "2026-10-27T10:00:00+00:00"},
+            {"id": "b", "title": "一起读书", "updated_at": "2026-10-27T12:00:00+00:00", "pinned": True},
+            {"id": "c", "title": "旧的", "updated_at": "2026-10-27T13:00:00+00:00", "archived": True},
+        ], "active_session": "a"}
+        saved = lambda cfg: self.cfg.update(cfg)  # noqa: E731
+        self.patches = [mock.patch.object(api_loop, "load_config", lambda: json.loads(json.dumps(self.cfg))),
+                        mock.patch.object(api_loop, "save_config", saved),
+                        mock.patch.object(api_loop, "relay_rows", lambda *a, **k: [])]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def test_he_can_pick_a_window_but_not_an_archived_one(self):
+        choices = api_loop.window_choices("a")
+        self.assertEqual([w["id"] for w in choices], ["a", "b"])  # 现在这个第一，归档的不在里面
+        text = api_loop.window_choice_text(choices)
+        self.assertIn("「日常」（就是现在这个）", text)
+        self.assertIn("2. 「一起读书」（置顶）", text)
+        self.assertEqual(api_loop.pick_window("⟦窗口 2⟧⟦MESSAGE⟧读到第三章了", choices, "a"), "b")
+        self.assertEqual(api_loop.pick_window("⟦MESSAGE⟧想你", choices, "a"), "a")
+        self.assertEqual(api_loop.pick_window("⟦窗口 9⟧⟦MESSAGE⟧x", choices, "a"), "a")
+        self.assertEqual(api_loop.find_window("读书"), "b")
+        with self.assertRaises(ValueError):
+            api_loop.find_window("旧的")
+
+    def test_archive_flag_survives_later_saves(self):
+        api_loop.patch_session("b", {"archived": True})
+        api_loop.touch_session("a")
+        self.assertTrue(next(r for r in api_loop.session_rows() if r["id"] == "b")["archived"])

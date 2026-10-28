@@ -850,6 +850,7 @@ def session_rows() -> list[dict[str, Any]]:
                 "created_at": item.get("created_at") or "",
                 "updated_at": item.get("updated_at") or item.get("created_at") or "",
                 "pinned": bool(item.get("pinned", False)),
+                "archived": bool(item.get("archived", False)),
             })
     return out
 
@@ -3593,13 +3594,15 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
     "type": "function",
     "function": {
         "name": "schedule_self_wake",
-        "description": "Schedule one precise future wake for yourself. Use after_minutes or an ISO-8601 wake_at time, and leave a note for your future self.",
+        "description": "Schedule one precise future wake for yourself. Use after_minutes or an ISO-8601 wake_at time, and leave a note for your future self. "
+                       "window = the chat window (its name) you want to wake up in; empty = this window.",
         "parameters": {
             "type": "object",
             "properties": {
                 "after_minutes": {"type": "integer", "description": "Minutes from now; must be positive."},
                 "wake_at": {"type": "string", "description": "Absolute ISO-8601 date/time with timezone."},
                 "note": {"type": "string", "description": "Why you want to wake and what your future self should know."},
+                "window": {"type": "string", "description": "Optional: name of the chat window to wake up in."},
             },
             "required": ["note"],
         },
@@ -4568,7 +4571,8 @@ class Turn:
                     if when.tzinfo is None:
                         timezone_name = str(load_config().get("context_timezone") or CONFIG_DEFAULTS["context_timezone"])
                         when = when.replace(tzinfo=ZoneInfo(timezone_name))
-                result = create_precise_wake(self.session_id or active_session_id(), when, str(args.get("note") or ""))
+                where = find_window(args["window"]) if str(args.get("window") or "").strip() else (self.session_id or active_session_id())
+                result = create_precise_wake(where, when, str(args.get("note") or ""))
                 return json.dumps(result, ensure_ascii=False)
             except (TypeError, ValueError, ZoneInfoNotFoundError) as exc:
                 return f"ERROR: {exc}"
@@ -6019,6 +6023,64 @@ def her_latest_lines(hours: int = 8, limit: int = 8) -> list[str]:
     return []
 
 
+WINDOW_MARK = re.compile(r"⟦\s*窗口\s*[:：]?\s*(\d{1,2})\s*⟧")
+
+
+def window_choices(current: str, limit: int = 8) -> list[dict[str, Any]]:
+    """他醒来能去的聊天窗口：归档的不去（那是她收起来的）；现在这个排第一，其余按最近聊过的排。"""
+    zone = context_zone()
+    out = []
+    for row in session_rows():
+        if row.get("archived"):
+            continue
+        last: dict[str, Any] = {}
+        with contextlib.suppress(Exception):
+            got = relay_rows(None, row["id"], 1)
+            last = got[-1] if got else {}
+        when = parse_message_time(last.get("ts")) if last.get("ts") else None
+        if not when:
+            with contextlib.suppress(ValueError, TypeError):
+                when = dt.datetime.fromisoformat(str(row.get("updated_at") or "").replace("Z", "+00:00"))
+        out.append({"id": row["id"], "title": row["title"], "pinned": row["pinned"], "current": row["id"] == current,
+                    "when": when, "at": when.astimezone(zone).strftime("%m-%d %H:%M") if when else "",
+                    "who": "她" if last.get("direction") == "in" else "你",
+                    "text": re.sub(r"\s+", " ", str(last.get("text") or "")).strip()[:40]})
+    far = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    out.sort(key=lambda w: (not w["current"], -(w["when"] or far).timestamp()))
+    return out[:limit]
+
+
+def window_choice_text(choices: list[dict[str, Any]]) -> str:
+    if len(choices) < 2:
+        return ""
+    lines = []
+    for i, w in enumerate(choices, 1):
+        tag = "（就是现在这个）" if w["current"] else ("（置顶）" if w["pinned"] else "")
+        tail = f" · 最后一句 {w['at']} {w['who']}：{w['text']}" if w["text"] else (f" · {w['at']}" if w["at"] else "")
+        lines.append(f"{i}. 「{w['title']}」{tag}{tail}")
+    return ("\n你们有好几个聊天窗口，每个是单独的一段聊天，你可以自己挑在哪个窗口跟她说：\n" + "\n".join(lines)
+            + "\n想去别的窗口说，就在 ⟦MESSAGE⟧ 前面写 ⟦窗口 2⟧ 这样的编号；不写就发在现在这个窗口。"
+            "按话题挑：接着哪个窗口里没聊完的事，就去那个窗口说。")
+
+
+def pick_window(answer: str, choices: list[dict[str, Any]], current: str) -> str:
+    found = WINDOW_MARK.search(answer or "")
+    if found and 1 <= int(found.group(1)) <= len(choices):
+        return choices[int(found.group(1)) - 1]["id"]
+    return current
+
+
+def find_window(name: str) -> str:
+    """闹钟要去的窗口：按 id 或名字找（没归档的）。找不到抛 ValueError。"""
+    name = str(name or "").strip()
+    rows = [r for r in session_rows() if not r.get("archived")]
+    for match in (lambda r: r["id"] == name, lambda r: r["title"] == name, lambda r: name in r["title"]):
+        hit = [r for r in rows if match(r)]
+        if len(hit) == 1:
+            return hit[0]["id"]
+    raise ValueError("找不到这个窗口。现在的窗口有：" + "、".join(f"「{r['title']}」" for r in rows))
+
+
 def repeats_earlier(text: str, earlier: list[str]) -> bool:
     grams = _shingles(text)
     if not grams:
@@ -6097,6 +6159,8 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
             + "\n她可能在忙。这次要说，就说点真正新的：这一会儿你具体做了什么、看到了什么、冒出了什么新念头。"
             "别把上面的话换个顺序、换个说法再发一遍，也别再问一样的问题。"
         )
+    choices = window_choices(session_id)
+    prompt += window_choice_text(choices)
     # 她希望他每次醒来，不管做了什么都在聊天里说一声（已经汇报过的「接着做」除外）
     must_tell = cfg_bool("wake_always_message") and not note.startswith(FOLLOWUP_MARK) and not mail
     if must_tell:
@@ -6168,7 +6232,8 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
         wake_audit(kind, "silent", f"{wake_id} {note}".strip() if "⟦SILENT⟧" in answer or not answer
                    else f"{wake_id} unmarked: {answer}"[:2000])
         return "silent"
-    text, wake_options = split_reply_options(answer.split("⟦MESSAGE⟧", 1)[1].strip())
+    target = pick_window(answer, choices, session_id)
+    text, wake_options = split_reply_options(WINDOW_MARK.sub("", answer.split("⟦MESSAGE⟧", 1)[1]).strip())
     if not text:
         wake_audit(kind, "silent", f"{wake_id} empty message")
         return "silent"
@@ -6178,7 +6243,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     payload: dict[str, Any] = {
         "type": "reply",
         "text": text,
-        "api_session": session_id,
+        "api_session": target,
         "api": {"runtime": "wake-2.0", "wake_kind": kind, "wake_id": wake_id, "proactive": True},
     }
     if wake_options:
@@ -6189,8 +6254,9 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
     if ok:
         with contextlib.suppress(Exception):
             imprint_action(LOOP_CACHE_DIR / "imprint.db", "drive_said", {"proactive": True})
-        touch_session(session_id)
-        wake_audit(kind, "message", f"{wake_id} {text}"[:2000])
+        touch_session(target)
+        moved = "" if target == session_id else f"[去了窗口「{next((w['title'] for w in choices if w['id'] == target), target)}」] "
+        wake_audit(kind, "message", f"{wake_id} {moved}{text}"[:2000])
         return "message"
     wake_audit(kind, "error", f"relay: {detail}"[:2000])
     return "error"

@@ -3256,8 +3256,11 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
 
     @router.get("/settings")
     def get_settings():
-        return {"available": True, "beauty": setting("beauty"), "avatars": setting("avatars"),
-                "contact": setting("contact")}
+        contact = setting("contact")
+        if contact.get("himName") and "chatName" not in contact:
+            # 以前只有一个名字，聊天框和别处共用：拆开时原来那个留给聊天框，他的名字她在首页再改
+            contact = save_setting("contact", {**contact, "chatName": contact["himName"]})
+        return {"available": True, "beauty": setting("beauty"), "avatars": setting("avatars"), "contact": contact}
 
     @router.get("/chat/reactions")
     def chat_reactions():
@@ -3328,13 +3331,13 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         body = await request.json()
         current = setting("contact")
         updated = dict(current)
-        for key in ("himName", "meName"):  # 他的昵称、她的昵称；只改传了的那个
+        for key in ("himName", "meName", "chatName"):  # 他的名字、她的名字、聊天框里对他的昵称；只改传了的那个
             if key in body:
                 value = str(body.get(key) or "").strip()
                 if not value or len(value) > 24:
                     raise HTTPException(400, "昵称需为 1–24 字")
                 updated[key] = value
-        if updated == current and not any(k in body for k in ("himName", "meName")):
+        if updated == current and not any(k in body for k in ("himName", "meName", "chatName")):
             raise HTTPException(400, "昵称需为 1–24 字")
         return save_setting("contact", updated)
 

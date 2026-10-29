@@ -232,7 +232,7 @@ async function loadChat(id, full = false) {
   return {
     available: true, id, kind: 'window', name: s.title,
     me: { id: 'me', name: '我', avatar: attachmentUrl({ url: settings.avatars?.me }) },
-    members: [{ id: 'him', name: settings.contact?.himName || '他', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
+    members: [{ id: 'him', name: settings.contact?.chatName || settings.contact?.himName || '他', avatar: attachmentUrl({ url: settings.avatars?.him }) }],
     presence: { online: true }, replying: null, beauty: settings.beauty || {},
     // 设置没读到（后端忙）时是 undefined，不是「没有壁纸」：聊天页就先用手机上记着的那张，免得壁纸一闪就没了
     wallpaper: settings.unavailable ? undefined : settings.beauty?.wallpaper ? attachmentUrl({ url: settings.beauty.wallpaper }) : null,
@@ -293,7 +293,7 @@ async function compat(path, opts) {
   if (method === 'GET' && p === '/api/chats') {
     // 他的名字只是锦上添花：后端慢的时候最多等 3 秒，聊天列表不能被它拖住
     const [x, settings] = await Promise.all([request(`${RELAY}/app/sessions`), Promise.race([loop('imprint/settings', { timeout: 3000 }).catch(() => ({})), new Promise((ok) => setTimeout(() => ok({}), 3000))])]);
-    return chatList(x.sessions, settings.contact?.himName || '他');
+    return chatList(x.sessions, settings.contact?.chatName || settings.contact?.himName || '他');
   }
   if (method === 'POST' && p === '/api/chats') {
     const x = await request(`${RELAY}/app/sessions`, { method: 'POST', body: { title: opts.body?.name || '新对话', activate: true } });

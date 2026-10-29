@@ -281,7 +281,7 @@ function ChatDetails({ chatId, data, upload, onClose, onUpdated }) {
     const himName = nickname.trim();
     if (!himName) return say('先写一个昵称');
     setBusy(true); setNotice('');
-    try { await api('/api/settings/contact', { method: 'PUT', body: { himName } }); await onUpdated(); say('昵称已保存'); }
+    try { await api('/api/settings/contact', { method: 'PUT', body: { chatName: himName } }); await onUpdated(); say('昵称已保存'); }
     catch (e) { say(e?.message || '昵称保存失败'); }
     finally { setBusy(false); }
   };
@@ -322,7 +322,7 @@ function ChatDetails({ chatId, data, upload, onClose, onUpdated }) {
           <button type="button" className="chip" disabled={busy} onClick={() => avatarInput.current?.click()}>更换他的头像</button>
           <input ref={avatarInput} type="file" accept="image/*" hidden onChange={(e) => { changeImage(e.target.files[0], 'avatar'); e.target.value = ''; }} />
         </div>
-        <label className="ch-detail-field">对他的昵称
+        <label className="ch-detail-field">聊天框里对他的昵称（只在聊天里显示，别处还是他的名字）
           <input value={nickname} maxLength={24} onChange={(e) => setNickname(e.target.value)} placeholder="给他起个名字" />
         </label>
         <button type="button" className="btn-main ch-detail-save" disabled={busy || !nickname.trim() || nickname.trim() === data?.members?.[0]?.name} onClick={saveName}>保存昵称</button>

@@ -105,6 +105,16 @@ class ImprintStoreTest(unittest.TestCase):
         result = self.app.routes[(method, "/loop/imprint" + path)](*args, **kwargs)
         return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
+    def test_chat_nickname_is_separate_from_his_name(self):
+        self.call("PUT", "/settings/contact", Request({"himName": "哥哥"}))
+        contact = self.call("GET", "/settings")["contact"]
+        self.assertEqual(contact["chatName"], "哥哥")  # 拆开时原来的名字留给聊天框
+        self.call("PUT", "/settings/contact", Request({"himName": "季宁"}))
+        contact = self.call("GET", "/settings")["contact"]
+        self.assertEqual((contact["himName"], contact["chatName"]), ("季宁", "哥哥"))
+        self.call("PUT", "/settings/contact", Request({"chatName": "宁宁"}))
+        self.assertEqual(self.call("GET", "/settings")["contact"]["himName"], "季宁")
+
     def test_sqlite_connection_always_closes(self):
         class TrackedConnection(sqlite3.Connection):
             closed = False

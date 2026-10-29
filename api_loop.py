@@ -1489,7 +1489,8 @@ def push_him_name() -> str:
     with contextlib.suppress(Exception):
         with sqlite_connection(str(LOOP_CACHE_DIR / "imprint.db"), timeout=5) as conn:
             row = conn.execute("SELECT payload FROM records WHERE id='setting_contact'").fetchone()
-        name = json.loads(row[0]).get("himName") if row else ""
+        contact = json.loads(row[0]) if row else {}
+        name = contact.get("chatName") or contact.get("himName")  # 推送像聊天消息：用聊天框里的昵称
         if name:
             return str(name)[:24]
     return "他"
@@ -8099,11 +8100,12 @@ async def write_vocab_story(ids: list[str], style: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="今天背过的词还不到 3 个，先背几个再来")
     if not main_chain():
         raise HTTPException(status_code=400, detail="还没有可用的模型线路")
-    names = {"me": "her", "him": push_him_name()}
+    names = {"me": "her", "him": "him"}
     with contextlib.suppress(Exception):
         with sqlite_connection(str(LOOP_CACHE_DIR / "imprint.db"), timeout=5) as conn:
             row = conn.execute("SELECT payload FROM records WHERE id='setting_contact'").fetchone()
-        names["me"] = str((json.loads(row[0]).get("meName") if row else "") or "her")[:24]
+        contact = json.loads(row[0]) if row else {}
+        names = {"me": str(contact.get("meName") or "her")[:24], "him": str(contact.get("himName") or "him")[:24]}
     form = STORY_STYLES.get(style, STORY_STYLES["ielts"]).format(me=names["me"], him=names["him"])
     listing = "\n".join(f"- {w['word']}（{w.get('meaning') or ''}）" for w in words)
     messages = [

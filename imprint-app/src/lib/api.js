@@ -424,6 +424,9 @@ async function compat(path, opts) {
   if (method === 'DELETE' && (m = /^\/api\/study\/note\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/study/note/${m[1]}`, { method: 'DELETE' });
   if (method === 'POST' && (m = /^\/api\/study\/practice\/([0-9a-f]+)\/fix$/.exec(p))) return loop(`imprint/study/practice/${m[1]}/fix`, opts);
   if (method === 'DELETE' && (m = /^\/api\/study\/practice\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/study/practice/${m[1]}`, { method: 'DELETE' });
+  if (method === 'POST' && p === '/api/vocab/story') return bookJob(await loop('vocab/story', { method: 'POST', body: opts.body || {}, timeout: 60000 }));
+  if (method === 'GET' && p === '/api/vocab/stories') return loop('imprint/vocab/stories');
+  if ((method === 'GET' || method === 'DELETE') && (m = /^\/api\/vocab\/story\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/vocab/story/${m[1]}`, { method });
   if (method === 'GET' && p === '/api/vocab/pop') return loop('imprint/vocab/pop');
   if (method === 'POST' && p === '/api/vocab/pop') return loop('imprint/vocab/pop', opts);
   if (method === 'GET' && (m = /^\/api\/vocab\/(due|wrong|all|mastered|new)$/.exec(p))) return loop(`imprint/vocab/list/${m[1]}`);

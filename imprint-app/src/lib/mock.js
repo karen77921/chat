@@ -648,6 +648,13 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/study/practice/missed': return { available: true, names: { him: 'Ash' }, items: studyPractice.filter((x) => x.good === false && !x.fixed), stats: sStats() };
     case 'POST /api/study/notes': { const n = { id: `n${Date.now()}`, ...body, by: 'me', stage: 0, due: new Date(Date.now() + 86400000).toISOString().slice(0, 10), practiced: 0 }; studyNotes = [n, ...studyNotes]; return { note: n, stats: sStats() }; }
     case 'GET /api/vocab/due': case 'GET /api/vocab/wrong': case 'GET /api/vocab/all': case 'GET /api/vocab/mastered': return vocabView(p.split('/')[3]);
+    case 'POST /api/vocab/story': await sleep(800); return { item: (state.story = { id: 'abc1', title: 'The Benevolent Baker', title_cn: '好心的面包师', day: dayISO(), style: body.style,
+      words: [{ id: 'w1', word: 'benevolent', meaning: 'adj. 仁慈的' }, { id: 'w2', word: 'scarce', meaning: 'adj. 稀少的' }, { id: 'w3', word: 'abandon', meaning: 'v. 放弃' }],
+      text: 'In a small town where bread was **scarce** during the long winter, one **benevolent** baker refused to **abandon** his neighbours.\n\nEvery morning he left warm loaves on the doorsteps of those who could not pay. Years later, the town still tells his story.',
+      questions: [{ q: 'Why did the baker give bread away?', options: ['A. He wanted fame', 'B. He was kind to people in need', 'C. Bread was cheap', 'D. He was leaving town'], answer: 'B', why: 'benevolent 仁慈的，他照顾付不起钱的人' }],
+      translation: '在一个漫长冬天里面包稀缺的小镇上，一位好心的面包师不肯丢下他的邻居。' }) };
+    case 'GET /api/vocab/stories': return { items: state.story ? [state.story] : [] };
+    case 'GET /api/vocab/story/abc1': return { item: state.story };
     case 'GET /api/vocab/pop': return { pop: state.vpop ??= { on: true, every: 90, start: 9, end: 23, max: 8 }, today: 2 };
     case 'POST /api/vocab/pop': state.vpop = body; return { pop: body, today: 2 };
     case 'POST /api/vocab': return vocabAdd(body);

@@ -8021,6 +8021,76 @@ async def book_job(work) -> dict[str, Any]:
     return out
 
 
+STORY_STYLES = {
+    "ielts": ("a 220–280 word passage in the style of an IELTS Academic Reading text (an informative article on science, "
+              "society, history or nature; clear paragraphs, natural academic register)"),
+    "us": ("a 180–240 word short story about the two of you ({me} and {him}, a couple; write it in English, warm and a little "
+           "playful, everyday scenes)"),
+}
+
+
+def parse_story(raw: str) -> dict[str, Any]:
+    text = str(raw or "").strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    data = json.loads(text[start:end + 1]) if start >= 0 and end > start else {}
+    if not isinstance(data, dict) or not str(data.get("text") or "").strip():
+        raise ValueError("没写出来")
+    questions = []
+    for q in data.get("questions") or []:
+        if isinstance(q, dict) and str(q.get("q") or "").strip():
+            questions.append({"q": str(q["q"])[:300], "options": [str(o)[:160] for o in (q.get("options") or [])][:4],
+                              "answer": str(q.get("answer") or "")[:40], "why": str(q.get("why") or "")[:400]})
+    return {"title": str(data.get("title") or "Untitled")[:120], "title_cn": str(data.get("title_cn") or "")[:60],
+            "text": str(data["text"])[:6000], "translation": str(data.get("translation") or "")[:6000], "questions": questions[:4]}
+
+
+async def write_vocab_story(ids: list[str], style: str) -> dict[str, Any]:
+    words = imprint_action(LOOP_CACHE_DIR / "imprint.db", "vocab", {"operation": "today_words", "ids": ids})["items"]
+    if len(words) < 3:
+        raise HTTPException(status_code=400, detail="今天背过的词还不到 3 个，先背几个再来")
+    if not main_chain():
+        raise HTTPException(status_code=400, detail="还没有可用的模型线路")
+    names = {"me": "her", "him": push_him_name()}
+    with contextlib.suppress(Exception):
+        with sqlite_connection(str(LOOP_CACHE_DIR / "imprint.db"), timeout=5) as conn:
+            row = conn.execute("SELECT payload FROM records WHERE id='setting_contact'").fetchone()
+        names["me"] = str((json.loads(row[0]).get("meName") if row else "") or "her")[:24]
+    form = STORY_STYLES.get(style, STORY_STYLES["ielts"]).format(me=names["me"], him=names["him"])
+    listing = "\n".join(f"- {w['word']}（{w.get('meaning') or ''}）" for w in words)
+    messages = [
+        {"role": "system", "content": "You write short English reading passages that help a Chinese learner preparing for IELTS remember new words."},
+        {"role": "user", "content": (
+            f"She just studied these words:\n{listing}\n\n"
+            f"Write {form}. Use EVERY word above at least once, in a sentence whose context makes its meaning guessable; "
+            "you may change the form (plural, tense, -ly). Wrap each of these words in **double asterisks** where it appears. "
+            "Keep the rest of the vocabulary around IELTS band 6–7 so the target words stand out.\n"
+            "Then write 3 multiple-choice questions in English about the passage (A–D), each testing one target word in context "
+            "or the main idea, with the answer letter and a one-sentence explanation in Chinese.\n"
+            "Also give a natural Chinese translation of the whole passage.\n"
+            "Reply with ONLY a JSON object: {\"title\": \"...\", \"title_cn\": \"中文标题\", \"text\": \"paragraphs separated by \\n\\n\", "
+            "\"questions\": [{\"q\": \"...\", \"options\": [\"A. ...\", \"B. ...\", \"C. ...\", \"D. ...\"], \"answer\": \"B\", \"why\": \"中文解析\"}], "
+            "\"translation\": \"中文翻译\"}"
+        )},
+    ]
+    out = await run_model(messages, None, stream=True, patient=True, budget_s=240)
+    try:
+        story = parse_story(str(out.get("text") or ""))
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=502, detail="他这次没写好，再点一次") from exc
+    saved = imprint_action(LOOP_CACHE_DIR / "imprint.db", "vocab", {"operation": "story_save", **story, "style": style, "words": words})
+    return {"item": saved["item"]}
+
+
+@app.post("/loop/vocab/story")
+async def vocab_story_new(request: Request):
+    """用刚背过的词写一篇短文（ids 不给就用今天背过的全部，最多 20 个）。慢的话转后台，页面问进度。"""
+    body = await request.json()
+    ids = [str(i) for i in (body.get("ids") or [])][:20]
+    style = "us" if body.get("style") == "us" else "ielts"
+    return await book_job(lambda: write_vocab_story(ids, style))
+
+
 @app.get("/loop/books/job/{job}")
 def books_job(job: str):
     out = BOOK_JOBS.get(job) or {"state": "error", "detail": "这次导入找不到了，刷新书架看看"}

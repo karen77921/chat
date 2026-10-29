@@ -10,6 +10,7 @@ import { api } from '../lib/api.js';
 import { useLoad } from '../lib/useLoad.js';
 import mochi from '../assets/mochi-him.png';
 import '../components/vocab/vocab.css';
+import { StoryMaker, StoryReader, StoryShelf } from '../components/vocab/Story.jsx';
 
 const VIEWS = [['due', '今天复习'], ['wrong', '错词本'], ['new', '待学'], ['all', '全部'], ['mastered', '记牢了']];
 const DAILY = [10, 20, 30, 50];
@@ -69,6 +70,8 @@ export default function Vocab({ embedded = false }) {
   const { data, setData, reload } = useLoad(`/api/vocab/${view}`);
   const [adding, setAdding] = useState(false);
   const [studying, setStudying] = useState(null);
+  const [reading, setReading] = useState(null); // { id } 或 { story }
+  const [shelfKey, setShelfKey] = useState(0);
   const [picked, setPicked] = useState(null);
   const [book, setBook] = useState(null);
   const st = data?.stats;
@@ -151,6 +154,12 @@ export default function Vocab({ embedded = false }) {
             <div className="vb-daily"><span>每天新学</span>{DAILY.map((n) => <button key={n} type="button" className={st.daily_new === n ? 'on' : ''} onClick={() => setDaily(n)}>{n}</button>)}</div>
           )}
 
+          <section className="vs-sec">
+            <h3>背完读一篇<small>他用今天背过的词写一篇短文，在阅读里再见一次</small></h3>
+            <StoryMaker onOpen={(s) => setReading({ story: s })} />
+            <StoryShelf key={shelfKey} onOpen={(sid) => setReading({ id: sid })} />
+          </section>
+
           <section className="vb-book">
             <nav className="vb-index" role="tablist">
               {VIEWS.map(([k, n], i) => <button key={k} type="button" role="tab" aria-selected={view === k} className={`t${i} ${view === k ? 'on' : ''}`} onClick={() => setView(k)}>{n}</button>)}
@@ -183,7 +192,10 @@ export default function Vocab({ embedded = false }) {
       )}
 
       {adding && <AddWords onClose={() => setAdding(false)} onDone={() => { setAdding(false); reload(); }} />}
-      {studying && <Study list={studying.list} learn={studying.learn} onClose={() => { setStudying(null); reload(); }} />}
+      {studying && <Study list={studying.list} learn={studying.learn} onClose={() => { setStudying(null); reload(); }}
+        onStory={(s) => { setStudying(null); reload(); setReading({ story: s }); }} />}
+      {reading && <StoryReader id={reading.id} story={reading.story} onClose={() => { setReading(null); setShelfKey((k) => k + 1); }}
+        onDeleted={() => { setReading(null); setShelfKey((k) => k + 1); }} />}
       {picked && <WordSheet item={picked} today={st?.today} onClose={() => setPicked(null)}
         onChange={(it, gone) => { setPicked(null); setData((d) => ({ ...d, items: gone ? d.items.filter((x) => x.id !== it.id) : d.items.map((x) => (x.id === it.id ? it : x)) })); if (gone) reload(); }} />}
     </Wrap>
@@ -286,7 +298,7 @@ function AddWords({ onClose, onDone }) {
 }
 
 /** 复习 / 学新词：一张索引卡，点一下翻面；连对有连击，做完撒花 */
-function Study({ list, learn, onClose }) {
+function Study({ list, learn, onClose, onStory }) {
   const [i, setI] = useState(0);
   const [flip, setFlip] = useState(false);
   const [marks, setMarks] = useState([]);
@@ -339,7 +351,8 @@ function Study({ list, learn, onClose }) {
             <b>{ok} / {list.length}</b>
             <p>{learn ? `学了 ${list.length} 个新词，明天开始第一次复习。${marks.length - ok ? `不认识的 ${marks.length - ok} 个进了错词本，会多见几次。` : ''}`
               : marks.length - ok ? `忘了的 ${marks.length - ok} 个明天再来一遍，已经进错词本。` : '全记得！今天的复习完成了。'}</p>
-            <button type="button" className="vb-btn ok wide" onClick={onClose}>收工</button>
+            {list.length >= 3 && <StoryMaker compact ids={list.map((w) => w.id)} count={list.length} onOpen={onStory} />}
+            <button type="button" className="vb-btn wide" onClick={onClose}>收工</button>
           </div>
         )}
       </div>

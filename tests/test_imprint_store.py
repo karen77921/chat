@@ -2297,3 +2297,30 @@ class VocabPopTest(unittest.TestCase):
         self.assertEqual(sent[0]["api_session"], "s1")
         self.assertIn("[单词：w1｜abandon｜放弃 丢下｜]", sent[0]["text"])
         self.assertNotIn("proactive", sent[0]["api"])
+
+
+class VocabStoryTest(unittest.TestCase):
+    def test_story_is_written_from_todays_words_and_saved(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        db = Path(temp.name) / "imprint.db"
+        imprint_action(db, "vocab", {"operation": "add", "words": "abandon 放弃\nbenevolent 仁慈的\nscarce 稀少的\nidle 闲着的"})
+        words = imprint_action(db, "vocab", {"operation": "today_words"})["items"]
+        self.assertEqual(len(words), 4)  # 录进来当天就算学过
+        reply = '```json\n{"title": "The Kind Baker", "title_cn": "好心的面包师", "text": "A **benevolent** baker...\\n\\nBread was **scarce**.", ' \
+                '"questions": [{"q": "What does benevolent mean?", "options": ["A. kind", "B. cruel", "C. idle", "D. rare"], "answer": "A", "why": "仁慈"}], ' \
+                '"translation": "一个好心的面包师……"}\n```'
+
+        async def fake_model(*a, **k):
+            return {"text": reply}
+
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", Path(temp.name)), mock.patch.object(api_loop, "run_model", fake_model), \
+                mock.patch.object(api_loop, "main_chain", return_value=[{"model": "m"}]):
+            out = asyncio.run(api_loop.write_vocab_story([], "ielts"))
+            listed = imprint_action(db, "vocab", {"operation": "story_list"})["items"]
+        self.assertEqual(out["item"]["title"], "The Kind Baker")
+        self.assertEqual(out["item"]["questions"][0]["answer"], "A")
+        self.assertEqual(len(out["item"]["words"]), 4)
+        self.assertEqual(listed[0]["title_cn"], "好心的面包师")
+        with self.assertRaises(ValueError):
+            api_loop.parse_story("sorry I can't")

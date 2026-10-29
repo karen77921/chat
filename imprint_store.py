@@ -2335,6 +2335,33 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 save_setting("vocab_pop_state", state)
                 return {"item": item, "kind": kind, "count": state["count"], "max": cfg["max"]}
 
+            if op == "today_words":
+                # 今天背过的词（复习、学新词、聊天里的单词卡都算），给短文用
+                items = load_all()
+                picked = [x for x in items if x.get("learned") == today.isoformat()
+                          or any(local_day(e.get("at")) == today.isoformat() for e in x.get("log") or [])]
+                if body.get("ids"):
+                    want = [str(i) for i in body["ids"]]
+                    picked = [x for x in items if x["id"] in want]
+                picked.sort(key=lambda x: max((e.get("at") or "" for e in x.get("log") or []), default=""), reverse=True)
+                return {"items": [{"id": x["id"], "word": x["word"], "meaning": x.get("meaning", "")} for x in picked[:20]]}
+
+            if op in {"story_save", "story_list", "story_get", "story_delete"}:
+                # 用背过的词写的短文：在阅读里再见一次
+                if op == "story_save":
+                    story = {k: body.get(k) for k in ("title", "title_cn", "text", "questions", "translation", "words", "style")}
+                    return {"item": add("vocab_story", {**story, "day": today.isoformat()})}
+                if op == "story_list":
+                    rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='vocab_story' ORDER BY at DESC LIMIT 40").fetchall()
+                    return {"items": [{"id": r["id"], "at": r["at"], **{k: v for k, v in json.loads(r["payload"]).items() if k in ("title", "title_cn", "day", "words", "style")}} for r in rows]}
+                row = conn.execute("SELECT id, at, payload FROM records WHERE kind='vocab_story' AND id=?", (str(body.get("id") or ""),)).fetchone()
+                if not row:
+                    raise ValueError("找不到这篇短文")
+                if op == "story_delete":
+                    conn.execute("DELETE FROM records WHERE kind='vocab_story' AND id=?", (row["id"],))
+                    return {"ok": True}
+                return {"item": {**json.loads(row["payload"]), "id": row["id"], "at": row["at"]}}
+
             if op == "settings":
                 n = int(body.get("daily_new") or 20)
                 if not 1 <= n <= 300:
@@ -3543,6 +3570,24 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
             return imprint_action(data_path, "vocab", {**body, "operation": "add", "by": "me"})
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    @router.get("/vocab/stories")
+    def vocab_stories():
+        return imprint_action(data_path, "vocab", {"operation": "story_list"})
+
+    @router.get("/vocab/story/{rec_id}")
+    def vocab_story(rec_id: str):
+        try:
+            return imprint_action(data_path, "vocab", {"operation": "story_get", "id": rec_id})
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @router.delete("/vocab/story/{rec_id}")
+    def vocab_story_delete(rec_id: str):
+        try:
+            return imprint_action(data_path, "vocab", {"operation": "story_delete", "id": rec_id})
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @router.get("/vocab/pop")
     def vocab_pop_get():

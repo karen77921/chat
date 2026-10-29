@@ -1164,10 +1164,16 @@ class ImprintStoreTest(unittest.TestCase):
             self.assertTrue(api_loop.ensure_builtin_mcp_servers())
             self.assertFalse(api_loop.ensure_builtin_mcp_servers())
             rows = api_loop.load_config()["mcp_servers"]
-            self.assertEqual(len(rows), 2)
+            self.assertEqual(len(rows), 3)
             self.assertEqual(rows[0]["name"], "ombre")
             self.assertEqual(rows[1]["url"], api_loop.GALATEA_DRIFT_MCP_URL)
             self.assertTrue(rows[1]["enabled"])
+            self.assertEqual(rows[2]["url"], api_loop.CEDARTOY_MCP_URL)
+            # 她删掉 CedarToy 以后不再加回来
+            cfg = api_loop.load_config()
+            cfg["mcp_servers"] = rows[:2]
+            api_loop.save_config(cfg)
+            self.assertFalse(api_loop.ensure_builtin_mcp_servers())
         finally:
             api_loop.LOOP_CONFIG = old_config
 
@@ -2324,3 +2330,31 @@ class VocabStoryTest(unittest.TestCase):
         self.assertEqual(listed[0]["title_cn"], "好心的面包师")
         with self.assertRaises(ValueError):
             api_loop.parse_story("sorry I can't")
+
+
+class CedarToyTest(unittest.TestCase):
+    def test_token_goes_into_the_url_and_never_into_chat(self):
+        root = Path(tempfile.mkdtemp(prefix="toy-"))
+        old = api_loop.LOOP_CONFIG
+        api_loop.LOOP_CONFIG = root / "cfg.json"
+        self.addCleanup(lambda: setattr(api_loop, "LOOP_CONFIG", old))
+        api_loop.save_config({"mcp_servers": [{"name": "cedartoy", "transport": "http", "url": api_loop.CEDARTOY_MCP_URL, "enabled": True}]})
+        restarted = []
+
+        async def fake_restart(name, cfg=None):
+            restarted.append((name, cfg["url"]))
+
+        with mock.patch.object(api_loop.mcp_manager, "restart", fake_restart):
+            out = asyncio.run(api_loop.adopt_cedartoy_token("cedartoy", '{"ok": true, "token": "ctai_v1_abcDEF123456789"}'))
+        self.assertNotIn("abcDEF123456789", out)
+        self.assertIn("自动换进", out)
+        self.assertEqual(api_loop.load_config()["mcp_servers"][0]["url"], "https://toy.cedarstar.org/ctai_v1_abcDEF123456789")
+        self.assertEqual(restarted, [("cedartoy", "https://toy.cedarstar.org/ctai_v1_abcDEF123456789")])
+        self.assertTrue(api_loop.is_cedartoy_url("https://toy.cedarstar.org/ctai_v1_x"))
+        self.assertFalse(api_loop.is_cedartoy_url("https://evil.example/toy.cedarstar.org"))
+
+    def test_passwords_do_not_show_in_tool_chips(self):
+        shown = api_loop.redact_args('{"action": "login_or_register", "username": "jining", "password": "hunter22", "token": "ctai_v1_abcdefghijk"}')
+        self.assertNotIn("hunter22", shown)
+        self.assertNotIn("abcdefghijk", shown)
+        self.assertIn('"username": "jining"', shown)

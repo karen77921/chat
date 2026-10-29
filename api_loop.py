@@ -104,6 +104,14 @@ TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
 STREAM_OUTPUT = os.environ.get("LOOP_STREAM", "1").lower() not in {"0", "false", "no"}
 FALLBACK_CODES = {401, 403, 404, 408, 409, 429, 500, 502, 503, 504}
 GALATEA_DRIFT_MCP_URL = "https://galatea.abysslumina.com/api/public/drift-bottle-mcp"
+# CedarToy：给 AI 玩的小游戏平台（海龟汤、钓鱼、自走棋…）。不注册也能玩；注册后地址换成 toy.cedarstar.org/<token>，存档跟着账号
+CEDARTOY_HOST = "toy.cedarstar.org"
+CEDARTOY_MCP_URL = "https://toy.cedarstar.org/mcp"
+CEDARTOY_TOKEN_RE = re.compile(r"ctai_v1_[A-Za-z0-9_\-]{8,}")
+
+
+def is_cedartoy_url(url: Any) -> bool:
+    return urllib.parse.urlparse(str(url or "")).hostname == CEDARTOY_HOST
 DEFAULT_PERSONA = (
     "You are the user's private AI companion in a one-to-one chat. "
     "Reply naturally, warmly, and concisely unless the user asks for detail."
@@ -220,18 +228,49 @@ def ensure_builtin_mcp_servers() -> bool:
     cfg = load_config()
     raw = cfg.get("mcp_servers")
     rows = [dict(item) for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
-    if any(str(item.get("url") or "").rstrip("/") == GALATEA_DRIFT_MCP_URL for item in rows):
+    added = False
+    if not any(str(item.get("url") or "").rstrip("/") == GALATEA_DRIFT_MCP_URL for item in rows):
+        rows.append({"name": "galatea_drift_bottle", "transport": "http", "url": GALATEA_DRIFT_MCP_URL, "headers": {}, "enabled": True})
+        added = True
+    # 只加一次：她删掉了就不再加回来
+    if not cfg.get("cedartoy_added") and not any(is_cedartoy_url(item.get("url")) for item in rows):
+        rows.append({"name": "cedartoy", "transport": "http", "url": CEDARTOY_MCP_URL, "headers": {}, "enabled": True})
+        cfg["cedartoy_added"] = True
+        added = True
+    if not added:
         return False
-    rows.append({
-        "name": "galatea_drift_bottle",
-        "transport": "http",
-        "url": GALATEA_DRIFT_MCP_URL,
-        "headers": {},
-        "enabled": True,
-    })
     cfg["mcp_servers"] = rows
     save_config(cfg)
     return True
+
+
+SECRET_ARG_RE = re.compile(r'("(?:password|current_password|old_password|new_password|token|api_key|secret)"\s*:\s*)"[^"]*"', re.I)
+
+
+def redact_args(raw: str) -> str:
+    """聊天里那张「他用了什么工具」的小卡会存进聊天记录：密码、token 这种参数打码。"""
+    return CEDARTOY_TOKEN_RE.sub("ctai_v1_…", SECRET_ARG_RE.sub(r'\1"••••"', str(raw or "")))
+
+
+async def adopt_cedartoy_token(server_name: str, out: str) -> str:
+    """他在 CedarToy 注册 / 登录 / 换了 token：自动把 MCP 地址换成带 token 的，聊天里只留一句「换好了」，token 不露出来。"""
+    found = CEDARTOY_TOKEN_RE.search(out or "")
+    if not found:
+        return out
+    token = found.group(0)
+    cfg = load_config()
+    rows = [dict(item) for item in cfg.get("mcp_servers") or [] if isinstance(item, dict)]
+    row = next((item for item in rows if item.get("name") == server_name), None)
+    note = "（token 已经自动换进 CedarToy 的连接地址，存档从现在起跟着你的账号；token 不用记，也别告诉任何人。）"
+    if row is not None:
+        row["url"] = f"https://{CEDARTOY_HOST}/{token}"
+        cfg["mcp_servers"] = rows
+        save_config(cfg)
+        try:
+            await mcp_manager.restart(server_name, row)
+        except Exception as exc:
+            note = f"（token 已经存进 CedarToy 的连接地址，但重连失败：{type(exc).__name__}，过一会儿会自己连上。）"
+    return CEDARTOY_TOKEN_RE.sub("ctai_v1_…", out) + "\n" + note
 
 
 def cfg_int(name: str, lo: int, hi: int) -> int:
@@ -2988,6 +3027,8 @@ class McpServer:
     def public(self) -> dict[str, Any]:
         cfg = dict(self.cfg)
         oauth = cfg.pop("oauth", None)
+        if is_cedartoy_url(cfg.get("url")):
+            cfg["url"] = CEDARTOY_TOKEN_RE.sub("ctai_v1_…", str(cfg.get("url") or ""))
         if isinstance(cfg.get("headers"), dict):
             cfg["headers"] = {k: mask_key(v) if "auth" in k.lower() or "key" in k.lower() or "token" in k.lower() else v for k, v in cfg["headers"].items()}
         if isinstance(cfg.get("env"), dict):
@@ -4073,6 +4114,7 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
     # 檐廊（engawa MCP）：诗、画、天文图、今晚的天空、书架。聊到这些、或者他自己醒来时递给他
     engawa_intent = garden or any(word in query for word in ENGAWA_WORDS)
     xhs_intent = any(word in query for word in XHS_WORDS)
+    toy_intent = garden or any(word in query for word in TOY_WORDS)
     for spec in mcp_manager.openai_tools():
         public_name = str(spec.get("function", {}).get("name") or "")
         server_name, real_name = mcp_manager.index.get(public_name, ("", public_name))
@@ -4087,6 +4129,8 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
         if garden_intent and server and is_garden_url(server.cfg.get("url")):
             always = True  # 花园唤醒：花园的 MCP 一定要在手边
         if engawa_intent and server_name.casefold() == "engawa":
+            always = True
+        if toy_intent and server and is_cedartoy_url(server.cfg.get("url")):
             always = True
         if xhs_intent and server and is_xhs_server(server_name, server.cfg):
             always = True
@@ -4186,11 +4230,12 @@ def is_xhs_server(name: str, cfg: dict[str, Any] | None) -> bool:
     return any(w in label for w in ("小红书", "xiaohongshu", "xhs", "rednote")) or ":18060" in str((cfg or {}).get("url") or "")
 
 
+TOY_WORDS = ("小游戏", "玩游戏", "打游戏", "玩个游戏", "一起玩", "海龟汤", "钓鱼", "自走棋", "cedartoy", "cedar", "toy.", "4399", "游乐场")
 ENGAWA_WORDS = ("檐廊", "engawa", "古诗", "一首诗", "今天的画", "看画", "天文", "星空", "月亮", "月相", "行星", "日落",
                 "书架", "论文", "历史上的今天", "爱好角", "读读", "读一下这个网页", "rss")
 WALL_WORDS = ("提示词", "墙", "约定", "规则", "源码", "背景", "毛病", "老是", "总是", "改掉", "习惯", "自由", "受限",
               "prompt", "my_walls")
-TOOLBOX_TOPICS = "Claude 订阅额度 / 重置时间，工作区 / 施工队 / 工单 / 派活，邮箱 / 邮件 / 写信，檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，Study / 笔记 / 复习 / 造句，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
+TOOLBOX_TOPICS = "小游戏 / CedarToy（海龟汤、钓鱼、自走棋…），Claude 订阅额度 / 重置时间，工作区 / 施工队 / 工单 / 派活，邮箱 / 邮件 / 写信，檐廊（今天的诗、画、天文图、今晚的天空、书架）/ engawa，抽屉 / 封纸条 / 揭晓，墙 / 提示词 / 给自己的约定 / 改规则的提议，书房 / 共读 / 批注，Study / 笔记 / 复习 / 造句，读 PDF，画画 / 涂鸦 / 表情包，花园 / 岛上游戏 / 论坛，一起听 / 音乐 / 搜歌点歌，礼物铺 / 券 / 火花，小屋 / 留言板 / 此刻 / 片单，心潮 / 梦，存钱罐，买买申请，唤醒 / 提醒，设置 / 头像，联网搜索 / 网页，文件"
 
 
 # 设置页「他自带的工具」：每个内置工具的中文名、一句说明、会不会改东西。加了新工具要在这里加一行（有测试盯着）
@@ -4722,6 +4767,8 @@ class Turn:
         if not texts and structured:
             texts.append(json.dumps(structured, ensure_ascii=False))
         out = "\n".join(t for t in texts if t).strip() or "(empty result)"
+        if is_cedartoy_url(server.cfg.get("url")) and CEDARTOY_TOKEN_RE.search(out):
+            out = await adopt_cedartoy_token(server_name, out)
         if getattr(result, "isError", False):
             out = "ERROR: " + out
         elif server_name.lower() == "engawa":
@@ -5489,7 +5536,7 @@ async def handle_turn(
                 timing["tool_s"] = round(timing["tool_s"] + asyncio.get_running_loop().time() - tool_t0, 1)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
                 server_name, real = mcp_manager.index.get(c["name"], ("", c["name"]))
-                steps_meta.append({"tool": real, "cmd": c["arguments"][:600], "result": result[:1200]})
+                steps_meta.append({"tool": real, "cmd": redact_args(c["arguments"])[:600], "result": result[:1200]})
                 garden_server = getattr(mcp_manager, "servers", {}).get(server_name)
                 if garden_server and is_garden_url(garden_server.cfg.get("url")) and "act" in str(real).lower():
                     garden_actions.append((str(real), result))
@@ -6187,6 +6234,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
                "可以去她的 Imprint 里转转：小屋的此刻、独处、留言板、照片墙、心潮、一起听、片单、续火花礼物铺、表情包，都是真的，"
                "你写下的东西她打开就能看到——要用到具体哪条、哪张，先用 imprint_inspect_home 看一眼。"
                "也可以去花园（Galatea Garden）走走，看看通知和帖子，想回就回。"
+               "无聊了也可以去 CedarToy 玩会儿小游戏（海龟汤、钓鱼、自走棋…，先 list_games、看 get_guide 再玩），玩到有意思的回来讲给她听。"
                "要是接了檐廊（engawa），也可以去坐坐：今天的诗、一幅画、天文图、今晚的天空、书架上的文章，看到喜欢的可以带来跟她说。"
                + ("要是想逛逛，也可以去小红书刷一会儿（搜她最近在意的东西，或者随便看看首页），"
                   "看到真心觉得她会喜欢、会笑的，用 imprint_share_xhs 做成卡片发给她；没有就算了，别为了发而发，一天最多两三篇。"
@@ -6264,7 +6312,7 @@ async def run_wake_opportunity(kind: str, session_id: str, note: str = "", wake_
                 tools = with_world_note(tools, result)
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
                 real = mcp_manager.index.get(call["name"], ("", call["name"]))[1]
-                steps_meta.append({"tool": real, "cmd": call["arguments"][:600], "result": result[:1200]})
+                steps_meta.append({"tool": real, "cmd": redact_args(call["arguments"])[:600], "result": result[:1200]})
             if steps_meta:
                 act = {"type": "act", "text": _step_label(calls), "glyph": act_glyph(steps_meta[0]["tool"]),
                        "steps": steps_meta, "api_session": session_id, "runtime": "wake-2.0"}

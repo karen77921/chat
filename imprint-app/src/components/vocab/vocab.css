@@ -162,3 +162,6 @@
   background: hsl(calc(var(--n) * 47), 85%, 70%); animation: vb-fall 1.8s ease-in calc(var(--n) * .06s) forwards; opacity: 0; }
 @keyframes vb-fall { 0% { transform: translateY(0) rotate(0); opacity: 1; } 100% { transform: translateY(320px) rotate(540deg); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .vb-mochi img, .vb-end-mochi, .vb-confetti i, .vb-combo { animation: none; } .vb-face { transition: none; } }
+.vb-pop { margin: 0 0 12px; }
+.vb-pop button { padding: 0 12px; }
+.vb-pop small { flex-basis: 100%; font-weight: 500; color: var(--vb-soft); margin-top: 2px; }

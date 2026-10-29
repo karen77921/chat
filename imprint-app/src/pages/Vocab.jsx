@@ -36,6 +36,27 @@ const WEEK = '日一二三四五六';
 /** 他那只年糕在旁边说的话（他的口气） */
 const cheer = (left, done) => (left === 0 ? (done ? '全背完了？过来，奖励你。' : '今天放你一天假。') : left <= 5 ? `就剩 ${left} 个，背完我陪你。` : `${left} 个，慢慢来，我盯着。`);
 
+/** 聊天里抽词：他隔一阵在聊天里弹一张单词卡，你翻开、点记得 / 没记住 */
+const EVERY = [[45, '45 分钟'], [90, '1.5 小时'], [180, '3 小时']];
+function PopSetting({ him = '他' }) {
+  const { data, setData } = useLoad('/api/vocab/pop');
+  const pop = data?.pop;
+  if (!pop) return null;
+  const set = (patch) => {
+    const next = { ...pop, ...patch };
+    setData((d) => ({ ...d, pop: next }));
+    api('/api/vocab/pop', { method: 'POST', body: next }).then(setData).catch(() => setData(data));
+  };
+  return (
+    <div className="vb-daily vb-pop">
+      <span>{him}在聊天里抽我</span>
+      <button type="button" className={pop.on ? 'on' : ''} onClick={() => set({ on: !pop.on })}>{pop.on ? '开着' : '关着'}</button>
+      {pop.on && EVERY.map(([n, label]) => <button key={n} type="button" className={pop.every === n ? 'on' : ''} onClick={() => set({ every: n })}>{label}</button>)}
+      {pop.on && <small>{pop.start}:00–{pop.end}:00，一天最多 {pop.max} 张{data.today ? ` · 今天弹了 ${data.today} 张` : ''}</small>}
+    </div>
+  );
+}
+
 function Level({ x, total }) {
   if (x.new) return <span className="vb-lv new">待学</span>;
   if (x.mastered) return <span className="vb-stamp sm">记牢</span>;
@@ -123,6 +144,8 @@ export default function Vocab({ embedded = false }) {
               <div key={k} className={`vb-note ${c}`} style={{ '--tilt': NOTE_TILT[n] }}><b>{v}</b><em>{k}</em></div>
             ))}
           </div>
+
+          <PopSetting him={him} />
 
           {st.new > 0 && (
             <div className="vb-daily"><span>每天新学</span>{DAILY.map((n) => <button key={n} type="button" className={st.daily_new === n ? 'on' : ''} onClick={() => setDaily(n)}>{n}</button>)}</div>

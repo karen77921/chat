@@ -424,6 +424,8 @@ async function compat(path, opts) {
   if (method === 'DELETE' && (m = /^\/api\/study\/note\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/study/note/${m[1]}`, { method: 'DELETE' });
   if (method === 'POST' && (m = /^\/api\/study\/practice\/([0-9a-f]+)\/fix$/.exec(p))) return loop(`imprint/study/practice/${m[1]}/fix`, opts);
   if (method === 'DELETE' && (m = /^\/api\/study\/practice\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/study/practice/${m[1]}`, { method: 'DELETE' });
+  if (method === 'GET' && p === '/api/vocab/pop') return loop('imprint/vocab/pop');
+  if (method === 'POST' && p === '/api/vocab/pop') return loop('imprint/vocab/pop', opts);
   if (method === 'GET' && (m = /^\/api\/vocab\/(due|wrong|all|mastered|new)$/.exec(p))) return loop(`imprint/vocab/list/${m[1]}`);
   if (method === 'POST' && p === '/api/vocab') return loop('imprint/vocab', { ...opts, timeout: 60000 });
   if (method === 'POST' && (m = /^\/api\/vocab\/do\/(learn|settings|delete_book)$/.exec(p))) return loop(`imprint/vocab/do/${m[1]}`, opts);

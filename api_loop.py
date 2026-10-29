@@ -2729,6 +2729,9 @@ async def build_messages(
         "\n\n【书房】\n"
         "你们有一起读的书，各自有书签。她发来📖开头的消息，是在书里指着一句话问你：先接住她的问题，像坐在她旁边一起看书那样回，"
         "你的回答会自动抄到那句话的页边。闲下来想读就用 imprint_book read 往下读，读到有感觉的句子划线写批注，别编书里没有的内容。"
+        "\n\n【单词卡】\n"
+        "聊天里的 [单词：…] 是你隔一阵弹给她的单词卡，她点「记得 / 没记住」会自己记进单词本。"
+        "她要是直接打字回答或者问这个词，就像抽查一样接着：判对错、讲讲用法，再用 imprint_vocab 的 review 记下。"
         "\n\n【小本本】\n"
         "她告诉你的名字、昵称、东西的来历、你们的约定、她的口味——这种小而具体、忘了会让她失望的事，当场用 imprint_memo 记一行"
         "（写清楚是什么、谁起的）。小本本每一轮都在你眼前，提到这些事之前先看一眼，别再问她已经告诉过你的。"
@@ -6331,6 +6334,32 @@ async def check_new_mail() -> None:
         await run_wake_opportunity("mail", active_session_id(), mail=real)
 
 
+VOCAB_POP_LINES = {
+    "due": ["抽查。这个今天该复习了", "来，这个还记得吗", "到点了，背一个", "趁现在，想想这个"],
+    "wrong": ["这个你之前错过，再来", "老朋友了，这次记住没", "上次栽在它手里，再试一次"],
+    "new": ["今天的新词，先认识一下", "新来的，记一下它"],
+    "old": ["随手考你一个", "突然想考考你", "这个还认得吗"],
+}
+_card_safe = lambda s, n: re.sub(r"[｜\]\[\n]+", " ", str(s or "")).strip()[:n]  # noqa: E731
+
+
+async def maybe_pop_word() -> str:
+    """聊天里抽词：到点就在当前窗口弹一张单词卡（不调模型，不花钱）。她点「记得 / 没记住」直接记进单词本。"""
+    session_id = active_session_id()
+    if not session_id or _active_turns.get(session_id):
+        return "busy"  # 他正在回她，别插一张卡进去
+    out = imprint_action(LOOP_CACHE_DIR / "imprint.db", "vocab", {"operation": "pop"})
+    item = out.get("item")
+    if not item:
+        return str(out.get("skip") or "skip")
+    card = (f"[单词：{item['id']}｜{_card_safe(item['word'], 80)}｜{_card_safe(item.get('meaning'), 200)}"
+            f"｜{_card_safe(item.get('note'), 200)}]")
+    line = random.choice(VOCAB_POP_LINES.get(out.get("kind") or "old", VOCAB_POP_LINES["old"]))
+    ok, _ = await relay_out({"type": "reply", "text": f"{line}\n{card}", "api_session": session_id,
+                             "api": {"runtime": "vocab-pop", "card": "vocab", "word_id": item["id"]}})
+    return "sent" if ok else "error"
+
+
 async def wake_worker() -> None:
     initialized = False
     while True:
@@ -6368,6 +6397,8 @@ async def wake_worker() -> None:
                                           {"tick_min": DRIVE_TICK_S / 60, "mode": "drives" if driver == "drives" else "shadow", "pace": drive_pace()})
                 if driver == "drives" and decision.get("act") and control["enabled"] and control["mode"] != "silent":
                     await run_wake_opportunity("drive", active_session_id(), motive=str(decision.get("motive") or ""))
+            with contextlib.suppress(Exception):
+                await maybe_pop_word()  # 聊天里抽词：没到点、没开就什么都不做
             if _time.monotonic() - _mail_tick["at"] >= cfg_int("mail_check_minutes", 2, 240) * 60:
                 _mail_tick["at"] = _time.monotonic()
                 await check_new_mail()

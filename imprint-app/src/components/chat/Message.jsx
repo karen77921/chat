@@ -11,6 +11,7 @@ import { splitByQuery } from '../../lib/notes.js';
 import { stickerToken } from '../../lib/stickerUrls.js';
 import AuthImg from '../../design/AuthImg.jsx';
 import { useListen } from '../../lib/listen.jsx';
+import { api } from '../../lib/api.js';
 
 function useLongPress(onLong) {
   const t = useRef(null);
@@ -57,7 +58,46 @@ function Text({ text, q }) {
 // 他发的歌卡：[歌：曲目id｜歌名｜歌手]，单独一行；点一下就在一起听里放
 const SONG = /\[歌：([^｜\]\n]+)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
 const songsIn = (text) => [...String(text || '').matchAll(SONG)].map((m) => ({ id: m[1].trim(), title: m[2].trim(), artist: m[3].trim() }));
-const withoutSongs = (text) => String(text || '').replace(SONG, '').replace(/\[申请草稿：[^\]\n]*\]/g, '').replace(XHS, '').replace(/\n{3,}/g, '\n\n').trim();
+const withoutSongs = (text) => String(text || '').replace(SONG, '').replace(/\[申请草稿：[^\]\n]*\]/g, '').replace(XHS, '').replace(WORD, '').replace(/\n{3,}/g, '\n\n').trim();
+
+// 他弹的单词卡：[单词：词id｜单词｜释义｜备注]。先自己想，翻开看答案，点「记得 / 没记住」直接记进单词本
+const WORD = /\[单词：([0-9a-zA-Z]{4,40})｜([^｜\]\n]*)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
+const wordsIn = (text) => [...String(text || '').matchAll(WORD)].map((m) => ({ id: m[1], word: m[2].trim(), meaning: m[3].trim(), note: m[4].trim() }));
+function WordCard({ w, mid }) {
+  const key = `imprint.wordcard.${mid}.${w.id}`;
+  const [state, setState] = useState(() => { try { return localStorage.getItem(key) || ''; } catch { return ''; } });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const answer = async (ok) => {
+    setBusy(true); setErr('');
+    try {
+      await api(`/api/vocab/${w.id}/review`, { method: 'POST', body: { correct: ok } });
+      const s = ok ? 'ok' : 'miss';
+      setState(s);
+      try { localStorage.setItem(key, s); } catch { /* 无痕模式 */ }
+    } catch (e) { setErr(e?.message || '没记上，再点一次'); }
+    setBusy(false);
+  };
+  return (
+    <div className={`cm-word glass ${state}`}>
+      <span className="cm-word-tag">单词卡</span>
+      <b className="cm-word-w">{w.word}</b>
+      {!state ? <button type="button" className="cm-word-open" onClick={() => setState('open')}>想好了，翻开</button> : (
+        <>
+          <p className="cm-word-m">{w.meaning || '（还没写释义）'}</p>
+          {w.note && <small className="cm-word-n">{w.note}</small>}
+          {state === 'open' ? (
+            <div className="cm-word-b">
+              <button type="button" disabled={busy} onClick={() => answer(true)}>记得</button>
+              <button type="button" disabled={busy} className="miss" onClick={() => answer(false)}>没记住</button>
+            </div>
+          ) : <em className="cm-word-r">{state === 'ok' ? '记得 ✓ 下次复习往后推了' : '进错词本了，过一阵再考你'}</em>}
+          {err && <em className="cm-word-r err">{err}</em>}
+        </>
+      )}
+    </div>
+  );
+}
 
 // 他分享的小红书帖子：[小红书：笔记id｜xsec_token｜标题｜作者｜封面]，点开去小红书看原帖
 const XHS = /\[小红书：([0-9a-zA-Z]{8,40})｜([^｜\]\n]*)｜([^｜\]\n]*)｜([^｜\]\n]*)｜([^\]\n]*)\]/g;
@@ -267,7 +307,7 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
             <div key={index} className="cm-sticker"><Sticker sticker={{ id: stickerToken(part) }} size={88} /></div>
           ) : (
             <Fragment key={index}>
-              {(withoutSongs(part) || (index === 0 && m.quote) || !(songsIn(part).length || draftsIn(part).length || xhsIn(part).length)) && (
+              {(withoutSongs(part) || (index === 0 && m.quote) || !(songsIn(part).length || draftsIn(part).length || xhsIn(part).length || wordsIn(part).length)) && (
                 <div data-part={index} className={`cm-bubble ${mine ? 'me' : 'him'}`}>
                   {index === 0 && m.quote && <Quote quote={m.quote} nameOf={nameOf} />}
                   <Text text={withoutSongs(part)} q={q} />
@@ -277,6 +317,7 @@ export default function Message({ m, nameOf, sender, q, foot, onMenu, onOpenImag
               {songsIn(part).map((song) => <SongCard key={song.id} song={song} />)}
               {draftsIn(part).map((d) => <DraftCard key={d.id} d={d} />)}
               {xhsIn(part).map((x) => <XhsCard key={x.id} x={x} />)}
+              {wordsIn(part).map((w) => <WordCard key={w.id} w={w} mid={m.id} />)}
             </Fragment>
           )))}
         </div>

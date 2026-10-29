@@ -301,3 +301,18 @@ svg.up { transform: rotate(180deg); }
 .cin-reply { color: var(--muted); background: rgba(255, 252, 248, 0.82); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85) inset, 0 6px 16px rgba(var(--sh-rgb), 0.06); }
 .cin-reply:not(:disabled) { color: #fff; background: linear-gradient(150deg, var(--print-a), var(--print-b) 45%, var(--print-c)); }
 .cin-reply .cnt { color: var(--print-c); background: #fff; }
+
+/* 他弹的单词卡 */
+.cm-word { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 230px; max-width: 100%; padding: 14px 16px 14px; border-radius: 20px; color: var(--ink); }
+.cm-word-tag { font-size: 10.5px; letter-spacing: 0.24em; color: var(--muted); }
+.cm-word-w { font-family: var(--serif); font-size: 26px; font-weight: 500; letter-spacing: 0.01em; line-height: 1.2; word-break: break-word; }
+.cm-word-open { margin-top: 4px; padding: 7px 14px; border-radius: 99px; border: 1px dashed var(--line); background: transparent; color: var(--muted); font-size: 12.5px; letter-spacing: 0.08em; }
+.cm-word-m { margin: 2px 0 0; font-size: 14px; line-height: 1.6; }
+.cm-word-n { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.cm-word-b { display: flex; gap: 8px; margin-top: 6px; }
+.cm-word-b button { padding: 7px 16px; border-radius: 99px; border: 0; background: var(--accent); color: #fff; font-size: 13px; letter-spacing: 0.1em; }
+.cm-word-b button.miss { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cm-word-b button:disabled { opacity: 0.5; }
+.cm-word-r { font-style: normal; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.cm-word-r.err { color: #a35e62; }
+.cm-word.miss .cm-word-w { color: #a0625d; }

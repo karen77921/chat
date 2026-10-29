@@ -108,6 +108,7 @@ const chats = {
       { id: 'c4m', from: 'him', type: 'text', text: '睡前听这个\n[歌：t2｜Gymnopédie No.1｜Satie]', at: C('22:54') },
       { id: 'c4x', from: 'him', type: 'text', text: `刷到这家，想起你说想找个能坐一下午的地方。灯是暖黄的，你会喜欢\n[小红书：65a1b2c3d4e5f6a7b8c9d0e1｜ABtok｜城南这家咖啡店能坐一整个下午，窗边的位置绝了｜小鹿在喝咖啡｜data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6c7a8"/><stop offset="1" stop-color="#8a5a44"/></linearGradient></defs><rect width="300" height="400" fill="url(#g)"/><circle cx="150" cy="170" r="70" fill="#fff3e6"/><rect x="115" y="150" width="70" height="55" rx="10" fill="#c98b62"/><text x="150" y="330" font-size="30" text-anchor="middle" fill="#fff" font-family="sans-serif">慢慢喝</text></svg>')}]`, at: C('22:56') },
       { id: 'c4p', from: 'him', type: 'text', text: '帮你填好了，自己看一下再交。\n[申请草稿：d1a2b3c4d5｜【赠主食猫条1包】鸡肉鱼油固毛流心罐1盒｜50.9｜尾巴生活抖音旗舰店]', at: C('22:55') },
+      { id: 'c4w', from: 'him', type: 'text', text: '这个你之前错过，再来\n[单词：a1b2c3｜benevolent｜adj. 仁慈的，善意的｜a benevolent smile 慈祥的微笑]', at: C('22:55') },
       { id: 'c5', from: 'him', type: 'text', text: '凌晨真的可能下雪。\n拍照又站在路中间了吧？', at: C('22:54'), replyOptions: ['才没有，我很小心的', '你管我～', '我把刚拍的那张发给你'] },
       { id: 'c6', from: 'me', type: 'text', text: '没有！站在路边的！', quote: { id: 'c5', from: 'him', text: '拍照又站在路中间了吧？' }, status: 'queued', at: C('22:57') },
       { id: 'c7', from: 'me', type: 'voice', voice: { url: '', durationS: 6, transcript: '周六的电影订好位置了，第七排中间' }, status: 'queued', at: C('22:58') },
@@ -647,6 +648,8 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
     case 'GET /api/study/practice/missed': return { available: true, names: { him: 'Ash' }, items: studyPractice.filter((x) => x.good === false && !x.fixed), stats: sStats() };
     case 'POST /api/study/notes': { const n = { id: `n${Date.now()}`, ...body, by: 'me', stage: 0, due: new Date(Date.now() + 86400000).toISOString().slice(0, 10), practiced: 0 }; studyNotes = [n, ...studyNotes]; return { note: n, stats: sStats() }; }
     case 'GET /api/vocab/due': case 'GET /api/vocab/wrong': case 'GET /api/vocab/all': case 'GET /api/vocab/mastered': return vocabView(p.split('/')[3]);
+    case 'GET /api/vocab/pop': return { pop: state.vpop ??= { on: true, every: 90, start: 9, end: 23, max: 8 }, today: 2 };
+    case 'POST /api/vocab/pop': state.vpop = body; return { pop: body, today: 2 };
     case 'POST /api/vocab': return vocabAdd(body);
     case 'GET /api/vocab/new': return vocabView('new');
     case 'POST /api/vocab/do/learn': return { items: vocab.filter((x) => x.new).slice(0, 20 - vocab.filter((x) => x.learned === dayISO()).length), stats: vStats() };

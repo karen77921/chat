@@ -2251,3 +2251,49 @@ class MemoTest(unittest.TestCase):
     def test_memo_tool_is_at_hand(self):
         self.assertIn("imprint_memo", [t["function"]["name"] for t in api_loop.turn_tools("今天好累")])
         self.assertIn("imprint_memo", [t["function"]["name"] for t in api_loop.turn_tools("它叫什么名字来着", light=True)])
+
+
+class VocabPopTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.db = Path(self.temp.name) / "imprint.db"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def pop(self, body=None):
+        return imprint_action(self.db, "vocab", {"operation": "pop", **(body or {})})
+
+    def test_cards_pop_on_schedule_and_skip_reviewed_words(self):
+        imprint_action(self.db, "vocab", {"operation": "add", "words": "abandon 放弃\nbenevolent 仁慈的", "wrong": True})
+        self.assertEqual(self.pop()["skip"], "off")  # 默认关
+        noon = dt.datetime(2026, 10, 29, 12, 0, tzinfo=imprint_store.ZONE)
+        with mock.patch.object(imprint_store.dt, "datetime", wraps=dt.datetime) as fake:
+            fake.now.return_value = noon
+            self.assertTrue(self.pop({"set": {"on": True, "every": 60, "start": 9, "end": 23, "max": 2}})["pop"]["on"])
+            first = self.pop()
+            self.assertIn(first["item"]["word"], {"abandon", "benevolent"})
+            self.assertEqual(self.pop()["skip"], "wait")  # 一小时内不再弹
+            fake.now.return_value = noon + dt.timedelta(minutes=61)
+            second = self.pop()
+            self.assertNotEqual(second["item"]["id"], first["item"]["id"])  # 同一天不重复
+            fake.now.return_value = noon + dt.timedelta(minutes=130)
+            self.assertEqual(self.pop()["skip"], "max")
+            fake.now.return_value = noon.replace(hour=23, minute=30) + dt.timedelta(days=1)
+            self.assertEqual(self.pop()["skip"], "hours")
+        with self.assertRaises(ValueError):
+            self.pop({"set": {"start": 20, "end": 8}})
+
+    def test_card_message_goes_to_the_chat(self):
+        sent = []
+
+        async def fake_out(payload):
+            sent.append(payload)
+            return True, {}
+
+        with mock.patch.object(api_loop, "imprint_action", return_value={"item": {"id": "w1", "word": "abandon", "meaning": "放弃｜丢下", "note": ""}, "kind": "wrong"}), \
+                mock.patch.object(api_loop, "relay_out", fake_out), mock.patch.object(api_loop, "active_session_id", return_value="s1"):
+            self.assertEqual(asyncio.run(api_loop.maybe_pop_word()), "sent")
+        self.assertEqual(sent[0]["api_session"], "s1")
+        self.assertIn("[单词：w1｜abandon｜放弃 丢下｜]", sent[0]["text"])
+        self.assertNotIn("proactive", sent[0]["api"])

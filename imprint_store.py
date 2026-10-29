@@ -65,7 +65,8 @@ APP_MAP = [
     "设置：人设、额外提示词、模型线路、功能开关、缓存体检、美化（imprint_inspect_settings）",
 ]
 VOCAB_OFFSETS = (1, 2, 4, 7, 15, 30)
-MEMO_MAX, MEMO_CHARS = 120, 160  # 小本本：最多 120 条、每条一句话（每一轮都整本带上）  # 艾宾浩斯：从第一次出现算起，第 1、2、4、7、15、30 天各复习一次
+MEMO_MAX, MEMO_CHARS = 120, 160
+VOCAB_POP_DEFAULT = {"on": False, "every": 90, "start": 9, "end": 23, "max": 8}  # 聊天里抽词：默认关，开了每 90 分钟一张  # 小本本：最多 120 条、每条一句话（每一轮都整本带上）  # 艾宾浩斯：从第一次出现算起，第 1、2、4、7、15、30 天各复习一次
 
 
 VOCAB_POS = re.compile(r"(?:\s+|^)((?:n|v|vt|vi|adj|adv|prep|conj|pron|num|art|int|interj|aux|abbr|phr)\.(?:\s*[&/,]?\s*(?:n|v|vt|vi|adj|adv|prep|conj|pron|num)\.)*)\s*$", re.I)
@@ -2293,6 +2294,47 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
                 n = int(body.get("n") or st["learn_left"])
                 return {"items": fresh[:max(0, min(n, 200))], "stats": st}
 
+            if op == "pop":
+                # 聊天里抽词：他隔一阵在聊天里弹一张单词卡。set = 改设置；peek = 只看；不带 = 到点了就挑一个词
+                cfg = {**VOCAB_POP_DEFAULT, **setting("vocab_pop")}
+                if isinstance(body.get("set"), dict):
+                    new = body["set"]
+                    cfg = {"on": bool(new.get("on", cfg["on"])),
+                           "every": max(20, min(int(new.get("every", cfg["every"])), 720)),
+                           "start": max(0, min(int(new.get("start", cfg["start"])), 23)),
+                           "end": max(1, min(int(new.get("end", cfg["end"])), 24)),
+                           "max": max(1, min(int(new.get("max", cfg["max"])), 40))}
+                    if cfg["end"] <= cfg["start"]:
+                        raise ValueError("结束时间要晚于开始时间")
+                    save_setting("vocab_pop", cfg)
+                now = dt.datetime.now(ZONE)
+                state = setting("vocab_pop_state")
+                if state.get("day") != today.isoformat():
+                    state = {"day": today.isoformat(), "count": 0, "recent": [], "last_at": state.get("last_at", "")}
+                if body.get("set") is not None or body.get("peek"):
+                    return {"pop": cfg, "today": state.get("count", 0)}
+                last = _ts(state.get("last_at"))
+                why = ("off" if not cfg["on"] else "hours" if not cfg["start"] <= now.hour < cfg["end"]
+                       else "max" if state["count"] >= cfg["max"]
+                       else "wait" if last and now - last < dt.timedelta(minutes=cfg["every"]) else "")
+                if why:
+                    return {"skip": why}
+                items = load_all()
+                done = {x["id"] for x in items if any(local_day(e.get("at")) == today.isoformat() for e in x.get("log") or [])}
+                fresh = [x for x in items if x["id"] not in done and x["id"] not in state["recent"]]
+                learned = sum(1 for x in items if x.get("learned") == today.isoformat())
+                pools = [("due", sorted([x for x in fresh if is_due(x)], key=lambda x: (-int(x.get("wrong") or 0), x.get("due") or ""))),
+                         ("wrong", [x for x in fresh if int(x.get("wrong") or 0) > 0 and not x.get("mastered") and not x.get("new")]),
+                         ("new", [x for x in reversed(fresh) if x.get("new")] if learned < daily_new else []),
+                         ("old", [x for x in fresh if not x.get("new") and not x.get("mastered")])]
+                kind, pool = next(((k, p) for k, p in pools if p), ("", []))
+                if not pool:
+                    return {"skip": "no words"}
+                item = pool[0] if kind in {"due", "new"} else random.choice(pool[:30])
+                state.update(count=state["count"] + 1, last_at=now.isoformat(), recent=(state["recent"] + [item["id"]])[-60:])
+                save_setting("vocab_pop_state", state)
+                return {"item": item, "kind": kind, "count": state["count"], "max": cfg["max"]}
+
             if op == "settings":
                 n = int(body.get("daily_new") or 20)
                 if not 1 <= n <= 300:
@@ -3500,6 +3542,17 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
         try:
             return imprint_action(data_path, "vocab", {**body, "operation": "add", "by": "me"})
         except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.get("/vocab/pop")
+    def vocab_pop_get():
+        return imprint_action(data_path, "vocab", {"operation": "pop", "peek": True})
+
+    @router.post("/vocab/pop")
+    async def vocab_pop_set(request: Request):
+        try:
+            return imprint_action(data_path, "vocab", {"operation": "pop", "set": await request.json()})
+        except (ValueError, TypeError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
     @router.post("/vocab/do/{op}")

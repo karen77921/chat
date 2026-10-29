@@ -606,6 +606,14 @@ export async function mockFetch(path, { method = 'GET', body } = {}) {
   await sleep(120);
   const [p, qsRaw = ''] = path.split('?');
   if (p.startsWith('/api/books')) return mockBooks(method, p, body);
+  if (p.startsWith('/api/memo')) {
+    state.memo ??= [{ id: 'a1', text: '她背包里的小白山羊叫山羊二号，名字是她起的（一号是她自己）', by: 'him', at: '2026-10-28T09:57:00+08:00' }, { id: 'a2', text: '不吃香菜', by: 'me', at: '2026-10-20T12:00:00+08:00' }];
+    const id = p.split('/')[3];
+    if (method === 'GET') return { available: true, names: { me: '瑄瑄', him: '哥哥' }, items: state.memo, max: 120 };
+    if (method === 'POST' && !id) { const item = { id: `m${Date.now()}`, text: body.text, by: 'me', at: new Date().toISOString() }; state.memo.push(item); return { item }; }
+    if (method === 'POST') { const x = state.memo.find((v) => v.id === id); Object.assign(x, { text: body.text, edited: new Date().toISOString() }); return { item: x }; }
+    if (method === 'DELETE') { state.memo = state.memo.filter((v) => v.id !== id); return { ok: true }; }
+  }
   if (p.startsWith('/api/crew/')) return crewApi(method, p, body, new URLSearchParams(qsRaw));
   const qs = new URLSearchParams(qsRaw);
   const key = `${method} ${p}`;

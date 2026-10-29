@@ -37,7 +37,7 @@ const KIND = {
 const TREASURES = [
   ['一起', 'musicbox', '#/together'], ['留言板', 'feather', '#/notes'], ['搜留言', 'mirror', '#/notes?search=1'], ['续火花', 'perfume', '#/spark'],
   ['买买申请', 'tiara', '#/approvals'], ['存钱罐', 'pearls', '#/piggy'], ['Study', 'menuet', '#/words'], ['抽屉', 'jewelbox', '#/drawer'],
-  ['他的世界', 'swan', '#/world'],
+  ['他的世界', 'swan', '#/world'], ['小本本', 'invitation', '#/memo'],
 ];
 /** 芭蕾小画贴纸（她给的素材抠出来的） */
 const STK = Object.fromEntries(Object.entries(import.meta.glob('../../design/ballet/stickers/*.webp', { eager: true, import: 'default' }))

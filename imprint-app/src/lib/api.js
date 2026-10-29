@@ -458,6 +458,10 @@ async function compat(path, opts) {
     await request(`${RELAY}/app/trigger`, { method: 'POST', body: { api_session: sid } });
     return { ok: true, session: sid };
   }
+  if (method === 'GET' && p === '/api/memo') return loop('imprint/memo');
+  if (method === 'POST' && p === '/api/memo') return loop('imprint/memo', opts);
+  if (method === 'POST' && (m = /^\/api\/memo\/([0-9a-f]+)\/edit$/.exec(p))) return loop(`imprint/memo/${m[1]}/edit`, opts);
+  if (method === 'DELETE' && (m = /^\/api\/memo\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/memo/${m[1]}`, { method: 'DELETE' });
   if (method === 'GET' && p === '/api/piggy') return loop('imprint/piggy');
   if (method === 'POST' && p === '/api/piggy') return loop('imprint/piggy', opts);
   if (method === 'DELETE' && (m = /^\/api\/piggy\/([0-9a-f]+)$/.exec(p))) return loop(`imprint/piggy/${m[1]}`, { method: 'DELETE' });

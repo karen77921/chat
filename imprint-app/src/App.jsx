@@ -19,6 +19,7 @@ const ChatList = lazy(() => import('./pages/ChatList.jsx'));
 const Spark = lazy(() => import('./pages/Spark.jsx'));
 const Approvals = lazy(() => import('./pages/Approvals.jsx'));
 const Piggy = lazy(() => import('./pages/Piggy.jsx'));
+const Memo = lazy(() => import('./pages/Memo.jsx'));
 const Learn = lazy(() => import('./pages/Learn.jsx'));
 const Study = lazy(() => import('./pages/Study.jsx'));
 const Drawer = lazy(() => import('./pages/Drawer.jsx'));
@@ -37,6 +38,7 @@ const ROUTES = {
   '/spark': Spark,
   '/approvals': Approvals,
   '/piggy': Piggy,
+  '/memo': Memo,
   '/drawer': Drawer,
   '/world': World,
   '/work': Workspace,

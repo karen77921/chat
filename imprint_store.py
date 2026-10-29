@@ -50,6 +50,7 @@ WEARABLE_CATS = {"bubble", "pendant"}  # 气泡/挂件：换了收进「收藏�
 # 给他的「家里地图」：每个页面在哪、里面有什么、他用哪个工具去碰（页面加了新的，这里也要加一行）
 APP_MAP = [
     "底栏五个：首页 / 小屋 / 聊天 / 心潮 / 设置",
+    "百宝箱 → 小本本：你们俩记下的小事（名字、昵称、东西的来历、约定、她的口味），每一轮你都整本看得到；她也能在页面上加、改、删（imprint_memo）",
     "首页：两个人的头像和在一起天数、你想对她说的话、留言板、你的心情和待办、一起听 / 一起看、你的动态；最底下是「百宝箱」",
     "一起 → 一起听：她搜歌（30 秒试听）或上传整首，排成队列一起听；她在听的时候你每轮都知道在放哪首。你能搜歌、点歌（现在放 / 下一首 / 排队，可以附一句话）、把歌卡发进聊天（imprint_music）；删歌、调顺序、换模式是她的",
     "百宝箱（首页最底下那张卡，点开是一格一格的小功能）：一起（听歌、看片、读书）、留言板、搜留言、续火花、买买申请、存钱罐、单词本",
@@ -63,7 +64,8 @@ APP_MAP = [
     "心潮：你的情绪、记忆、梦（imprint_update_tide 等）",
     "设置：人设、额外提示词、模型线路、功能开关、缓存体检、美化（imprint_inspect_settings）",
 ]
-VOCAB_OFFSETS = (1, 2, 4, 7, 15, 30)  # 艾宾浩斯：从第一次出现算起，第 1、2、4、7、15、30 天各复习一次
+VOCAB_OFFSETS = (1, 2, 4, 7, 15, 30)
+MEMO_MAX, MEMO_CHARS = 120, 160  # 小本本：最多 120 条、每条一句话（每一轮都整本带上）  # 艾宾浩斯：从第一次出现算起，第 1、2、4、7、15、30 天各复习一次
 
 
 VOCAB_POS = re.compile(r"(?:\s+|^)((?:n|v|vt|vi|adj|adv|prep|conj|pron|num|art|int|interj|aux|abbr|phr)\.(?:\s*[&/,]?\s*(?:n|v|vt|vi|adj|adv|prep|conj|pron|num)\.)*)\s*$", re.I)
@@ -2330,6 +2332,37 @@ def imprint_action(data_path: Path, action: str, payload: dict | None = None, re
             limit = max(1, min(int(body.get("limit") or 500), 1000))
             return {"items": picked[:limit], "stats": stats(items)}
 
+        if action == "memo":
+            # 小本本：名字、昵称、东西的来历、约定这种小而具体的事。每一轮都整本给他看，所以要短、要准
+            op = str(body.get("operation") or "list")
+            rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='memo' ORDER BY at").fetchall()
+            items = [{**json.loads(r["payload"]), "id": r["id"], "at": r["at"]} for r in rows]
+            if op == "list":
+                return {"items": items, "max": MEMO_MAX}
+            text = re.sub(r"\s+", " ", str(body.get("text") or "")).strip()[:MEMO_CHARS]
+            if op == "add":
+                if not text:
+                    raise ValueError("要写一句：比如「她背包里的小山羊叫山羊二号，是她起的」")
+                same = next((x for x in items if _norm(x["text"]) == _norm(text)), None)
+                if same:
+                    return {"item": same, "duplicate": True}
+                if len(items) >= MEMO_MAX:
+                    raise ValueError(f"小本本记满了（{MEMO_MAX} 条）：先把过时的删掉，或者几条合成一条")
+                return {"item": add("memo", {"text": text, "by": "him" if body.get("by") == "him" else "me"}), "count": len(items) + 1}
+            item = next((x for x in items if x["id"] == str(body.get("id") or "")), None)
+            if not item:
+                raise ValueError("小本本上没有这一条（先 list 看 id）")
+            if op == "edit":
+                if not text:
+                    raise ValueError("改成什么？")
+                payload = {"text": text, "by": item.get("by", "me"), "edited": iso_now()}
+                conn.execute("UPDATE records SET payload=? WHERE id=? AND kind='memo'", (json.dumps(payload, ensure_ascii=False), item["id"]))
+                return {"item": {**payload, "id": item["id"], "at": item["at"]}}
+            if op == "remove":
+                conn.execute("DELETE FROM records WHERE id=? AND kind='memo'", (item["id"],))
+                return {"ok": True, "removed": item["text"]}
+            raise ValueError("operation 只能是 list / add / edit / remove")
+
         if action == "piggy_list":
             # 存钱罐：只有她能存、能扣；他只能看
             rows = conn.execute("SELECT id, at, payload FROM records WHERE kind='piggy' ORDER BY at DESC").fetchall()
@@ -3538,6 +3571,32 @@ def register_imprint_routes(app, data_path: Path, relay_path: Path) -> None:
     @router.delete("/books/{book_id}")
     def books_delete(book_id: str):
         return book_call("book_delete", {"book": book_id})
+
+    # —— 小本本 ——
+    @router.get("/memo")
+    def memo_list():
+        return {"available": True, "names": public_names(), **imprint_action(data_path, "memo", {"operation": "list"})}
+
+    @router.post("/memo")
+    async def memo_add(request: Request):
+        try:
+            return imprint_action(data_path, "memo", {**(await request.json()), "operation": "add", "by": "me"})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.post("/memo/{rec_id}/edit")
+    async def memo_edit(rec_id: str, request: Request):
+        try:
+            return imprint_action(data_path, "memo", {**(await request.json()), "operation": "edit", "id": rec_id})
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @router.delete("/memo/{rec_id}")
+    def memo_delete(rec_id: str):
+        try:
+            return imprint_action(data_path, "memo", {"operation": "remove", "id": rec_id})
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @router.get("/purchases")
     def purchases():

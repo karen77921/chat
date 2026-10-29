@@ -2223,3 +2223,31 @@ class WindowChoiceTest(unittest.TestCase):
         api_loop.patch_session("b", {"archived": True})
         api_loop.touch_session("a")
         self.assertTrue(next(r for r in api_loop.session_rows() if r["id"] == "b")["archived"])
+
+
+class MemoTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.db = Path(self.temp.name) / "imprint.db"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_notebook_add_edit_remove_and_context(self):
+        act = lambda body: imprint_action(self.db, "memo", body)  # noqa: E731
+        goat = act({"operation": "add", "text": "她背包里的小山羊叫山羊二号，名字是她起的", "by": "him"})["item"]
+        self.assertTrue(act({"operation": "add", "text": "她背包里的小山羊叫山羊二号，名字是她起的 "})["duplicate"])
+        mine = act({"operation": "add", "text": "不吃香菜", "by": "me"})["item"]
+        act({"operation": "edit", "id": goat["id"], "text": "小山羊叫山羊二号（她起的），一号是她自己"})
+        self.assertEqual([x["text"] for x in act({"operation": "list"})["items"]], ["小山羊叫山羊二号（她起的），一号是她自己", "不吃香菜"])
+        with mock.patch.object(api_loop, "LOOP_CACHE_DIR", Path(self.temp.name)):
+            text = api_loop.memo_context_text()
+        self.assertIn("- 小山羊叫山羊二号（她起的），一号是她自己\n- 不吃香菜（她记的）", text)
+        act({"operation": "remove", "id": mine["id"]})
+        self.assertEqual(len(act({"operation": "list"})["items"]), 1)
+        with self.assertRaises(ValueError):
+            act({"operation": "add", "text": "  "})
+
+    def test_memo_tool_is_at_hand(self):
+        self.assertIn("imprint_memo", [t["function"]["name"] for t in api_loop.turn_tools("今天好累")])
+        self.assertIn("imprint_memo", [t["function"]["name"] for t in api_loop.turn_tools("它叫什么名字来着", light=True)])

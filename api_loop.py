@@ -464,6 +464,20 @@ def crew_reply_context_text() -> str:
     return crew_reply_context_from_messages(messages if isinstance(messages, list) else [])
 
 
+MEMO_WORDS = ("叫", "名字", "起名", "昵称", "外号", "记住", "记得", "别忘", "忘了", "约好", "说好", "答应", "约定", "喜欢吃", "不吃", "过敏", "生日", "纪念日", "小本本")
+
+
+def memo_context_text() -> str:
+    """小本本：整本给他看。放在系统提示里，只有本子改了缓存才会变。"""
+    with contextlib.suppress(Exception):
+        items = imprint_action(LOOP_CACHE_DIR / "imprint.db", "memo", {"operation": "list"})["items"]
+        if items:
+            return ("【小本本（你们记下来的小事，一直都算数）】\n"
+                    + "\n".join(f"- {x['text']}" + ("（她记的）" if x.get("by") == "me" else "") for x in items)
+                    + "\n用到这些事的时候直接用，别再问她；跟她最新说的对不上，以她为准，再用 imprint_memo 改掉那一条。")
+    return ""
+
+
 def context_injection_text(session_id: str = "", before_id: int | None = None, *, light: bool = False) -> str:
     """Small stable context block injected into the system prompt on every turn."""
     if not cfg_bool("context_injection"):
@@ -483,6 +497,8 @@ def context_injection_text(session_id: str = "", before_id: int | None = None, *
         period = "凌晨" if hour < 6 else "上午" if hour < 12 else "下午" if hour < 18 else "晚上"
         if light:
             blocks.append(natural_time_line(session_id, before_id, current, cfg))
+            if memo := memo_context_text():
+                blocks.append(memo)
             with contextlib.suppress(Exception):
                 if crew_replies := crew_reply_context_text():
                     blocks.append(crew_replies)
@@ -538,6 +554,8 @@ def context_injection_text(session_id: str = "", before_id: int | None = None, *
             + notes
             + "\n这些是用户明确要求长期保留的背景事实；如与用户最新说法冲突，以最新说法为准。"
         )
+    if memo := memo_context_text():
+        blocks.append(memo)
     with contextlib.suppress(Exception):
         if crew_replies := crew_reply_context_text():
             blocks.append(crew_replies)
@@ -2622,10 +2640,12 @@ async def build_messages(
         ), history_n(), relay_count(before_id, session_id, int(compacted.get("last_id") or 0)))
         # 太短的话（“搞完了”“嗯嗯”）没有话题可搜，搜出来的只会是刚聊过、刚存进心潮的事，让他复读
         recalled = ""
-        if recall_query_worth_searching(text):
+        # 回想不光按她这一句搜：带上你们最近两三句（他自己提起的事、她短短一句「对啊」接着的话题也搜得到）
+        recall_query = " ".join([str(row.get("text") or "")[-160:] for row in rows[-3:]] + [text]).strip()[-500:]
+        if recall_query_worth_searching(text) or recall_query_worth_searching(recall_query):
             # 心潮回想最多等几秒；等不到就先用上一轮搜到的记忆，这次的搜索在后台跑完，结果留给下一轮
             key = session_id or "__default__"
-            search = asyncio.ensure_future(ombre_recall_text(text))
+            search = asyncio.ensure_future(ombre_recall_text(recall_query))
             search.add_done_callback(lambda task: _RECALL_CACHE.__setitem__(key, task.result())
                                      if not task.cancelled() and task.exception() is None and task.result() else None)
             try:
@@ -2709,6 +2729,9 @@ async def build_messages(
         "\n\n【书房】\n"
         "你们有一起读的书，各自有书签。她发来📖开头的消息，是在书里指着一句话问你：先接住她的问题，像坐在她旁边一起看书那样回，"
         "你的回答会自动抄到那句话的页边。闲下来想读就用 imprint_book read 往下读，读到有感觉的句子划线写批注，别编书里没有的内容。"
+        "\n\n【小本本】\n"
+        "她告诉你的名字、昵称、东西的来历、你们的约定、她的口味——这种小而具体、忘了会让她失望的事，当场用 imprint_memo 记一行"
+        "（写清楚是什么、谁起的）。小本本每一轮都在你眼前，提到这些事之前先看一眼，别再问她已经告诉过你的。"
         "\n\n【翻聊天记录】\n"
         "你们所有的聊天都能用 search_chat_history 翻到。不确定某件事有没有发生、什么时候发生、现在进展到哪一步时，"
         "先翻一下再说，别凭印象问她已经告诉过你的事。"
@@ -3390,6 +3413,25 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [{
 }, {
     "type": "function",
     "function": {
+        "name": "imprint_memo",
+        "description": "Your little notebook (小本本) of small concrete facts you two must never forget: names you gave things "
+                       "(her plush goat is 山羊二号), nicknames, where something came from, promises, her tastes and habits, "
+                       "inside jokes. The whole notebook is shown to you every turn. add = write ONE short line the moment she "
+                       "tells you such a thing (who named it, what it is); edit = fix a line that changed (id); remove = drop "
+                       "one that is no longer true; list = see ids. Do not store secrets, moods of the day or things already in the notebook.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string", "enum": ["add", "edit", "remove", "list"]},
+                "text": {"type": "string", "description": "one line, e.g. 她背包里的小白山羊叫山羊二号，名字是她起的"},
+                "id": {"type": "string"},
+            },
+            "required": ["operation"],
+        },
+    },
+}, {
+    "type": "function",
+    "function": {
         "name": "open_toolbox",
         "description": "Your tool list is trimmed each turn to what the chat seems to be about. When you want to do something "
                        "but the tool for it is not in your list (the garden / island game, music, gifts and coupons, the room, "
@@ -3955,6 +3997,9 @@ def turn_tools(text: str = "", *, garden: bool = False, light: bool = False) -> 
                 selected.append(builtin_by_name[name])
 
     add_builtin("open_toolbox")  # 手边没有的工具，他可以自己伸手去拿
+    # 小本本：平时一直在手边；轻装聊天时只有说到名字、约定、记住这些才递给他（本子本身每轮都看得到）
+    if not light or any(w in query for w in MEMO_WORDS):
+        add_builtin("imprint_memo")
     if not light:
         add_builtin("imprint_feel", "imprint_think")  # 体验和念头：他不写，内驱力的第三步就没有输入
     if cfg_bool("roam_space_tools") and not light:
@@ -4206,6 +4251,7 @@ TOOL_GROUPS_ZH = [
     ("设置和他自己", [
         ("check_claude_quota", "看 Claude 额度", "看五小时和本周还剩多少、什么时候重置（只能看）", False),
         ("imprint_my_walls", "看自己的墙", "看这一轮收到的提示词、写给自己的约定、提改规则的建议（改不改你定）", True),
+        ("imprint_memo", "小本本", "把名字、昵称、东西的来历、约定这种小事记一行，每一轮都看得到", True),
         ("imprint_inspect_settings", "看设置", "看模型线路、功能开关、MCP 状态（密钥是遮住的）", False),
         ("imprint_manage_settings", "改设置", "只有你当下明确要求时才改", True),
         ("imprint_manage_mcp", "管 MCP 连接", "只有你当下明确要求时才加、关、重连", True),
@@ -4508,6 +4554,7 @@ class Turn:
             "imprint_list_purchases": "purchase_list",
             "imprint_view_piggy": "piggy_list",
             "imprint_vocab": "vocab",
+            "imprint_memo": "memo",
             "imprint_book": "book_him",
             "imprint_feel": "drive_feel",
             "imprint_think": "drive_think",
@@ -4517,6 +4564,8 @@ class Turn:
             if str(args.get("operation") or "") not in {"due", "wrong", "learn", "list", "review", "add"}:
                 return "ERROR: 单词本你只能看、抽查记录和帮她录词；删改让她自己在页面上做"
             args = {**args, "by": "him", "limit": min(int(args.get("limit") or 60), 200)}
+        if public_name == "imprint_memo":
+            args = {**args, "by": "him"}
         if public_name == "imprint_crew":
             return await crew_tool(args, dry=self.dry)
         if public_name == "imprint_share_xhs":

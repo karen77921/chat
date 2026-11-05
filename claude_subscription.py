@@ -466,7 +466,14 @@ class _SdkActor:
         else:
             await self.client.query(prompt)
         result_message: Any = None
+        handed_in: dict[str, Any] | None = None  # 他已经交过的结构化答案（StructuredOutput 工具的参数）
+        spoken: list[str] = []  # 他在交格式之前已经写出来的话
         async for sdk_message in self.client.receive_response():
+            for block in getattr(sdk_message, "content", None) or []:
+                if getattr(block, "name", "") == "StructuredOutput" and isinstance(getattr(block, "input", None), dict):
+                    handed_in = dict(block.input)
+                elif isinstance(getattr(block, "text", None), str) and block.text.strip():
+                    spoken.append(block.text.strip())
             # Structured output is intentionally not streamed as JSON into chat.
             event = getattr(sdk_message, "event", None)
             if isinstance(event, dict) and event.get("type") == "content_block_delta":
@@ -478,6 +485,11 @@ class _SdkActor:
         if result_message is None:
             raise RuntimeError("Claude SDK 连接提前结束")
         if result_message.is_error:
+            # 「交格式」那一步超了回合数：话其实已经写好了，捞回来，不把整条回复丢掉
+            if str(result_message.subtype or "") == "error_max_turns" and (handed_in or spoken):
+                data = handed_in if handed_in and isinstance(handed_in.get("text"), str) else {"text": "\n\n".join(spoken), "tool_calls": []}
+                data.setdefault("tool_calls", [])
+                return data, dict(result_message.usage or {}), str(result_message.session_id or "")
             detail = "; ".join(result_message.errors or []) or result_message.result or result_message.subtype
             raise RuntimeError(f"Claude SDK 返回错误：{detail}")
         data = result_message.structured_output
@@ -499,7 +511,9 @@ def _options_for(conv_id: str, model: str, effort: str, system_prompt: str, resu
         tools=[],
         allowed_tools=[],
         skills=[],
-        max_turns=1,
+        # 结构化输出在 SDK 里本身要占一个回合（StructuredOutput），格式不对还会再试一次；
+        # 只给 1 回合时，他先写了话再交格式就会被「Reached maximum number of turns」掐断。原生工具都关着，多给几回合不会让他去跑别的
+        max_turns=4,
         include_partial_messages=True,
         resume=resume,
         setting_sources=[],

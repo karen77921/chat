@@ -199,3 +199,47 @@ class ClaudeSubscriptionSdkTest(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+class MaxTurnsSalvageTest(unittest.TestCase):
+    def _run(self, blocks):
+        class FakeResult:
+            is_error, errors, result, subtype = True, [], None, "error_max_turns"
+            structured_output, usage, session_id = None, {"output_tokens": 9}, "s1"
+
+        class Assistant:
+            def __init__(self, content):
+                self.content = content
+
+        class Client:
+            async def query(self, prompt):
+                return None
+
+            async def receive_response(self):
+                yield Assistant(blocks)
+                yield FakeResult()
+
+        async def go():
+            actor = adapter._SdkActor("c")
+            actor.client = Client()
+
+            async def sink(_):
+                return None
+            with mock.patch.object(adapter, "_sdk_types", return_value=(object, object, FakeResult)):
+                return await actor._query("hi", sink, sink)
+
+        import asyncio
+        return asyncio.run(go())
+
+    def test_reply_already_handed_in_is_kept(self):
+        data, usage, session = self._run([SimpleNamespace(name="StructuredOutput", input={"text": "你那500我收到了", "tool_calls": []})])
+        self.assertEqual(data["text"], "你那500我收到了")
+        self.assertEqual(session, "s1")
+
+    def test_plain_text_before_the_format_step_is_kept(self):
+        data, _, _ = self._run([SimpleNamespace(text="小富婆来了")])
+        self.assertEqual(data, {"text": "小富婆来了", "tool_calls": []})
+
+    def test_nothing_written_still_errors(self):
+        with self.assertRaises(RuntimeError):
+            self._run([])

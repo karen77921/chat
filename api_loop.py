@@ -5804,6 +5804,8 @@ def update_config(body: dict[str, Any]) -> dict[str, Any]:
                 raise HTTPException(status_code=400, detail=f"row {pos + 1}: effort must be low|medium|high|xhigh|max")
             if entry["cache_ttl"] not in {"5m", "1h"}:
                 raise HTTPException(status_code=400, detail=f"row {pos + 1}: cache_ttl must be 5m|1h")
+            if is_subscription_route(entry) and not entry["key"]:
+                entry["key"] = "oauth"  # 订阅走 VPS 上登录好的 Claude 账号，不用 Key；占个位，别的地方按「有 key」处理
             if not (entry["model"] and entry["url"] and entry["key"]):
                 raise HTTPException(status_code=400, detail=f"row {pos + 1}: model/url/key required")
             new_chain.append(entry)

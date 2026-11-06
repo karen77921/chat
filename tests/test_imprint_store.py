@@ -2368,3 +2368,20 @@ class CedarToyTest(unittest.TestCase):
         self.assertNotIn("hunter22", shown)
         self.assertNotIn("abcdefghijk", shown)
         self.assertIn('"username": "jining"', shown)
+
+
+class SubscriptionRouteTest(unittest.TestCase):
+    def test_subscription_route_can_be_added_back_without_a_key(self):
+        root = Path(tempfile.mkdtemp(prefix="routes-"))
+        old = api_loop.LOOP_CONFIG
+        api_loop.LOOP_CONFIG = root / "cfg.json"
+        self.addCleanup(lambda: setattr(api_loop, "LOOP_CONFIG", old))
+        api_loop.save_config({"main_chain": [{"model": "gpt-x", "url": "https://api.example/v1", "key": "sk-1", "effort": "high"}]})
+        api_loop.update_config({"main_chain": [
+            {"index": 0, "model": "gpt-x", "url": "https://api.example/v1"},
+            {"index": -1, "model": "claude-sonnet-5-5", "url": "claude-subscription://default", "key": "", "effort": "high"},
+        ]})
+        chain = api_loop.load_config()["main_chain"]
+        self.assertEqual([r["url"] for r in chain], ["https://api.example/v1", "claude-subscription://default"])
+        self.assertEqual(chain[0]["key"], "sk-1")
+        self.assertTrue(api_loop.is_subscription_route(chain[1]))

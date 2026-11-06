@@ -434,7 +434,7 @@ function ModelAccess() {
         <button type="button" role="tab" aria-selected={tab === 'subscription'} className={tab === 'subscription' ? 'on' : ''} onClick={() => setTab('subscription')}><span>订阅</span><small>{subscriptionIndexes.length}</small></button>
         <button type="button" role="tab" aria-selected={tab === 'api'} className={tab === 'api' ? 'on' : ''} onClick={() => setTab('api')}><span>API</span><small>{apiIndexes.length}</small></button>
       </div>
-      {tab === 'subscription' && !shownIndexes.length && <div className="card ma-empty"><b>还没有订阅线路</b><span>先在 VPS 登录 Claude 订阅，登录成功后会出现在这里。</span></div>}
+      {tab === 'subscription' && !shownIndexes.length && <div className="card ma-empty"><b>还没有订阅线路</b><span>VPS 上已经登录过 Claude 订阅的话，点下面「添加订阅线路」放回来，选好模型再保存。</span></div>}
       {tab === 'api' && !shownIndexes.length && <div className="card ma-empty"><b>还没有 API</b><span>可以单独添加 Base URL、Key 和模型；不会影响已经登录的订阅。</span></div>}
       {shownIndexes.map((i) => {
         const row = rows[i];
@@ -472,7 +472,8 @@ function ModelAccess() {
           })()}
         </div>
       );})}
-      <div className="ma-actions">{tab === 'api' && <button type="button" className="cl-link" onClick={() => setRows((all) => [...all, { index: -1, url: '', key: '', model: '', models: [] }])}><Icon name="plus" size={15} />添加 API</button>}<button type="button" className="btn-main" disabled={busy || !rows.length} onClick={save}>保存{tab === 'subscription' ? '订阅设置' : 'API 设置'}</button></div>
+      <div className="ma-actions">{tab === 'api' && <button type="button" className="cl-link" onClick={() => setRows((all) => [...all, { index: -1, url: '', key: '', model: '', models: [] }])}><Icon name="plus" size={15} />添加 API</button>}
+        {tab === 'subscription' && <button type="button" className="cl-link" onClick={() => setRows((all) => [...all, { index: -1, url: 'claude-subscription://default', key: '', model: 'claude-sonnet-5-5', effort: 'high', models: [] }])}><Icon name="plus" size={15} />添加订阅线路</button>}<button type="button" className="btn-main" disabled={busy || !rows.length} onClick={save}>保存{tab === 'subscription' ? '订阅设置' : 'API 设置'}</button></div>
       <p className="st-tip" role="status">{busy ? '正在处理…' : note}</p>
       <p className="st-tip">订阅使用账号额度，API 使用各供应商的 Key 与账单。两边分开管理；切换标签不会改变当前回复线路，只有点“切到这边回复”才会切换。</p>
     </div>

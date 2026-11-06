@@ -5253,6 +5253,8 @@ def route_credentials(body: dict[str, Any], *, require_model: bool = False) -> d
     }
     if route["effort"] not in {"low", "medium", "high", "xhigh", "max"}:
         raise HTTPException(status_code=400, detail="effort must be low|medium|high|xhigh|max")
+    if is_subscription_route(route) and not route["key"]:
+        route["key"] = "oauth"  # 订阅用 VPS 上登录的账号，没有 Key；没保存就点测试也要能测
     required = ("url", "key", "model") if require_model else ("url", "key")
     if any(not route[name] for name in required):
         raise HTTPException(status_code=400, detail=f"{'/'.join(required)} required")

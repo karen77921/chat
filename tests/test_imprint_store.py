@@ -2385,3 +2385,9 @@ class SubscriptionRouteTest(unittest.TestCase):
         self.assertEqual([r["url"] for r in chain], ["https://api.example/v1", "claude-subscription://default"])
         self.assertEqual(chain[0]["key"], "sk-1")
         self.assertTrue(api_loop.is_subscription_route(chain[1]))
+
+    def test_unsaved_subscription_row_can_be_tested(self):
+        route = api_loop.route_credentials({"index": -1, "url": "claude-subscription://default", "key": "", "model": "claude-sonnet-5-5"}, require_model=True)
+        self.assertTrue(api_loop.is_subscription_route(route))
+        with self.assertRaises(HTTPException):
+            api_loop.route_credentials({"index": -1, "url": "https://api.example/v1", "key": "", "model": "m"}, require_model=True)
